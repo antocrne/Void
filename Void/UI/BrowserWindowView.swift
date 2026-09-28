@@ -24,11 +24,17 @@ struct BrowserWindowView: View {
                     .transition(.opacity)
                     .zIndex(10)
             }
+            if browser.kind == .main, let step = browser.onboardingStep {
+                OnboardingView(step: step)
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
         }
         .ignoresSafeArea()
         .frame(minWidth: 640, minHeight: 420)
         .tint(Theme.accent)
         .animation(Theme.quick, value: browser.commandBar)
+        .animation(Theme.spring, value: browser.onboardingStep == nil)
         .background(WindowAccessor { window in configure(window) })
         .background(WindowButtonsVisibility(hidden: tabsKeptHidden && !revealed))
         .onChange(of: tabsKeptHidden) { revealed = false }

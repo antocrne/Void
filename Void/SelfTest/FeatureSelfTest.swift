@@ -252,6 +252,26 @@ final class FeatureSelfTest {
         settings.sidebarWidth = savedWidth
         settings.accent = savedAccent
 
+        // First-launch personalization
+        check("Personnalisation : jamais affichée pendant l'auto-test", browser.onboardingStep == nil || settings.onboardingCompleted)
+        let savedOnboarding = settings.onboardingCompleted
+        settings.onboardingCompleted = false
+        for step in 0..<OnboardingView.stepCount {
+            browser.onboardingStep = step
+            await sleep(0.9)
+            await snapshotWindow("onboarding-\(step)")
+        }
+        settings.theme = .light
+        browser.onboardingStep = 1
+        await sleep(0.9)
+        await snapshotWindow("onboarding-1-light")
+        settings.theme = .dark
+        browser.finishOnboarding()
+        await sleep(0.5)
+        check("Personnalisation : « Commencer » la ferme et la mémorise", browser.onboardingStep == nil && settings.onboardingCompleted
+              && UserDefaults.standard.bool(forKey: "onboardingCompleted"))
+        settings.onboardingCompleted = savedOnboarding
+
         let priv = BrowserWindows.shared.openPrivateWindow(url: URL(string: "https://example.com/?private-snapshot"))
         await sleep(3)
         await snapshotWindow("private-window-dark", window: priv.window, tab: priv.selectedTab)
@@ -426,7 +446,8 @@ final class FeatureSelfTest {
         image.addRepresentation(rep)
         // cacheDisplay doesn't capture WKWebView's remote layers: draw a real snapshot on top.
         let shown = tab ?? (window === browser.window ? browser.selectedTab : nil)
-        if browser.commandBar == nil, let webView = shown?.webView, webView.window === window {
+        // Overlays above the page (command bar, onboarding) would be covered by the page snapshot.
+        if browser.commandBar == nil, browser.onboardingStep == nil, let webView = shown?.webView, webView.window === window {
             let shot: NSImage? = await withCheckedContinuation { c in webView.takeSnapshot(with: nil) { img, _ in c.resume(returning: img) } }
             if let shot {
                 let frame = webView.convert(webView.bounds, to: content)

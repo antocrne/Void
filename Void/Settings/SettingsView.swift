@@ -48,6 +48,13 @@ private struct GeneralSettings: View {
                 }
                 LabeledContent("Couleur") { AccentPicker() }
                 Toggle("Rouvrir les onglets au lancement", isOn: $settings.restoreTabs)
+                LabeledContent("Personnalisation du premier lancement") {
+                    Button("Revoir…") {
+                        let browser = BrowserModel.shared
+                        browser.onboardingStep = 0
+                        browser.window?.makeKeyAndOrderFront(nil)
+                    }
+                }
             }
             Section {
                 Picker("Moteur de recherche", selection: $settings.searchEngine) {
@@ -72,7 +79,7 @@ private struct GeneralSettings: View {
 }
 
 /// Five swatches; the choice applies at once everywhere the accent appears.
-private struct AccentPicker: View {
+struct AccentPicker: View {
     @Environment(AppSettings.self) private var settings
 
     var body: some View {

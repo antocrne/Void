@@ -91,6 +91,8 @@ final class AppSettings {
     var sleepInactiveTabs: Bool { didSet { defaults.set(sleepInactiveTabs, forKey: "sleepInactiveTabs") } }
 
     var accent: AccentChoice { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
+    /// The first-launch personalization was completed or skipped.
+    var onboardingCompleted: Bool { didSet { defaults.set(onboardingCompleted, forKey: "onboardingCompleted") } }
     /// nil = ~/Downloads.
     var downloadFolderPath: String? { didSet { defaults.set(downloadFolderPath, forKey: "downloadFolderPath") } }
 
@@ -118,6 +120,7 @@ final class AppSettings {
         showReadingProgress = d.object(forKey: "showReadingProgress") as? Bool ?? true
         sleepInactiveTabs = d.object(forKey: "sleepInactiveTabs") as? Bool ?? true
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
+        onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
     }
 

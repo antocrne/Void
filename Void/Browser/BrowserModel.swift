@@ -69,6 +69,8 @@ final class BrowserModel {
     var passwordPrompt: PasswordSavePrompt?
     var librarySection: LibrarySection = .history
     var isPickingElement = false
+    /// First-launch personalization step shown over the main window (nil = hidden).
+    var onboardingStep: Int?
 
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored var openWindowAction: ((String) -> Void)?

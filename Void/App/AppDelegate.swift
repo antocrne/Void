@@ -9,9 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if #available(macOS 15.4, *), AppSettings.shared.extensionsEnabled {
                 ExtensionManager.shared.loadInstalled()
             }
+            var selfTest = false
             #if DEBUG
+            selfTest = SelfTestRunner.isRequested
             SelfTestRunner.startIfRequested()
             #endif
+            // First launch: let the user choose how Void looks (Settings → Général can replay it).
+            if !AppSettings.shared.onboardingCompleted && !selfTest {
+                BrowserModel.shared.onboardingStep = 0
+            }
         }
     }
 

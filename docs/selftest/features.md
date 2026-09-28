@@ -1,7 +1,7 @@
 # Void — auto-test des fonctionnalités
 
-- Date : 2026-09-28T12:47:52Z
-- Résultat : 44 ✅ / 0 ❌
+- Date : 2026-09-28T14:38:59Z
+- Résultat : 46 ✅ / 0 ❌
 
 - ✅ **Adresse : « apple.com » → https** 
 - ✅ **Adresse : « localhost:3000 » → http** 
@@ -27,7 +27,7 @@
 - ✅ **Fenêtre privée fermée : modèle et stockage libérés** — modèle=libéré stockage=libéré
 - ✅ **Fenêtre privée fermée : rien ne persiste (nouvelle fenêtre sans le cookie)** — cookie=""
 - ✅ **Seconde fenêtre privée : taille stable** — {1679, 964}
-- ✅ **⌘N : nouvelle fenêtre normale** 
+- ✅ **⌘N : nouvelle fenêtre normale (historique actif, session non écrasée)** 
 - ✅ **⌘N : mêmes espaces, même stockage (cookie de l'espace visible)** — cookie="voidtest=spaceA"
 - ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0971, page 0.0971
 - ✅ **Veille après 30 min d'inactivité** 
@@ -47,3 +47,5 @@
 - ✅ **Couleur : palette centralisée (vert, thème clair)** — #12703A
 - ✅ **Barre de favoris + lettres + largeur : mémorisés** 
 - ✅ **Onglets masqués (⌘S) : la page occupe la fenêtre, boutons de fenêtre masqués** 
+- ✅ **Personnalisation : jamais affichée pendant l'auto-test** 
+- ✅ **Personnalisation : « Commencer » la ferme et la mémorise** 
