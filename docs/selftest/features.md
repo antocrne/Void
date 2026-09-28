@@ -1,0 +1,49 @@
+# Void — auto-test des fonctionnalités
+
+- Date : 2026-09-28T12:47:52Z
+- Résultat : 44 ✅ / 0 ❌
+
+- ✅ **Adresse : « apple.com » → https** 
+- ✅ **Adresse : « localhost:3000 » → http** 
+- ✅ **Adresse : « trou noir » → recherche** 
+- ✅ **⌘-clic ouvre un nouvel onglet (arrière-plan)** — onglets 1 → 2
+- ✅ **Lien target=_blank ouvre un onglet** 
+- ✅ **Clic droit : lien détecté par core.js** — https://example.com/?via=cmdclick
+- ✅ **Menu contextuel : « Ouvrir le lien dans un nouvel onglet »** 
+- ✅ **Menu contextuel : arrière-plan + fenêtre privée (plus d'onglet privé)** 
+- ✅ **Menu contextuel : l'onglet s'ouvre** 
+- ✅ **⌘W sur un onglet épinglé → mis en veille** 
+- ✅ **Onglet épinglé réveillé au clic** 
+- ✅ **Espaces : stockage séparé (cookie)** — A="voidtest=spaceA" B=""
+- ✅ **⌘⇧N : fenêtre privée ouverte et active** 
+- ✅ **Nouvelle fenêtre : même taille que la fenêtre d'origine, stable** — {1679, 964} vs {1679, 964}
+- ✅ **⌘T dans une fenêtre privée : onglet privé, stockage éphémère** 
+- ✅ **Lien ouvert depuis une fenêtre privée : onglet privé, même stockage** — cookie="voidprivate=1"
+- ✅ **Fenêtre privée isolée des fenêtres normales** — normal="voidtest=spaceA"
+- ✅ **Fenêtre privée : aucune suggestion d'historique** 
+- ✅ **Fenêtre privée : épinglage et espaces désactivés** 
+- ✅ **Fenêtre privée : jamais sauvegardée** 
+- ✅ **Fermeture : onglets détruits, fenêtre retirée** 
+- ✅ **Fenêtre privée fermée : modèle et stockage libérés** — modèle=libéré stockage=libéré
+- ✅ **Fenêtre privée fermée : rien ne persiste (nouvelle fenêtre sans le cookie)** — cookie=""
+- ✅ **Seconde fenêtre privée : taille stable** — {1679, 964}
+- ✅ **⌘N : nouvelle fenêtre normale** 
+- ✅ **⌘N : mêmes espaces, même stockage (cookie de l'espace visible)** — cookie="voidtest=spaceA"
+- ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0971, page 0.0971
+- ✅ **Veille après 30 min d'inactivité** 
+- ✅ **Veille : l'onglet où du texte a été saisi reste éveillé** 
+- ✅ **Veille : l'onglet épinglé reste éveillé** 
+- ✅ **Veille : l'onglet affiché reste éveillé** 
+- ✅ **Réveil : même page, historique Précédent conservé** — précédent=true
+- ✅ **Réveil : revient à l'endroit où on l'a laissé** — scrollY=2400 mémorisé=2400 url=https://fr.wikipedia.org/wiki/Trou_noir hauteur=25666
+- ✅ **Bloqueur : doubleclick bloqué** — 0,0,1,none
+- ✅ **Bloqueur : Google Tag Manager bloqué** 
+- ✅ **Bloqueur : ressource légitime chargée** 
+- ✅ **Bloqueur : règle cosmétique (.adsbygoogle masqué)** 
+- ✅ **Mode lecture : article extrait** — « Trou noir — Wikipédia », 14626 mots, 10 images
+- ✅ **Masquer un élément : sélecteur enregistré** — div > h1
+- ✅ **Masquer un élément : toujours masqué après rechargement (règle compilée)** — display=none
+- ✅ **Couleur : mémorisée** 
+- ✅ **Couleur : palette centralisée (vert, thème clair)** — #12703A
+- ✅ **Barre de favoris + lettres + largeur : mémorisés** 
+- ✅ **Onglets masqués (⌘S) : la page occupe la fenêtre, boutons de fenêtre masqués** 

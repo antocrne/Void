@@ -1,0 +1,179 @@
+import AppKit
+import WebKit
+import UniformTypeIdentifiers
+
+/// Navigation + UI delegate of one tab's web view.
+@MainActor
+final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private weak var tab: Tab?
+    /// The window owning the tab (private windows keep links and pop-ups private).
+    private var browser: BrowserModel { tab?.browser ?? .shared }
+
+    init(tab: Tab) { self.tab = tab }
+
+    private static let internalSchemes: Set<String> = ["http", "https", "about", "data", "blob", "file", "javascript", "view-source"]
+
+    // MARK: - Navigation policy
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if navigationAction.shouldPerformDownload { return .download }
+        guard let url = navigationAction.request.url else { return .allow }
+        let scheme = url.scheme?.lowercased() ?? ""
+
+        if !Self.internalSchemes.contains(scheme) {
+            // mailto:, tel:, zoommtg:, … → hand over to macOS, but only on a user click.
+            if navigationAction.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+            return .cancel
+        }
+
+        // ⌘-click / middle-click → new tab (⌘⇧ = in the foreground).
+        if navigationAction.navigationType == .linkActivated, navigationAction.targetFrame != nil {
+            let flags = navigationAction.modifierFlags
+            if flags.contains(.command) || navigationAction.buttonNumber == 2 {
+                browser.openTab(url: url, background: !flags.contains(.shift), after: tab)
+                return .cancel
+            }
+        }
+        return .allow
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        if !navigationResponse.canShowMIMEType { return .download }
+        if navigationResponse.isForMainFrame,
+           let http = navigationResponse.response as? HTTPURLResponse,
+           let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+           disposition.lowercased().hasPrefix("attachment") {
+            return .download
+        }
+        return .allow
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        DownloadManager.shared.adopt(download, from: navigationAction.request.url, in: browser)
+        closeIfEmpty(webView)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        DownloadManager.shared.adopt(download, from: navigationResponse.response.url, in: browser)
+        closeIfEmpty(webView)
+    }
+
+    /// A link opened in a new tab that turned out to be a download leaves an empty tab behind.
+    private func closeIfEmpty(_ webView: WKWebView) {
+        guard let tab, webView.backForwardList.currentItem == nil else { return }
+        browser.close(tab, force: true)
+    }
+
+    // MARK: - Navigation progress
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        tab?.loadError = nil
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard let tab else { return }
+        tab.reader = nil
+        tab.loginAccounts = []
+        tab.readingProgress = 0
+        tab.hasUserInput = false
+        PiPController.shared.resetFrames(of: tab)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let tab else { return }
+        if !tab.isPrivate, !browser.isEphemeralSession, let url = webView.url {
+            HistoryStore.shared.record(url: url, title: webView.title ?? "")
+        }
+        FaviconLoader.load(for: tab)
+        tab.restorePendingScroll()
+        browser.setNeedsSave()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        report(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        report(error)
+    }
+
+    private func report(_ error: Error) {
+        let ns = error as NSError
+        // Cancelled / interrupted by policy (downloads, ⌘-click) are not errors.
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
+        if ns.domain == "WebKitErrorDomain" && (ns.code == 102 || ns.code == 204) { return }
+        tab?.loadError = ns.localizedDescription
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
+    }
+
+    // MARK: - New windows → new tabs
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        let flags = navigationAction.modifierFlags
+        let background = flags.contains(.command) && !flags.contains(.shift)
+        let newTab = browser.openTab(url: nil, background: background, after: tab, popupConfiguration: configuration)
+        newTab.url = navigationAction.request.url
+        return newTab.ensureWebView()
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if let tab { browser.close(tab, force: true) }
+    }
+
+    // MARK: - JavaScript panels
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async {
+        let alert = NSAlert()
+        alert.messageText = frame.securityOrigin.host
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        _ = await present(alert, in: webView)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = frame.securityOrigin.host
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Annuler")
+        return await present(alert, in: webView) == .alertFirstButtonReturn
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo) async -> String? {
+        let alert = NSAlert()
+        alert.messageText = frame.securityOrigin.host
+        alert.informativeText = prompt
+        let field = NSTextField(string: defaultText ?? "")
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Annuler")
+        return await present(alert, in: webView) == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    private func present(_ alert: NSAlert, in webView: WKWebView) async -> NSApplication.ModalResponse {
+        if let window = webView.window {
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+            }
+        }
+        return alert.runModal()
+    }
+
+    // MARK: - File upload
+    // (Camera/mic: not implementing the permission delegate keeps WebKit's default, which prompts.)
+
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = true
+        guard let window = webView.window else { return panel.runModal() == .OK ? panel.urls : nil }
+        let response = await panel.beginSheetModal(for: window)
+        return response == .OK ? panel.urls : nil
+    }
+}
