@@ -169,21 +169,26 @@ final class FeatureSelfTest {
         await snapshotWindow("reader")
         ReaderMode.toggle(article)
 
-        // 7. Hide element (real picker: mouse move + click on the <h1>)
-        let hide = browser.openTab(url: URL(string: "https://example.com/?hide"), in: space)
-        await waitForLoad(hide)
+        // 7. Hide element (real picker: mouse move + click on the <h1>). A local page on a
+        // reserved host: the test must not depend on what a real site happens to serve.
+        let hiderPage = """
+            <!doctype html><body style="margin:0;font:40px system-ui">
+            <h1 style="padding:60px 40px;margin:0">Bannière à masquer</h1><p style="padding:40px">Contenu</p>
+            </body>
+            """
+        let hiderBase = "https://void-hider.example/"
+        let hide = await htmlTab(hiderPage, in: space, base: hiderBase)
         ElementHider.shared.startPicking(in: hide)
         await sleep(0.8)
         await click(hide, selector: "h1", modifiers: [], move: true)
         await sleep(1.5)
-        let rules = ElementHider.shared.rules["example.com"] ?? []
+        let rules = ElementHider.shared.rules["void-hider.example"] ?? []
         check("Masquer un élément : sélecteur enregistré", !rules.isEmpty, rules.joined(separator: ", "))
-        hide.webView?.reload()
-        await waitForLoad(hide)
+        let hideAgain = await htmlTab(hiderPage, in: space, base: hiderBase)
         await sleep(1)
-        let display = await js(hide, "const h = document.querySelector('h1'); return h ? getComputedStyle(h).display : 'absent';") as? String
-        check("Masquer un élément : toujours masqué après rechargement (règle compilée)", display == "none", "display=\(display ?? "nil")")
-        ElementHider.shared.reset(host: "example.com")
+        let display = await js(hideAgain, "const h = document.querySelector('h1'); return h ? getComputedStyle(h).display : 'absent';") as? String
+        check("Masquer un élément : toujours masqué au chargement suivant (règle compilée)", display == "none", "display=\(display ?? "nil")")
+        ElementHider.shared.reset(host: "void-hider.example")
 
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
