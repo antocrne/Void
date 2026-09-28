@@ -181,7 +181,8 @@ struct PinnedTile: View {
     }
 }
 
-/// A tab in the top bar layout.
+/// A tab in the top bar layout. The active tab is also the address field (as in Safari's
+/// compact layout): wider, it shows the site and its tools, and a click opens the command bar.
 struct TopTabPill: View {
     let tab: Tab
     let selected: Bool
@@ -190,15 +191,28 @@ struct TopTabPill: View {
     @Environment(AppSettings.self) private var settings
     @State private var hovering = false
 
+    static let activeWidth: CGFloat = 360
+
     var body: some View {
         HStack(spacing: 7) {
             FaviconView(tab: tab, size: 14)
-            Text(tab.displayTitle)
-                .font(.system(size: 12, weight: selected ? .medium : .regular))
-                .foregroundStyle(selected ? Theme.primaryText : Theme.secondaryText)
-                .lineLimit(1)
+            if selected {
+                Text(tab.addressText)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(tab.url == nil ? Theme.secondaryText : Theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else {
+                Text(tab.displayTitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1)
+            }
             Spacer(minLength: 0)
-            if tab.isInPiP || tab.isPlayingVideo {
+            if selected {
+                AddressTools(tab: tab, showAll: hovering)
+            }
+            if !selected && (tab.isInPiP || tab.isPlayingVideo) {
                 Image(systemName: tab.isInPiP ? "pip.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 9.5))
                     .foregroundStyle(tab.isInPiP ? Theme.accent : Theme.secondaryText)
@@ -206,12 +220,17 @@ struct TopTabPill: View {
             if hovering || selected {
                 Button { browser.close(tab, force: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.secondaryText)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Fermer l'onglet (⌘W)")
             }
         }
-        .padding(.horizontal, 10)
-        .frame(minWidth: 110, maxWidth: 200)
+        .padding(.leading, 10)
+        .padding(.trailing, selected ? 5 : 8)
+        // The tab row proposes a shared width: the active tab must not accept less than its own.
+        .frame(minWidth: selected ? Self.activeWidth : 110, maxWidth: selected ? Self.activeWidth : 200)
         .frame(height: 30)
         .background {
             if selected {
@@ -220,20 +239,52 @@ struct TopTabPill: View {
                     .overlay(alignment: .leading) {
                         ReadingProgressFill(progress: settings.showReadingProgress ? tab.readingProgress : 0)
                     }
-                    .overlay(alignment: .bottom) {
-                        Capsule().fill(Theme.accent).frame(width: 18, height: 2.5).padding(.bottom, 1.5)
-                    }
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .shadow(color: Theme.shadow.opacity(0.08), radius: 1.5, y: 0.5)
                     .matchedGeometryEffect(id: "top-selection", in: namespace)
             } else if hovering {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.hover)
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { browser.select(tab) }
+        .onTapGesture { selected ? browser.showCommandBar(.currentTab) : browser.select(tab) }
         .onHover { hovering = $0 }
+        .animation(Theme.quick, value: hovering)
         .contextMenu { TabContextMenu(tab: tab) }
-        .help(tab.displayTitle)
+        .help(selected ? "\(tab.displayTitle) — rechercher ou saisir une adresse (⌘L)" : tab.displayTitle)
+    }
+}
+
+/// Top bar when the active tab can't carry the address (a pinned tile, or no tab at all):
+/// the address field on its own, same size and place as an active tab.
+struct TopAddressField: View {
+    let tab: Tab?
+    @Environment(BrowserModel.self) private var browser
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: tab?.url?.scheme == "https" ? "lock.fill" : "magnifyingglass")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Theme.secondaryText)
+                .frame(width: 14)
+            Text(tab?.addressText ?? Tab.addressPlaceholder)
+                .font(.system(size: 12.5, weight: tab?.url == nil ? .regular : .medium))
+                .foregroundStyle(tab?.url == nil ? Theme.secondaryText : Theme.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let tab { AddressTools(tab: tab, showAll: hovering) }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 5)
+        .frame(width: TopTabPill.activeWidth, height: 30)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.hover))
+        .contentShape(Rectangle())
+        .onTapGesture { browser.showCommandBar(tab == nil ? .newTab : .currentTab) }
+        .onHover { hovering = $0 }
+        .animation(Theme.quick, value: hovering)
+        .help("Rechercher ou saisir une adresse (⌘L)")
     }
 }
 

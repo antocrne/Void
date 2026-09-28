@@ -202,6 +202,8 @@ final class FeatureSelfTest {
         await sleep(1.5)
         await snapshotWindow("top-dark")
         settings.theme = .light
+        await sleep(1.5)
+        await snapshotWindow("top-light")
         settings.tabLayout = .sidebar
         await sleep(1.5)
         await snapshotWindow("sidebar-light")
