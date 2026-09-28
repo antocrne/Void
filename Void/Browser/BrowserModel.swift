@@ -253,13 +253,17 @@ final class BrowserModel {
         setNeedsSave()
     }
 
-    func movePinned(from source: IndexSet, to destination: Int) {
-        currentSpace.pinned.move(fromOffsets: source, toOffset: destination)
-        setNeedsSave()
-    }
-
-    func moveTabs(from source: IndexSet, to destination: Int) {
-        currentSpace.tabs.move(fromOffsets: source, toOffset: destination)
+    /// Moves a tab to `index` among its space's pinned tabs, or among its ordinary tabs (drag and drop).
+    func moveTab(_ tab: Tab, to index: Int) {
+        guard let space = tab.space else { return }
+        func move(in list: inout [Tab]) {
+            guard let from = list.firstIndex(where: { $0 === tab }), list.indices.contains(index), from != index else { return }
+            list.remove(at: from)
+            list.insert(tab, at: index)
+        }
+        withAnimation(Theme.spring) {
+            if tab.isPinned { move(in: &space.pinned) } else { move(in: &space.tabs) }
+        }
         setNeedsSave()
     }
 

@@ -84,27 +84,30 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) (44/
 - ☑️ **Balayage à deux doigts** pour changer d'espace (sur la barre latérale ou la barre d'onglets ; dans la page, le balayage reste « précédent/suivant »). Un geste trackpad ne peut pas être simulé de façon fiable par le test.
 - ☑️ Historique (SQLite), favoris, téléchargements (dans ~/Téléchargements, progression, rebond du Dock), recherche dans la page, zoom, impression, pop-ups/`window.open`, alertes JS, envoi de fichiers, liens `mailto:`/`tel:` vers les apps système.
 
+- ☑️ **Réorganiser les onglets par glisser-déposer dans la barre latérale** (liste des onglets et grille des onglets épinglés) : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre. Le réordonnancement et le verrou de la fenêtre sont vérifiés par l'auto-test, le geste à la souris à la main.
+
 ### Partiel
 - 🟡 **Import** — Chrome, Arc, Brave, Edge : favoris, historique, mots de passe (déchiffrés avec la clé « Safe Storage » du trousseau, après accord de macOS). Arc : les éléments de la barre latérale sont importés comme favoris. Firefox : favoris et historique ; **mots de passe uniquement via un export CSV** (Firefox les chiffre avec NSS, non réimplémenté). Le code n'a pas été exécuté contre de vrais profils (pour ne pas toucher à vos données sans accord) — à valider avec la checklist ci-dessous.
 - 🟡 **Extensions web** (option, macOS 15.4+, `WKWebExtension`) : installation depuis un dossier ou un .zip, permissions accordées à l'installation, scripts de contenu, `declarativeNetRequest`, stockage, popup d'action. **Non branché** : `chrome.tabs`/`chrome.windows` (Void n'expose pas encore ses onglets aux extensions). Non testé avec une extension réelle.
 - 🟡 **Remplissage automatique** : formulaires classiques et React ; pas de gestion des formulaires en plusieurs étapes complexes ni des passkeys.
 
 ### Non implémenté
+- ❌ Glisser-déposer des onglets dans la barre du haut : elle est la barre de titre de la fenêtre, et macOS y déplace la fenêtre au lieu de l'onglet.
 - 🟡 Fenêtres supplémentaires (⌘N) : leurs onglets ne sont pas restaurés au relancement (seule la fenêtre principale l'est) ; épinglage et gestion des espaces depuis la fenêtre principale uniquement.
-- ❌ Réorganisation des onglets par glisser-déposer.
 - ❌ Synchronisation entre appareils, cartes bancaires, passkeys, gestion fine des permissions par site.
 - ❌ Listes de blocage externes (EasyList…) et blocage des publicités YouTube intégrées au flux vidéo.
 
 ## Checklist manuelle rapide (hors PiP)
 1. ⌘T → taper `apple.com` → Entrée ; ⌘T → taper `trou noir` → recherche.
 2. ⌘-clic sur un lien → nouvel onglet en arrière-plan ; clic droit → « Ouvrir le lien dans un nouvel onglet ».
-3. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
-4. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
-5. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
-6. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
-7. Réglages → Importer → choisir un navigateur installé.
-8. ⌥⌘J → la console du Web Inspector s'ouvre.
-9. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
+3. Glisser un onglet plus bas dans la barre latérale → les autres s'écartent, la fenêtre ne bouge pas ; relancer Void → l'ordre est conservé. Même chose avec deux onglets épinglés.
+4. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
+5. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
+6. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
+7. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
+8. Réglages → Importer → choisir un navigateur installé.
+9. ⌥⌘J → la console du Web Inspector s'ouvre.
+10. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
 
 ## Architecture
 

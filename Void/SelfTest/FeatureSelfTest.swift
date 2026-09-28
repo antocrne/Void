@@ -284,6 +284,9 @@ final class FeatureSelfTest {
         priv.window?.performClose(nil)
         await sleep(0.5)
 
+        // Reordering tabs by dragging them, with mouse events posted to the event queue
+        await testTabDrag(in: space)
+
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
         settings.sidebarVisible = savedSidebar
@@ -314,6 +317,66 @@ final class FeatureSelfTest {
             }
             await sleep(type == .mouseMoved ? 0.4 : 0.08)
         }
+    }
+
+    // MARK: - Tab drag and drop
+
+    /// The reordering itself, through `TabReorder` and the model, with the tabs at known places:
+    /// a hidden or occluded window isn't drawn, so measuring the real views would depend on what
+    /// the Mac is showing. The mouse gesture that feeds it is checked by hand.
+    private func testTabDrag(in space: Space) async {
+        while space.tabs.count < 4 { browser.openTab(url: nil, in: space, background: true) }
+        func drag(_ tab: Tab, _ reorder: TabReorder, to translation: CGSize, steps: Int = 12) {
+            for i in 1...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                reorder.dragChanged(tab, translation: CGSize(width: translation.width * t, height: translation.height * t), browser: browser)
+            }
+        }
+
+        // Sidebar: rows 34 pt high, 2 pt apart. The second row, dragged 76 pt down, passes the
+        // middle of the next two and is drawn 4 pt below the slot it now has.
+        let list = TabReorder(layout: .vertical, spacing: 2)
+        for (i, tab) in space.tabs.enumerated() { list.record(CGRect(x: 0, y: CGFloat(i) * 36, width: 200, height: 34), for: tab.id) }
+        let row = space.tabs[1]
+        drag(row, list, to: CGSize(width: 0, height: 76))
+        let rowIndex = space.tabs.firstIndex { $0 === row }
+        check("Glisser-déposer (barre latérale) : l'onglet prend la place visée", rowIndex == 3, "position \(rowIndex.map(String.init) ?? "?") / 3")
+        check("Glisser-déposer (barre latérale) : l'onglet suit le pointeur", list.offset == CGSize(width: 0, height: 4), "\(list.offset)")
+        list.dragEnded()
+        check("Glisser-déposer : relâché, l'onglet rejoint sa place", list.draggedID == nil && list.offset == .zero)
+
+        // A press on a tab makes the window unmovable until the release (hover can't be simulated:
+        // the pointer is put over a tab through the same entry point as SwiftUI's onHover).
+        if let window = browser.window, let tab = space.tabs.first {
+            TabDragWindowLock.pointer(isOver: tab.id, true)
+            let location = NSPoint(x: window.frame.width / 2, y: window.frame.height / 2)   // on the page, where a click does nothing
+            func post(_ type: NSEvent.EventType) {
+                if let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(e, atStart: false)
+                }
+            }
+            post(.leftMouseDown)
+            await sleep(0.2)
+            let lockedDuringPress = !window.isMovable
+            post(.leftMouseUp)
+            await sleep(0.2)
+            TabDragWindowLock.pointer(isOver: tab.id, false)
+            check("Glisser-déposer : la fenêtre ne peut pas être déplacée pendant qu'on tient un onglet", lockedDuringPress && window.isMovable)
+        }
+
+        // Pinned tiles: a grid of 4 columns; a pin takes the cell under its centre, among pins only.
+        let pins = (0..<2).map { i -> Tab in
+            let tab = browser.openTab(url: URL(string: "https://example.com/?pin\(i)"), in: space, background: true)
+            browser.togglePin(tab)
+            return tab
+        }
+        let grid = TabReorder(layout: .grid, spacing: 6)
+        for (i, tab) in space.pinned.enumerated() { grid.record(CGRect(x: CGFloat(i) * 56, y: 0, width: 50, height: 40), for: tab.id) }
+        drag(pins[0], grid, to: CGSize(width: 56, height: 4))
+        grid.dragEnded()
+        check("Glisser-déposer : les onglets épinglés se réordonnent entre eux", space.pinned.last === pins[0] && !space.tabs.contains { $0 === pins[0] })
+        for pin in pins { browser.close(pin, force: true) }
     }
 
     // MARK: - Windows, sleep

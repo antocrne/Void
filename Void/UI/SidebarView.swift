@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(BrowserModel.self) private var browser
     @Namespace private var selection
+    @State private var pinnedReorder = TabReorder(layout: .grid, spacing: 6)
 
     var body: some View {
         let space = browser.currentSpace
@@ -26,8 +27,10 @@ struct SidebarView: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
                     ForEach(space.pinned) { tab in
                         PinnedTile(tab: tab, selected: space.selectedTabID == tab.id)
+                            .tabReorderable(tab, with: pinnedReorder)
                     }
                 }
+                .coordinateSpace(.named(pinnedReorder.coordinateSpace))
                 .transition(.opacity)
             }
 
@@ -52,6 +55,7 @@ private struct SpaceTabList: View {
     let namespace: Namespace.ID
     @Environment(BrowserModel.self) private var browser
     @State private var hoveringNew = false
+    @State private var reorder = TabReorder(layout: .vertical, spacing: 2)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -89,9 +93,11 @@ private struct SpaceTabList: View {
                 LazyVStack(spacing: 2) {
                     ForEach(space.tabs) { tab in
                         SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace)
+                            .tabReorderable(tab, with: reorder)
                             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                     }
                 }
+                .coordinateSpace(.named(reorder.coordinateSpace))
             }
         }
     }
