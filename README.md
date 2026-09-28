@@ -25,7 +25,13 @@ xcodebuild -project Void.xcodeproj -scheme Void -configuration Release -derivedD
 open build/DerivedData/Build/Products/Release/Void.app
 ```
 
-Pour l'installer, copier `Void.app` dans `/Applications`.
+Pour l'installer, copier `Void.app` dans `/Applications`, ou créer une image disque :
+
+```bash
+./scripts/make-dmg.sh
+```
+
+Le script compile en Release et produit `build/Void-<version>.dmg` (Void + raccourci vers Applications, à glisser-déposer).
 
 La signature est ad hoc (« Sign to Run Locally »), sans compte développeur. Pour distribuer l'app, renseigner une équipe dans *Signing & Capabilities* ; cela permet aussi au trousseau d'utiliser le *data protection keychain* (sinon macOS peut redemander l'accès aux mots de passe après chaque recompilation).
 
