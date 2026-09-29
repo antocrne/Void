@@ -188,10 +188,14 @@ final class BrowserModel {
         guard let space = tab.space else { return }
         if tab.isPinned && !force {
             // ⌘W on a pinned tab puts it to sleep instead of closing it.
-            if tab.isInPiP { Task { await PiPController.shared.exit(tab) } }
             let wasSelected = space.selectedTabID == tab.id
             if wasSelected { selectNeighbor(of: tab, in: space) }
-            tab.sleep()
+            if tab.isInPiP || tab.isInFloatingPlayer {
+                // Sleep once PiP (or the floating player) has actually been left.
+                Task { await PiPController.shared.exit(tab); tab.sleep(force: true) }
+            } else {
+                tab.sleep()
+            }
             showToast("moon.zzz", "Onglet épinglé mis en veille")
             return
         }
@@ -205,7 +209,7 @@ final class BrowserModel {
             space.pinned.removeAll { $0 === tab }
         }
         tab.isPinned = false
-        tab.sleep()
+        tab.sleep(force: true)
         setNeedsSave()
     }
 
@@ -253,13 +257,17 @@ final class BrowserModel {
         setNeedsSave()
     }
 
-    func movePinned(from source: IndexSet, to destination: Int) {
-        currentSpace.pinned.move(fromOffsets: source, toOffset: destination)
-        setNeedsSave()
-    }
-
-    func moveTabs(from source: IndexSet, to destination: Int) {
-        currentSpace.tabs.move(fromOffsets: source, toOffset: destination)
+    /// Moves a tab to `index` among its space's pinned tabs, or among its ordinary tabs (drag and drop).
+    func moveTab(_ tab: Tab, to index: Int) {
+        guard let space = tab.space else { return }
+        func move(in list: inout [Tab]) {
+            guard let from = list.firstIndex(where: { $0 === tab }), list.indices.contains(index), from != index else { return }
+            list.remove(at: from)
+            list.insert(tab, at: index)
+        }
+        withAnimation(Theme.spring) {
+            if tab.isPinned { move(in: &space.pinned) } else { move(in: &space.tabs) }
+        }
         setNeedsSave()
     }
 
@@ -395,7 +403,7 @@ final class BrowserModel {
         for tab in allTabs {
             if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
             if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
-            tab.sleep()
+            tab.sleep(force: true)
         }
         if isPrivate {
             for space in spaces {

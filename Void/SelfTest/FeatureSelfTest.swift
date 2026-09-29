@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import Network
 import WebKit
 
 /// Automated checks of Void's other features, through the real app code.
@@ -39,7 +40,24 @@ final class FeatureSelfTest {
 
     private func js(_ tab: Tab, _ body: String) async -> Any? { await tab.webView?.voidCall(body) }
 
+    /// `-VoidSelfTestOnly session,adresse,…`: runs only these self-contained sections (quick iteration).
+    private static let sections: [String: (FeatureSelfTest, Space) async -> Void] = [
+        "session": { t, _ in t.testSessionStore() },
+        "onglets": { t, space in await t.testTabLifecycle(in: space) },
+        "telechargements": { t, space in await t.testDownloads(in: space) },
+        "adresse": { t, space in await t.testAddressSpoofing(in: space) },
+    ]
+
     func run() async {
+        if let only = UserDefaults.standard.string(forKey: "VoidSelfTestOnly") {
+            let space = browser.addSpace(name: "Self-test", icon: "hammer")
+            for name in only.split(separator: ",").map(String.init) {
+                if let section = Self.sections[name] { await section(self, space) } else { check("Section inconnue : \(name)", false) }
+            }
+            browser.deleteSpace(space)
+            write()
+            return
+        }
         let settings = AppSettings.shared
         let savedLayout = settings.tabLayout, savedTheme = settings.theme, savedSidebar = settings.sidebarVisible
         let windowList = NSApp.windows.map { "\(type(of: $0))[\($0.title)] visible=\($0.isVisible)" }.joined(separator: ", ")
@@ -169,21 +187,65 @@ final class FeatureSelfTest {
         await snapshotWindow("reader")
         ReaderMode.toggle(article)
 
-        // 7. Hide element (real picker: mouse move + click on the <h1>)
-        let hide = browser.openTab(url: URL(string: "https://example.com/?hide"), in: space)
-        await waitForLoad(hide)
+        // 7. Hide element (real picker: mouse move + click on the <h1>). A local page on a
+        // reserved host: the test must not depend on what a real site happens to serve.
+        let hiderPage = """
+            <!doctype html><body style="margin:0;font:40px system-ui">
+            <h1 style="padding:60px 40px;margin:0">Bannière à masquer</h1><p style="padding:40px">Contenu</p>
+            </body>
+            """
+        let hiderBase = "https://void-hider.example/"
+        let hide = await htmlTab(hiderPage, in: space, base: hiderBase)
         ElementHider.shared.startPicking(in: hide)
         await sleep(0.8)
         await click(hide, selector: "h1", modifiers: [], move: true)
         await sleep(1.5)
-        let rules = ElementHider.shared.rules["example.com"] ?? []
+        let rules = ElementHider.shared.rules["void-hider.example"] ?? []
         check("Masquer un élément : sélecteur enregistré", !rules.isEmpty, rules.joined(separator: ", "))
-        hide.webView?.reload()
-        await waitForLoad(hide)
+        let hideAgain = await htmlTab(hiderPage, in: space, base: hiderBase)
         await sleep(1)
-        let display = await js(hide, "const h = document.querySelector('h1'); return h ? getComputedStyle(h).display : 'absent';") as? String
-        check("Masquer un élément : toujours masqué après rechargement (règle compilée)", display == "none", "display=\(display ?? "nil")")
-        ElementHider.shared.reset(host: "example.com")
+        let display = await js(hideAgain, "const h = document.querySelector('h1'); return h ? getComputedStyle(h).display : 'absent';") as? String
+        check("Masquer un élément : toujours masqué au chargement suivant (règle compilée)", display == "none", "display=\(display ?? "nil")")
+        ElementHider.shared.reset(host: "void-hider.example")
+
+        // 7a. Autofill stays on the origin the credentials belong to (no Touch ID here: the
+        // injection step is called directly, with a throw-away password).
+        let login = await htmlTab("""
+            <!doctype html><body><form><input id="u" type="email"><input id="p" type="password"><button>Connexion</button></form></body>
+            """, in: space, base: "https://void-login-a.example/")
+        await sleep(0.8)
+        check("Mots de passe : formulaire rattaché à l'origine du cadre", login.loginHost == "void-login-a.example", login.loginHost ?? "nil")
+        let filled = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-1", into: login)
+        let values = await js(login, "return document.getElementById('u').value + '|' + document.getElementById('p').value;") as? String
+        check("Mots de passe : remplissage sur la bonne origine", filled == "ok" && values == "moi@void.test|selftest-1", "\(filled ?? "nil") \(values ?? "nil")")
+        _ = await js(login, "document.getElementById('u').value = ''; document.getElementById('p').value = ''; return 1;")
+        login.loginHost = "void-login-b.example"   // credentials of another site, e.g. a frame that navigated away
+        let refused = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-2", into: login)
+        let after = await js(login, "return document.getElementById('p').value;") as? String
+        check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
+
+        // 7a'. Session file: tolerant decoding, damaged file set aside, backup used.
+        testSessionStore()
+
+        // 7c. Tab lifecycle: dialogs, crashes, pinned tabs.
+        await testTabLifecycle(in: space)
+
+        // 7d. Downloads and links to other apps.
+        await testDownloads(in: space)
+
+        // 7e. Address field: shows the page actually displayed, never a navigation in progress.
+        await testAddressSpoofing(in: space)
+
+        // 7f. History database: write-ahead log, no rewrite of an unchanged title, stable suggestions.
+        let history = HistoryStore.shared
+        check("Historique : journal WAL (écritures sans synchronisation complète)", history.journalMode == "wal", history.journalMode ?? "nil")
+        let writes = history.titleWrites
+        let probe = URL(string: "https://void-title.example/\(UUID().uuidString)")!   // no such row: nothing is modified
+        for _ in 0..<10 { history.updateTitle(url: probe, title: "(3) Messages") }
+        check("Historique : un titre inchangé n'est écrit qu'une fois", history.titleWrites - writes == 1, "\(history.titleWrites - writes) écriture(s)")
+        let ids1 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
+        let ids2 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
+        check("Barre de commande : suggestions stables d'un calcul à l'autre", !ids1.isEmpty && ids1 == ids2 && Set(ids1).count == ids1.count)
 
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
@@ -202,6 +264,8 @@ final class FeatureSelfTest {
         await sleep(1.5)
         await snapshotWindow("top-dark")
         settings.theme = .light
+        await sleep(1.5)
+        await snapshotWindow("top-light")
         settings.tabLayout = .sidebar
         await sleep(1.5)
         await snapshotWindow("sidebar-light")
@@ -284,6 +348,9 @@ final class FeatureSelfTest {
         priv.window?.performClose(nil)
         await sleep(0.5)
 
+        // Reordering tabs by dragging them, with mouse events posted to the event queue
+        await testTabDrag(in: space)
+
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
         settings.sidebarVisible = savedSidebar
@@ -314,6 +381,249 @@ final class FeatureSelfTest {
             }
             await sleep(type == .mouseMoved ? 0.4 : 0.08)
         }
+    }
+
+    // MARK: - Tab lifecycle
+
+    private func testTabLifecycle(in space: Space) async {
+        let page = "<!doctype html><body style='font:30px system-ui'>Void</body>"
+        let front = await htmlTab(page, in: space, base: "https://void-front.example/")
+        let back = await htmlTab(page, in: space, base: "https://void-back.example/")
+        browser.select(front)
+        await sleep(0.3)
+
+        // A dialog from a tab that isn't shown must not block the app.
+        let start = Date()
+        let answer = await js(back, "const ok = confirm('?'); alert('x'); return ok === false ? 'dismissed' : 'shown';") as? String
+        let elapsed = Date().timeIntervalSince(start)
+        check("Dialogue d'un onglet en arrière-plan : ne bloque pas l'app", answer == "dismissed" && elapsed < 2,
+              "\(answer ?? "nil") en \(String(format: "%.1f", elapsed)) s")
+
+        // Crash of the page's process: background tab sleeps, shown tab reloads once, then stops.
+        if let wv = back.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            check("Plantage d'un onglet en arrière-plan : mis en veille, pas rechargé", back.isAsleep)
+        }
+        if let wv = front.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            let firstError = front.loadError
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            check("Plantages répétés de l'onglet affiché : un rechargement puis un message, pas de boucle",
+                  firstError == nil && front.loadError != nil, front.loadError ?? "nil")
+            front.loadError = nil
+        }
+
+        // A pinned tab whose first load turns into a download stays pinned.
+        let pinnedFile = browser.openTab(url: nil, in: space)
+        browser.togglePin(pinnedFile)
+        if let wv = pinnedFile.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.closeIfEmpty(wv)
+            check("Onglet épinglé devenu téléchargement : jamais supprimé", space.pinned.contains { $0 === pinnedFile })
+        }
+        browser.close(pinnedFile, force: true)
+
+        // ⌘W on a pinned tab in Picture in Picture: PiP is left, then the tab really sleeps.
+        let pip = await htmlTab(page, in: space, base: "https://void-pip.example/")
+        browser.togglePin(pip)
+        browser.select(pip)
+        pip.isInPiP = true
+        browser.closeCurrentTab()
+        await sleep(1.5)
+        check("⌘W sur un épinglé en PiP : sort du PiP puis se met en veille",
+              pip.isAsleep && !pip.isInPiP && space.pinned.contains { $0 === pip })
+        browser.close(pip, force: true)
+    }
+
+    // MARK: - Downloads
+
+    private func testDownloads(in space: Space) async {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("void-downloads-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let settings = AppSettings.shared
+        let savedFolder = settings.downloadFolderPath
+        settings.downloadFolderPath = folder.path
+        defer { settings.downloadFolderPath = savedFolder; try? fm.removeItem(at: folder) }
+
+        let spoof = DownloadManager.sanitizedFilename("facture\u{202E}fdp.app")
+        check("Téléchargement : caractères d'inversion retirés du nom", !spoof.unicodeScalars.contains { $0.value == 0x202E } && spoof == "facturefdp.app", spoof)
+        let hidden = DownloadManager.sanitizedFilename("../.profile")
+        check("Téléchargement : pas de fichier caché ni de chemin", !hidden.hasPrefix(".") && !hidden.contains("/"), hidden)
+        let first = DownloadManager.uniqueDestination(for: "rapport.pdf", in: folder)
+        let second = DownloadManager.uniqueDestination(for: "rapport.pdf", in: folder)
+        check("Téléchargement : deux fichiers du même nom en même temps → deux chemins", first != second, second.lastPathComponent)
+        DownloadManager.release(first); DownloadManager.release(second)
+
+        // A real download through WebKit, into the temporary folder.
+        let tab = await htmlTab("<!doctype html><body>dl</body>", in: space, base: "https://void-dl.example/")
+        let source = URL(string: "data:application/octet-stream;base64,Vm9pZA==")!
+        tab.webView?.startDownload(using: URLRequest(url: source)) { download in
+            DownloadManager.shared.adopt(download, from: URL(string: "https://void-dl.example/fichier.bin"), in: tab.browser)
+        }
+        var item: DownloadItem?
+        for _ in 0..<40 {
+            await sleep(0.25)
+            item = DownloadManager.shared.items.first { $0.sourceURL?.host() == "void-dl.example" }
+            if item?.state == .finished { break }
+        }
+        let quarantined = item?.destination.flatMap { try? $0.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties } != nil
+        check("Téléchargement : fichier en quarantaine (Gatekeeper le vérifiera)", item?.state == .finished && quarantined,
+              "\(item?.destination?.lastPathComponent ?? "aucun fichier")")
+        if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
+
+        // Links to other apps.
+        check("Liens vers d'autres apps : smb:// refusé", ExternalURLPolicy.decide(scheme: "smb", userClick: true, fromMainFrame: true) == .refuse)
+        check("Liens vers d'autres apps : refusés depuis un cadre intégré ou un script",
+              ExternalURLPolicy.decide(scheme: "zoommtg", userClick: true, fromMainFrame: false) == .refuse
+              && ExternalURLPolicy.decide(scheme: "mailto", userClick: false, fromMainFrame: true) == .refuse)
+        check("Liens vers d'autres apps : mailto ouvert, les autres après confirmation",
+              ExternalURLPolicy.decide(scheme: "mailto", userClick: true, fromMainFrame: true) == .open
+              && ExternalURLPolicy.decide(scheme: "vscode", userClick: true, fromMainFrame: true) == .ask)
+    }
+
+    // MARK: - Address field
+
+    private func testAddressSpoofing(in space: Space) async {
+        // A local server that accepts connections and never answers: the navigation stays provisional.
+        var held: [NWConnection] = []
+        // A fixed port: WebKit refuses a number of "restricted" ports a random one could fall on.
+        var listener: NWListener?
+        var port: UInt16 = 0
+        for candidate: UInt16 in [8765, 18765, 28765] {
+            guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate)!) else { continue }
+            var ready = false
+            l.stateUpdateHandler = { if case .ready = $0 { MainActor.assumeIsolated { ready = true } } }
+            l.newConnectionHandler = { connection in
+                connection.start(queue: .main)
+                MainActor.assumeIsolated { held.append(connection) }
+            }
+            l.start(queue: .main)
+            for _ in 0..<20 where !ready { await sleep(0.1) }
+            if ready { listener = l; port = candidate; break }
+            l.cancel()
+        }
+        defer { listener?.cancel(); held.forEach { $0.cancel() } }
+        guard listener != nil else { check("Adresse : serveur de test", false); return }
+
+        // WebKit blocks a public site from reaching the loopback address: the page itself is local too.
+        let tab = await htmlTab("<!doctype html><body>page</body>", in: space, base: "http://localhost:\(port)/")
+        _ = await js(tab, "history.pushState({}, '', '/suite'); return 1;")
+        await sleep(0.3)
+        check("Adresse : pushState suivi", tab.url?.path() == "/suite", tab.url?.absoluteString ?? "nil")
+
+        // Straight to the web view (as a page-initiated navigation would), not through Tab.load.
+        tab.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/banque")!))
+        await sleep(1.5)
+        let provisional = tab.webView?.url?.host() == "127.0.0.1"
+        check("Adresse : une navigation qui n'aboutit pas n'est pas affichée", tab.addressText == "localhost",
+              "affiché=\(tab.addressText) · WebKit expose l'URL en cours : \(provisional ? "oui" : "non") (\(tab.webView?.url?.absoluteString ?? "nil"), connexions=\(held.count), chargement=\(tab.isLoading), erreur=\(tab.loadError ?? "aucune"))")
+        tab.webView?.stopLoading()
+
+        tab.webView?.loadHTMLString("<!doctype html><body>autre</body>", baseURL: URL(string: "https://void-autre.example/"))
+        await waitForLoad(tab)
+        check("Adresse : une navigation aboutie est affichée", tab.addressText == "void-autre.example", tab.addressText)
+    }
+
+    // MARK: - Session file
+
+    /// Works in a temporary folder: the user's session.json is never read or written.
+    private func testSessionStore() {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("void-session-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let saved = StateStore.sessionDirectory
+        StateStore.sessionDirectory = dir
+        defer { StateStore.sessionDirectory = saved; try? fm.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("session.json")
+        let space = UUID().uuidString, tab = UUID().uuidString
+
+        // A newer version: unknown fields, a missing field, one damaged tab among good ones.
+        let future = """
+            {"version":2,"windows":[],"currentSpaceID":"\(space)","spaces":[{"id":"\(space)","name":"Perso","color":"red",
+             "pinned":[{"id":"\(tab)","url":"https://example.com/","title":"Épinglé"}],
+             "tabs":[{"id":"not-a-uuid-but-tab-kept","url":"https://a.example/"},{"id":42},{"url":"https://b.example/","title":"B","group":"x"}]}]}
+            """
+        try? Data(future.utf8).write(to: file)
+        let s1 = StateStore.load()
+        let sp = s1?.spaces.first
+        check("Session : format plus récent relu (champs inconnus ou manquants)",
+              sp?.id.uuidString == space && sp?.pinned.count == 1 && sp?.tabs.count == 3 && sp?.icon == "circle",
+              "espaces=\(s1?.spaces.count ?? -1) épinglés=\(sp?.pinned.count ?? -1) onglets=\(sp?.tabs.count ?? -1)")
+
+        // Truncated file (crash, full disk): set aside, the last good copy is used.
+        try? Data(future.prefix(60).utf8).write(to: file)
+        let s2 = StateStore.load()
+        let corrupt = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("session.corrupt-") }
+        check("Session : fichier abîmé mis de côté, copie de secours relue",
+              s2?.spaces.first?.id.uuidString == space && corrupt.count == 1,
+              "secours=\(s2 != nil) mis de côté=\(corrupt.count)")
+
+        // Damaged and no backup: a fresh session, but the damaged file is still kept.
+        try? fm.removeItem(at: dir.appendingPathComponent("session.backup.json"))
+        try? Data("{".utf8).write(to: file)
+        let s3 = StateStore.load()
+        let kept = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("session.corrupt-") }.count
+        check("Session : rien de lisible → session neuve, fichiers abîmés conservés", s3 == nil && kept == 2, "conservés=\(kept)")
+    }
+
+    // MARK: - Tab drag and drop
+
+    /// The reordering itself, through `TabReorder` and the model, with the tabs at known places:
+    /// a hidden or occluded window isn't drawn, so measuring the real views would depend on what
+    /// the Mac is showing. The mouse gesture that feeds it is checked by hand.
+    private func testTabDrag(in space: Space) async {
+        while space.tabs.count < 4 { browser.openTab(url: nil, in: space, background: true) }
+        func drag(_ tab: Tab, _ reorder: TabReorder, to translation: CGSize, steps: Int = 12) {
+            for i in 1...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                reorder.dragChanged(tab, translation: CGSize(width: translation.width * t, height: translation.height * t), browser: browser)
+            }
+        }
+
+        // Sidebar: rows 34 pt high, 2 pt apart. The second row, dragged 76 pt down, passes the
+        // middle of the next two and is drawn 4 pt below the slot it now has.
+        let list = TabReorder(layout: .vertical, spacing: 2)
+        for (i, tab) in space.tabs.enumerated() { list.record(CGRect(x: 0, y: CGFloat(i) * 36, width: 200, height: 34), for: tab.id) }
+        let row = space.tabs[1]
+        drag(row, list, to: CGSize(width: 0, height: 76))
+        let rowIndex = space.tabs.firstIndex { $0 === row }
+        check("Glisser-déposer (barre latérale) : l'onglet prend la place visée", rowIndex == 3, "position \(rowIndex.map(String.init) ?? "?") / 3")
+        check("Glisser-déposer (barre latérale) : l'onglet suit le pointeur", list.offset == CGSize(width: 0, height: 4), "\(list.offset)")
+        list.dragEnded()
+        check("Glisser-déposer : relâché, l'onglet rejoint sa place", list.draggedID == nil && list.offset == .zero)
+
+        // A press on a tab makes the window unmovable until the release (hover can't be simulated:
+        // the pointer is put over a tab through the same entry point as SwiftUI's onHover).
+        if let window = browser.window, let tab = space.tabs.first {
+            TabDragWindowLock.pointer(isOver: tab.id, true)
+            let location = NSPoint(x: window.frame.width / 2, y: window.frame.height / 2)   // on the page, where a click does nothing
+            func post(_ type: NSEvent.EventType) {
+                if let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(e, atStart: false)
+                }
+            }
+            post(.leftMouseDown)
+            await sleep(0.2)
+            let lockedDuringPress = !window.isMovable
+            post(.leftMouseUp)
+            await sleep(0.2)
+            TabDragWindowLock.pointer(isOver: tab.id, false)
+            check("Glisser-déposer : la fenêtre ne peut pas être déplacée pendant qu'on tient un onglet", lockedDuringPress && window.isMovable)
+        }
+
+        // Pinned tiles: a grid of 4 columns; a pin takes the cell under its centre, among pins only.
+        let pins = (0..<2).map { i -> Tab in
+            let tab = browser.openTab(url: URL(string: "https://example.com/?pin\(i)"), in: space, background: true)
+            browser.togglePin(tab)
+            return tab
+        }
+        let grid = TabReorder(layout: .grid, spacing: 6)
+        for (i, tab) in space.pinned.enumerated() { grid.record(CGRect(x: CGFloat(i) * 56, y: 0, width: 50, height: 40), for: tab.id) }
+        drag(pins[0], grid, to: CGSize(width: 56, height: 4))
+        grid.dragEnded()
+        check("Glisser-déposer : les onglets épinglés se réordonnent entre eux", space.pinned.last === pins[0] && !space.tabs.contains { $0 === pins[0] })
+        for pin in pins { browser.close(pin, force: true) }
     }
 
     // MARK: - Windows, sleep

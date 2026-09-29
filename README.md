@@ -5,7 +5,7 @@
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Apple silicon, macOS 14 minimum
 - **≈ 5 Mo** (build Release), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~5 700 lignes de Swift, ~530 lignes de JavaScript injecté
+- ~8 600 lignes de Swift (dont ~1 400 d'auto-tests), ~580 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -65,7 +65,7 @@ L'icône est générée par script (`swift scripts/make-icon.swift`).
 ## État des fonctionnalités (honnête)
 
 Légende : ✅ terminé **et vérifié par un test automatisé** dans l'app réelle · ☑️ terminé, vérifié à la compilation et à la relecture, mais pas par un test automatisé · 🟡 partiel · ❌ non implémenté.
-Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) (44/44) et [`docs/PIP_TEST_REPORT.md`](docs/PIP_TEST_REPORT.md).
+Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [`docs/PIP_TEST_REPORT.md`](docs/PIP_TEST_REPORT.md).
 
 ### Terminé et testé
 - ✅ **Onglets en barre latérale ou en haut** (réglage + menu Présentation), animation de sélection (`matchedGeometryEffect`). Captures dans `docs/selftest/`.
@@ -81,14 +81,23 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) (44/
 - ✅ **Masquer un élément** (⌘⇧H) : sélection au survol, masquage durable par site via une règle compilée ; gestion dans Réglages → Confidentialité.
 - ✅ **Fenêtres privées** (⌘⇧N) : tous les onglets de la fenêtre partagent un `WKWebsiteDataStore.nonPersistent()` propre à la fenêtre, détruit à sa fermeture ; ni historique, ni session, ni suggestions d'historique, ni enregistrement de mot de passe ; téléchargements hors historique ; pas d'épinglage ni d'espaces ; extensions désactivées par défaut ; barre ardoise et badge « Privé ».
 - ✅ **Plusieurs fenêtres** (⌘N) : mêmes espaces et même stockage que la fenêtre principale.
+- ✅ **Robustesse et sécurité** (branche `nuit-conseil`, voir [`docs/CONSEIL.md`](docs/CONSEIL.md)) :
+  - mots de passe remplis uniquement dans le cadre de l'origine enregistrée (jamais de repli sur le cadre principal) ;
+  - session relue même abîmée ou d'un format plus récent ; fichier illisible mis de côté, copie de secours ;
+  - barre d'adresse sur la page réellement affichée (pas une navigation en cours), cadenas seulement si toute la page est chiffrée ;
+  - alertes JS d'un onglet en arrière-plan sans blocage de l'app, plantage de page sans boucle de rechargement, onglet épinglé jamais supprimé par un téléchargement, veille réelle d'un épinglé en PiP ;
+  - téléchargements : noms nettoyés (inversion bidirectionnelle, fichiers cachés), pas de collision, quarantaine garantie ; liens vers d'autres apps confirmés, refusés depuis un cadre intégré, `smb:`/`ssh:`… refusés ;
+  - historique SQLite en WAL, titres inchangés non réécrits ; copies temporaires de l'import supprimées.
 - ✅ **Picture in Picture** manuel, automatique et plan B — voir [le compte rendu](docs/PIP_TEST_REPORT.md).
 
 ### Terminé, non testé automatiquement
 - ☑️ **Web Inspector** (`isInspectable`, « Inspecter l'élément » au clic droit). ⌥⌘J ouvre la console via une API interne de WebKit (`_inspector`), appelée avec garde-fous.
-- ☑️ **Mots de passe dans le trousseau macOS** : détection des formulaires, proposition d'enregistrement, remplissage (icône clé 🔑) et affichage/copie dans les Réglages **derrière Touch ID** (repli : mot de passe de la session).
+- ☑️ **Mots de passe dans le trousseau macOS** : détection des formulaires, proposition d'enregistrement, remplissage (icône clé 🔑 ; le verrouillage par origine est, lui, testé) et affichage/copie dans les Réglages **derrière Touch ID** (repli : mot de passe de la session).
 - ☑️ **Réglages** : navigateur par défaut, moteur de recherche (7 + personnalisé), position des onglets, thème sombre (par défaut)/clair/système, restauration des onglets, PiP automatique.
 - ☑️ **Balayage à deux doigts** pour changer d'espace (sur la barre latérale ou la barre d'onglets ; dans la page, le balayage reste « précédent/suivant »). Un geste trackpad ne peut pas être simulé de façon fiable par le test.
-- ☑️ Historique (SQLite), favoris, téléchargements (dans ~/Téléchargements, progression, rebond du Dock), recherche dans la page, zoom, impression, pop-ups/`window.open`, alertes JS, envoi de fichiers, liens `mailto:`/`tel:` vers les apps système.
+- ☑️ Historique (SQLite), favoris, téléchargements (dans ~/Téléchargements, progression, rebond du Dock), recherche dans la page, zoom, impression, pop-ups/`window.open`, alertes JS, envoi de fichiers, liens `mailto:`/`tel:` vers les apps système (les autres apps après confirmation).
+
+- ☑️ **Réorganiser les onglets par glisser-déposer dans la barre latérale** (liste des onglets et grille des onglets épinglés) : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre. Le réordonnancement et le verrou de la fenêtre sont vérifiés par l'auto-test, le geste à la souris à la main.
 
 ### Partiel
 - 🟡 **Import** — Chrome, Arc, Brave, Edge : favoris, historique, mots de passe (déchiffrés avec la clé « Safe Storage » du trousseau, après accord de macOS). Arc : les éléments de la barre latérale sont importés comme favoris. Firefox : favoris et historique ; **mots de passe uniquement via un export CSV** (Firefox les chiffre avec NSS, non réimplémenté). Le code n'a pas été exécuté contre de vrais profils (pour ne pas toucher à vos données sans accord) — à valider avec la checklist ci-dessous.
@@ -96,21 +105,22 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) (44/
 - 🟡 **Remplissage automatique** : formulaires classiques et React ; pas de gestion des formulaires en plusieurs étapes complexes ni des passkeys.
 
 ### Non implémenté
+- ❌ Glisser-déposer des onglets dans la barre du haut : elle est la barre de titre de la fenêtre, et macOS y déplace la fenêtre au lieu de l'onglet.
 - 🟡 Fenêtres supplémentaires (⌘N) : leurs onglets ne sont pas restaurés au relancement (seule la fenêtre principale l'est) ; épinglage et gestion des espaces depuis la fenêtre principale uniquement.
-- ❌ Réorganisation des onglets par glisser-déposer.
 - ❌ Synchronisation entre appareils, cartes bancaires, passkeys, gestion fine des permissions par site.
 - ❌ Listes de blocage externes (EasyList…) et blocage des publicités YouTube intégrées au flux vidéo.
 
 ## Checklist manuelle rapide (hors PiP)
 1. ⌘T → taper `apple.com` → Entrée ; ⌘T → taper `trou noir` → recherche.
 2. ⌘-clic sur un lien → nouvel onglet en arrière-plan ; clic droit → « Ouvrir le lien dans un nouvel onglet ».
-3. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
-4. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
-5. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
-6. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
-7. Réglages → Importer → choisir un navigateur installé.
-8. ⌥⌘J → la console du Web Inspector s'ouvre.
-9. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
+3. Glisser un onglet plus bas dans la barre latérale → les autres s'écartent, la fenêtre ne bouge pas ; relancer Void → l'ordre est conservé. Même chose avec deux onglets épinglés.
+4. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
+5. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
+6. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
+7. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
+8. Réglages → Importer → choisir un navigateur installé.
+9. ⌥⌘J → la console du Web Inspector s'ouvre.
+10. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
 
 ## Architecture
 
@@ -142,6 +152,10 @@ Choix notables :
 Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite, favoris, éléments masqués, extensions). Les mots de passe sont uniquement dans le trousseau macOS. Les données des sites sont gérées par WebKit, un magasin par espace.
 
 ## Auto-tests (build Debug)
+Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément) et la lecture des vidéos en streaming du test PiP échouent quand l'écran du Mac est verrouillé ; ce n'est pas une régression.
+
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse`.
+
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md
 ```

@@ -63,8 +63,14 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
+  const normalizedHost = (h) => { h = String(h || '').toLowerCase(); return h.startsWith('www.') ? h.slice(4) : h; };
+
   window.__voidAutofill = {
-    fill(username, password) {
+    // expectedHost / expectedProtocol: the origin the credentials belong to. The frame may have
+    // navigated since its form was detected; never write a password into another origin.
+    fill(username, password, expectedHost, expectedProtocol) {
+      if (!expectedHost || normalizedHost(location.hostname) !== normalizedHost(expectedHost)) return 'origin';
+      if (expectedProtocol && location.protocol !== expectedProtocol) return 'origin';
       const pw = passwordFields()[0];
       const user = pw ? usernameFieldFor(pw)
         : [...document.querySelectorAll('input[autocomplete=username], input[type=email]')].find(visible);

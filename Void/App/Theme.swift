@@ -52,7 +52,7 @@ enum Theme {
     static let selection = dynamic(light: NSColor(white: 1, alpha: 0.95), dark: NSColor(white: 1, alpha: 0.10))
     static let stroke = dynamic(light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.08))
     static let primaryText = dynamic(light: NSColor(hex: 0x131316), dark: NSColor(hex: 0xECECF1))
-    static let secondaryText = dynamic(light: NSColor(hex: 0x6C6C75), dark: NSColor(hex: 0x8B8B96))
+    static let secondaryText = dynamic(light: NSColor(hex: 0x62626B), dark: NSColor(hex: 0x8B8B96))
     static let success = dynamic(light: NSColor(hex: 0x1E7B34), dark: NSColor(hex: 0x5AD27A))
     static let danger = dynamic(light: NSColor(hex: 0xC4262E), dark: NSColor(hex: 0xFF6B6B))
     static let switchOff = dynamic(light: NSColor(white: 0, alpha: 0.14), dark: NSColor(white: 1, alpha: 0.18))

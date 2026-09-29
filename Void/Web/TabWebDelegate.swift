@@ -21,8 +21,15 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
 
         if !Self.internalSchemes.contains(scheme) {
-            // mailto:, tel:, zoommtg:, … → hand over to macOS, but only on a user click.
-            if navigationAction.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+            // mailto:, tel:, zoommtg:, … → hand over to macOS, only on a user click in the page
+            // itself, and after asking for anything but the usual system apps.
+            let policy = ExternalURLPolicy.decide(scheme: scheme, userClick: navigationAction.navigationType == .linkActivated,
+                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame)
+            switch policy {
+            case .open: NSWorkspace.shared.open(url)
+            case .ask: ExternalURLPolicy.confirmAndOpen(url, from: navigationAction.sourceFrame.securityOrigin.host, in: webView.window)
+            case .refuse: break
+            }
             return .cancel
         }
 
@@ -59,8 +66,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// A link opened in a new tab that turned out to be a download leaves an empty tab behind.
-    private func closeIfEmpty(_ webView: WKWebView) {
-        guard let tab, webView.backForwardList.currentItem == nil else { return }
+    func closeIfEmpty(_ webView: WKWebView) {
+        // Never a pinned tab: it is kept on purpose, even if its address now serves a file.
+        guard let tab, !tab.isPinned, webView.backForwardList.currentItem == nil else { return }
         browser.close(tab, force: true)
     }
 
@@ -72,6 +80,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab else { return }
+        tab.didCommit(webView.url)
         tab.reader = nil
         tab.loginAccounts = []
         tab.readingProgress = 0
@@ -105,7 +114,21 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         tab?.loadError = ns.localizedDescription
     }
 
+    /// Last automatic reload after a crash of the page's process (at most one per 30 s).
+    private var lastCrashReload: Date?
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard let tab else { return }
+        // Not shown: no reload now (after memory pressure, every tab reloading at once would
+        // make it worse). It comes back when selected.
+        guard tab.browser?.selectedTab === tab else { tab.sleepAfterCrash(); return }
+        if let last = lastCrashReload, Date().timeIntervalSince(last) < 30 {
+            // Crashed again right away: stop here instead of looping.
+            tab.isLoading = false
+            tab.loadError = "La page a cessé de fonctionner."
+            return
+        }
+        lastCrashReload = Date()
         webView.reload()
     }
 
@@ -155,13 +178,24 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         return await present(alert, in: webView) == .alertFirstButtonReturn ? field.stringValue : nil
     }
 
-    private func present(_ alert: NSAlert, in webView: WKWebView) async -> NSApplication.ModalResponse {
-        if let window = webView.window {
-            return await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-            }
+    /// Recent dialogs of this tab, to stop a page that opens them in a loop.
+    private var recentDialogs: [Date] = []
+
+    /// Shows a JavaScript dialog as a sheet over the tab. Returns nil — the page gets the answer
+    /// of a dismissed dialog — when the tab isn't the one shown (an app-wide modal window from an
+    /// invisible tab would block all of Void) or when the page keeps opening dialogs.
+    private func present(_ alert: NSAlert, in webView: WKWebView) async -> NSApplication.ModalResponse? {
+        guard let tab, tab.browser?.selectedTab === tab, let window = webView.window else {
+            let host = alert.messageText.isEmpty ? "Un onglet" : alert.messageText
+            tab?.browser?.showToast("exclamationmark.bubble", "\(host) a voulu afficher une alerte en arrière-plan")
+            return nil
         }
-        return alert.runModal()
+        let now = Date()
+        recentDialogs = recentDialogs.filter { now.timeIntervalSince($0) < 10 } + [now]
+        guard recentDialogs.count <= 3 else { return nil }
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+        }
     }
 
     // MARK: - File upload

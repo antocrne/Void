@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.applyAppearance()
             BrowserWindows.shared.start()
             ContentRules.shared.start()
+            // Copies left by an import that was interrupted (crash, quit).
+            BrowserImporter.removeTemporaryCopies()
             if #available(macOS 15.4, *), AppSettings.shared.extensionsEnabled {
                 ExtensionManager.shared.loadInstalled()
             }

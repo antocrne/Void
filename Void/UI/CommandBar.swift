@@ -8,11 +8,21 @@ struct Suggestion: Identifiable {
         case download(DownloadItem)
         case action(() -> Void)
     }
-    let id = UUID()
     let symbol: String
     let title: String
     let subtitle: String
     let kind: Kind
+
+    /// Stable across recomputations (same target = same row), so SwiftUI keeps rows in place.
+    var id: String {
+        switch kind {
+        case .go(let url): "go:" + url.absoluteString
+        case .search(let text): "search:" + text
+        case .switchTo(let tab): "tab:" + tab.id.uuidString
+        case .download(let item): "download:" + item.id.uuidString
+        case .action: "action:" + title
+        }
+    }
 }
 
 /// Builds address-bar suggestions: URL/search, open tabs, bookmarks, history, downloads.
@@ -72,7 +82,8 @@ enum SuggestionEngine {
         for action in actions where action.keys.contains(where: { lower.hasPrefix($0) || $0.hasPrefix(lower) && lower.count >= 4 }) {
             out.append(Suggestion(symbol: action.symbol, title: action.title, subtitle: "Void", kind: .action(action.run)))
         }
-        return Array(out.prefix(12))
+        var ids = Set<String>()
+        return Array(out.filter { ids.insert($0.id).inserted }.prefix(12))
     }
 }
 
@@ -82,10 +93,12 @@ struct CommandBarOverlay: View {
     @Environment(BrowserModel.self) private var browser
     @State private var text = ""
     @State private var selection = 0
+    /// Recomputed when the text changes only (not on every hover, which re-renders the body):
+    /// it queries the history database.
+    @State private var suggestions: [Suggestion] = []
     @FocusState private var focused: Bool
 
     var body: some View {
-        let suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
         ZStack(alignment: .top) {
             Theme.scrim
                 .contentShape(Rectangle())
@@ -105,7 +118,10 @@ struct CommandBarOverlay: View {
                         .onKeyPress(.upArrow) { move(-1, count: suggestions.count); return .handled }
                         .onKeyPress(.downArrow) { move(1, count: suggestions.count); return .handled }
                         .onKeyPress(.escape) { dismiss(); return .handled }
-                        .onChange(of: text) { selection = 0 }
+                        .onChange(of: text) {
+                            selection = 0
+                            suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
+                        }
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 52)
@@ -135,6 +151,7 @@ struct CommandBarOverlay: View {
         }
         .onAppear {
             text = request.text
+            suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
             DispatchQueue.main.async { focused = true }
         }
     }
