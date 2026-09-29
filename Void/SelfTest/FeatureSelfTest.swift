@@ -190,6 +190,22 @@ final class FeatureSelfTest {
         check("Masquer un élément : toujours masqué au chargement suivant (règle compilée)", display == "none", "display=\(display ?? "nil")")
         ElementHider.shared.reset(host: "void-hider.example")
 
+        // 7a. Autofill stays on the origin the credentials belong to (no Touch ID here: the
+        // injection step is called directly, with a throw-away password).
+        let login = await htmlTab("""
+            <!doctype html><body><form><input id="u" type="email"><input id="p" type="password"><button>Connexion</button></form></body>
+            """, in: space, base: "https://void-login-a.example/")
+        await sleep(0.8)
+        check("Mots de passe : formulaire rattaché à l'origine du cadre", login.loginHost == "void-login-a.example", login.loginHost ?? "nil")
+        let filled = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-1", into: login)
+        let values = await js(login, "return document.getElementById('u').value + '|' + document.getElementById('p').value;") as? String
+        check("Mots de passe : remplissage sur la bonne origine", filled == "ok" && values == "moi@void.test|selftest-1", "\(filled ?? "nil") \(values ?? "nil")")
+        _ = await js(login, "document.getElementById('u').value = ''; document.getElementById('p').value = ''; return 1;")
+        login.loginHost = "void-login-b.example"   // credentials of another site, e.g. a frame that navigated away
+        let refused = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-2", into: login)
+        let after = await js(login, "return document.getElementById('p').value;") as? String
+        check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
+
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
         settings.accent = .green

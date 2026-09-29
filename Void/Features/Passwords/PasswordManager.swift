@@ -28,7 +28,10 @@ final class PasswordManager {
     static let shared = PasswordManager()
 
     func handle(_ body: [String: Any], frame: WKFrameInfo, tab: Tab) {
-        guard let type = body["type"] as? String, let host = (body["host"] as? String)?.voidNormalizedHost, !host.isEmpty else { return }
+        // The frame's security origin, not what the script reports: it is what WebKit enforces.
+        let originHost = frame.securityOrigin.host.voidNormalizedHost
+        guard let type = body["type"] as? String, !originHost.isEmpty else { return }
+        let host = originHost
         switch type {
         case "form":
             let accounts = KeychainStore.logins(matching: host)
@@ -70,15 +73,24 @@ final class PasswordManager {
     }
 
     func fill(_ tab: Tab, account: String) async {
-        guard let webView = tab.webView, let host = tab.loginHost else { return }
+        guard tab.webView != nil, let host = tab.loginHost else { return }
         guard let login = KeychainStore.logins(matching: host).first(where: { $0.account == account }) else { return }
         guard await BiometricGate.authenticate(reason: "remplir le mot de passe de \(login.host)") else { return }
         guard let password = KeychainStore.password(host: login.host, account: login.account) else { return }
-        let result = await webView.voidCall("return window.__voidAutofill ? window.__voidAutofill.fill(u, p) : 'fail';",
-                                            arguments: ["u": account, "p": password], in: tab.loginFrame) as? String
-        if result != "ok" {
-            _ = await webView.voidCall("return window.__voidAutofill ? window.__voidAutofill.fill(u, p) : 'fail';",
-                                       arguments: ["u": account, "p": password])
+        if await inject(account: account, password: password, into: tab) != "ok" {
+            tab.browser?.showToast("exclamationmark.triangle", "Formulaire de connexion introuvable")
         }
+    }
+
+    /// Writes the credentials into the frame whose form was detected, and only if that frame
+    /// still has the origin they belong to (autofill.js checks it right before writing).
+    /// There is deliberately no fallback to the main frame: it may belong to another site.
+    func inject(account: String, password: String, into tab: Tab) async -> String? {
+        guard let webView = tab.webView, let host = tab.loginHost else { return nil }
+        let frame = tab.loginFrame
+        let expectedProtocol = frame.map { $0.securityOrigin.protocol + ":" } ?? ""
+        return await webView.voidCall("return window.__voidAutofill ? window.__voidAutofill.fill(u, p, h, pr) : 'fail';",
+                                      arguments: ["u": account, "p": password, "h": host, "pr": expectedProtocol],
+                                      in: frame) as? String
     }
 }
