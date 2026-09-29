@@ -27,19 +27,21 @@ enum ExtensionEvents {
     }
 
     static func tabActivated(_ tab: Tab, previous: Tab?) {
-        guard tab !== previous, #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge else { return }
-        bridge.controller.didActivateTab(bridge.tab(tab), previousActiveTab: previous.map(bridge.tab))
+        guard tab !== previous, !tab.isClosed, #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge else { return }
+        bridge.controller.didActivateTab(bridge.tab(tab), previousActiveTab: previous.flatMap { $0.isClosed ? nil : bridge.tab($0) })
     }
 
     /// `index`: where the tab was in its window before the move (see `BrowserModel.extensionTabs`).
     static func tabMoved(_ tab: Tab, from index: Int) {
-        guard #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge, let browser = tab.browser else { return }
+        guard !tab.isClosed, #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge, let browser = tab.browser else { return }
         guard browser.extensionTabs.firstIndex(where: { $0 === tab }) != index else { return }
         bridge.controller.didMoveTab(bridge.tab(tab), from: index, in: bridge.window(browser))
     }
 
+    /// Never for a closed tab: putting it to sleep afterwards (sound off, reader mode off) would
+    /// bring it back to extensions as a tab that no longer exists.
     static func tabChanged(_ tab: Tab, _ change: Change) {
-        guard #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge else { return }
+        guard !tab.isClosed, #available(macOS 15.4, *), let bridge = ExtensionManager.running?.bridge else { return }
         var properties: WKWebExtension.TabChangedProperties = []
         if change.contains(.url) { properties.insert(.URL) }
         if change.contains(.title) { properties.insert(.title) }
@@ -141,7 +143,7 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
         self.bridge = bridge
     }
 
-    private var live: Tab? { isClosed ? nil : tab }
+    private var live: Tab? { isClosed || tab?.isClosed == true ? nil : tab }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
         live?.browser.map(bridge.window)

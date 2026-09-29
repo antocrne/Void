@@ -67,6 +67,8 @@ final class Tab: Identifiable {
     @ObservationIgnored var loginHost: String?
     @ObservationIgnored var loginFrame: WKFrameInfo?
 
+    /// Closed for good (not asleep): late changes are no longer reported to extensions.
+    @ObservationIgnored var isClosed = false
     @ObservationIgnored weak var space: Space?
     /// The window model owning this tab.
     var browser: BrowserModel? { space?.browser }
@@ -181,6 +183,11 @@ final class Tab: Identifiable {
     /// The web content process of a tab that isn't shown has crashed: release the web view and
     /// keep its back/forward list, so the page reloads — once — when the tab is shown again.
     func sleepAfterCrash() {
+        sleepKeepingHistory()
+    }
+
+    /// Releases the web view now, PiP included, keeping its back/forward list for the next wake-up.
+    func sleepKeepingHistory() {
         guard let webView else { return }
         savedInteractionState = webView.interactionState
         sleep(force: true)

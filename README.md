@@ -5,7 +5,7 @@
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Apple silicon, macOS 14 minimum
 - **≈ 6 Mo** (build Release, image disque de 2,4 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~10 500 lignes de Swift (dont ~1 600 d'auto-tests), ~750 lignes de JavaScript injecté
+- ~10 900 lignes de Swift (dont ~1 800 d'auto-tests), ~770 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -88,6 +88,14 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
   - alertes JS d'un onglet en arrière-plan sans blocage de l'app, plantage de page sans boucle de rechargement, onglet épinglé jamais supprimé par un téléchargement, veille réelle d'un épinglé en PiP ;
   - téléchargements : noms nettoyés (inversion bidirectionnelle, fichiers cachés), pas de collision, quarantaine garantie ; liens vers d'autres apps confirmés, refusés depuis un cadre intégré, `smb:`/`ssh:`… refusés ;
   - historique SQLite en WAL, titres inchangés non réécrits ; copies temporaires de l'import supprimées.
+- ✅ **Stabilité** (branche `corrections-stabilite`, section `stabilite` de l'auto-test) :
+  - **authentification HTTP** (routeurs, NAS, intranets) : nom d'utilisateur et mot de passe demandés en feuille sur l'onglet affiché, avertissement si la connexion n'est pas chiffrée ; un onglet en arrière-plan reçoit la page 401 du serveur (un rechargement redemande) ;
+  - **fenêtre principale fermée** : ses pages s'arrêtent (plus de son sans fenêtre, PiP fermé) et reviennent avec leur historique à la réouverture ; un lien venu d'une autre app rouvre la fenêtre ;
+  - **mémoire basse** : onglets inactifs mis en veille après 5 min (tout de suite si la mémoire est critique) au lieu de 30 ;
+  - **vidéo retirée de la page** pendant sa lecture (fils Reddit/X, lecteur fermé) : l'onglet n'est plus considéré « en lecture », il peut de nouveau se mettre en veille et n'est plus gardé actif derrière la page ;
+  - **bloqueur** : des changements rapides de réglage installent une seule liste, la dernière, sans trou de blocage pendant la compilation ;
+  - ⌘W sur un épinglé en PiP puis retour immédiat : la page reste ; un espace supprimé qui était le seul d'une fenêtre ⌘N y est remplacé ; formulaire de connexion oublié au changement de page.
+  - ☑️ Vérifié à la relecture seulement : quitter avec des téléchargements en cours demande confirmation ; extensions : plus d'onglet fantôme après fermeture, désactivation respectée pendant leur chargement, autorisations demandées en feuille (plus de fenêtre modale bloquante) ; favicons limités à 512 Ko et téléchargés hors du fil principal ; menu contextuel sans lien d'un clic droit précédent.
 - ✅ **Picture in Picture** manuel, automatique et plan B — voir [le compte rendu](docs/PIP_TEST_REPORT.md).
 - ✅ **Extensions Chrome** (macOS 15.4+, `WKWebExtension`, même interface WebExtensions que Chrome : `chrome.*`, Manifest V3 et V2, service worker) :
   - installation depuis le **Chrome Web Store** : sur la page d'une extension, le bouton « Ajouter à Chrome » (inactif hors de Chrome) est remplacé par **« Ajouter à Void »** / « Retirer de Void » ; ou un lien/identifiant dans Réglages → Extensions (« Ouvrir le Store »), depuis un fichier **.crx**, .zip ou un dossier, ou **importées de Chrome, Brave, Edge ou Arc** ; Void garde sa propre copie (`Extensions/`), une réinstallation met à jour en gardant les données ;
@@ -113,6 +121,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 ### Non implémenté
 - 🟡 Fenêtres supplémentaires (⌘N) : leurs onglets ne sont pas restaurés au relancement (seule la fenêtre principale l'est) ; épinglage et gestion des espaces depuis la fenêtre principale uniquement.
 - ❌ Synchronisation entre appareils, cartes bancaires, passkeys, gestion fine des permissions par site.
+- ❌ Durée de conservation de l'historique : il est gardé indéfiniment (la recherche de ⌘L ralentira sur un très gros historique).
 - ❌ Listes de blocage externes (EasyList…) et blocage des publicités YouTube intégrées au flux vidéo.
 
 ## Checklist manuelle rapide (hors PiP)
@@ -127,6 +136,9 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 9. Réglages → Importer → choisir un navigateur installé.
 10. ⌥⌘J → la console du Web Inspector s'ouvre.
 11. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
+12. Un site en authentification HTTP (routeur, NAS) → la feuille « Connexion à … » → identifiants → la page s'ouvre.
+13. Lancer un gros téléchargement, ⌘Q → « Un téléchargement est en cours » → « Continuer les téléchargements » : Void reste ouvert.
+14. Vidéo YouTube en cours, fermer la fenêtre principale (bouton rouge) → le son s'arrête ; ⌘N → la fenêtre revient, onglet et historique intacts.
 
 ## Architecture
 
@@ -162,7 +174,7 @@ Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite,
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé ; ce n'est pas une régression.
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,glisser,disposition,extensions`.
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions`.
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

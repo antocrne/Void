@@ -193,8 +193,12 @@ final class BrowserModel {
             let wasSelected = space.selectedTabID == tab.id
             if wasSelected { selectNeighbor(of: tab, in: space) }
             if tab.isInPiP || tab.isInFloatingPlayer {
-                // Sleep once PiP (or the floating player) has actually been left.
-                Task { await PiPController.shared.exit(tab); tab.sleep(force: true) }
+                // Sleep once PiP (or the floating player) has actually been left — unless the tab
+                // was shown again meanwhile (it would be left without its page).
+                Task {
+                    await PiPController.shared.exit(tab)
+                    if tab.browser?.selectedTab !== tab { tab.sleep(force: true) }
+                }
             } else {
                 tab.sleep()
             }
@@ -211,6 +215,7 @@ final class BrowserModel {
             space.pinned.removeAll { $0 === tab }
         }
         ExtensionEvents.tabClosed(tab)
+        tab.isClosed = true
         tab.isPinned = false
         tab.sleep(force: true)
         setNeedsSave()
@@ -323,7 +328,9 @@ final class BrowserModel {
     func openExternal(_ url: URL) {
         openTab(url: url)
         NSApp.activate(ignoringOtherApps: true)
-        if window == nil { openWindowAction?(WindowID.main) }
+        // A closed SwiftUI window can outlive its closing: its being gone isn't enough.
+        if kind == .main, window?.isVisible != true { openWindowAction?(WindowID.main) }
+        window?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Spaces
@@ -367,11 +374,14 @@ final class BrowserModel {
         guard spaces.count > 1 else { return }
         // Other normal windows showing this space lose it too (its storage is about to go).
         for other in BrowserWindows.shared.all where other !== self {
-            if let mirror = other.spaces.first(where: { $0.id == space.id }), other.spaces.count > 1 {
-                for tab in mirror.allTabs { other.close(tab, force: true) }
-                if mirror.id == other.currentSpaceID, let next = other.spaces.first(where: { $0.id != mirror.id }) { other.switchSpace(to: next) }
-                other.spaces.removeAll { $0.id == mirror.id }
+            guard let mirror = other.spaces.first(where: { $0.id == space.id }) else { continue }
+            if other.spaces.count == 1, let replacement = spaces.first(where: { $0.id != space.id }) {
+                // Its only space: the window takes another one of the main window's instead.
+                other.spaces.append(Space(id: replacement.id, name: replacement.name, icon: replacement.icon))
             }
+            for tab in mirror.allTabs { other.close(tab, force: true) }
+            if mirror.id == other.currentSpaceID, let next = other.spaces.first(where: { $0.id != mirror.id }) { other.switchSpace(to: next) }
+            other.spaces.removeAll { $0.id == mirror.id }
         }
         for tab in space.allTabs { close(tab, force: true) }
         if space.id == currentSpaceID, let other = spaces.first(where: { $0.id != space.id }) { switchSpace(to: other) }
@@ -395,14 +405,29 @@ final class BrowserModel {
 
     /// Puts idle tabs to sleep (called every minute by BrowserWindows). The visible tab and
     /// pinned tabs are never touched; see `Tab.canAutoSleep` for the other exceptions.
-    func sleepInactiveTabs(now: Date = Date()) {
+    /// `idle`: shorter when macOS runs low on memory (see BrowserWindows).
+    func sleepInactiveTabs(idleFor delay: TimeInterval? = nil, now: Date = Date()) {
         guard AppSettings.shared.sleepInactiveTabs else { return }
+        let idle = delay ?? Self.tabSleepDelay
         let visible = selectedTab
         for space in spaces {
-            for tab in space.tabs where tab !== visible && tab.canAutoSleep(idleFor: Self.tabSleepDelay, now: now) {
-                Task { await tab.sleepKeepingPlace(idleFor: Self.tabSleepDelay) }
+            for tab in space.tabs where tab !== visible && tab.canAutoSleep(idleFor: idle, now: now) {
+                Task { await tab.sleepKeepingPlace(idleFor: idle) }
             }
         }
+    }
+
+    /// The main window was closed (its model lives on, for when it reopens): its pages stop —
+    /// no sound or video from a window that isn't there — and come back, same history, when shown again.
+    func windowClosed() {
+        guard kind == .main else { return }
+        for tab in allTabs {
+            if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
+            if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
+            tab.sleepKeepingHistory()
+        }
+        commandBar = nil
+        findBarVisible = false
     }
 
     // MARK: - Window lifetime
@@ -412,6 +437,7 @@ final class BrowserModel {
     /// the reopen-closed-tab list and its downloads list.
     func tearDown() {
         for tab in allTabs {
+            tab.isClosed = true   // extensions were told by ExtensionEvents.windowClosing
             if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
             if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
             tab.sleep(force: true)

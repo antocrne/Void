@@ -39,11 +39,16 @@ final class PiPController {
 
     func handleReport(_ body: [String: Any], frame: WKFrameInfo, tab: Tab) {
         let key = frameKey(frame)
-        tab.mediaFrames[key] = MediaFrameState(frame: frame,
-                                               hasVideo: body["hasVideo"] as? Bool ?? false,
-                                               playing: body["playing"] as? Bool ?? false,
-                                               audible: body["audible"] as? Bool ?? false,
-                                               inPiP: body["inPiP"] as? Bool ?? false)
+        if body["type"] as? String == "gone" {
+            // An embedded frame left (media.js, pagehide): nothing of it plays any more.
+            tab.mediaFrames[key] = nil
+        } else {
+            tab.mediaFrames[key] = MediaFrameState(frame: frame,
+                                                   hasVideo: body["hasVideo"] as? Bool ?? false,
+                                                   playing: body["playing"] as? Bool ?? false,
+                                                   audible: body["audible"] as? Bool ?? false,
+                                                   inPiP: body["inPiP"] as? Bool ?? false)
+        }
         let wasInPiP = tab.isInPiP
         recompute(tab)
 

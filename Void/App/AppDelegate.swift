@@ -32,6 +32,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Quitting stops downloads for good (WebKit keeps no partial file to resume from): ask first.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            let running = DownloadManager.shared.activeCount
+            #if DEBUG
+            if SelfTestRunner.isRequested { return .terminateNow }
+            #endif
+            guard running > 0 else { return .terminateNow }
+            let alert = NSAlert()
+            alert.messageText = running == 1 ? "Un téléchargement est en cours" : "\(running) téléchargements sont en cours"
+            alert.informativeText = "Si vous quittez Void maintenant, \(running == 1 ? "il sera interrompu" : "ils seront interrompus")."
+            alert.addButton(withTitle: "Continuer les téléchargements")
+            alert.addButton(withTitle: "Quitter")
+            return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { BrowserModel.shared.saveNow() }
     }

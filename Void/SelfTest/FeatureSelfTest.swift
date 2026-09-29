@@ -47,6 +47,7 @@ final class FeatureSelfTest {
         "onglets": { t, space in await t.testTabLifecycle(in: space) },
         "telechargements": { t, space in await t.testDownloads(in: space) },
         "adresse": { t, space in await t.testAddressSpoofing(in: space) },
+        "stabilite": { t, space in await t.testStability(in: space) },
         "glisser": { t, space in await t.testTabDrag(in: space) },
         "disposition": { t, space in await t.testLayoutSwitch(in: space) },
         "extensions": { t, space in await t.testExtensions(in: space) },
@@ -241,6 +242,9 @@ final class FeatureSelfTest {
 
         // 7e. Address field: shows the page actually displayed, never a navigation in progress.
         await testAddressSpoofing(in: space)
+
+        // 7e'. Stability: HTTP authentication, media state, ad-block lists, windows, memory.
+        await testStability(in: space)
 
         // 7f. History database: write-ahead log, no rewrite of an unchanged title, stable suggestions.
         let history = HistoryStore.shared
@@ -531,6 +535,185 @@ final class FeatureSelfTest {
         tab.webView?.loadHTMLString("<!doctype html><body>autre</body>", baseURL: URL(string: "https://void-autre.example/"))
         await waitForLoad(tab)
         check("Adresse : une navigation aboutie est affichée", tab.addressText == "void-autre.example", tab.addressText)
+    }
+
+    // MARK: - Stability
+
+    /// A local HTTP server answering each request with `respond(request)` (a whole response).
+    private func startServer(ports: [UInt16], respond: @escaping @MainActor (String) -> String) async -> (NWListener, UInt16)? {
+        for candidate in ports {
+            guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate)!) else { continue }
+            var ready = false
+            l.stateUpdateHandler = { if case .ready = $0 { MainActor.assumeIsolated { ready = true } } }
+            l.newConnectionHandler = { connection in
+                connection.start(queue: .main)
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
+                    let request = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
+                    let response = MainActor.assumeIsolated { respond(request) }
+                    connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                }
+            }
+            l.start(queue: .main)
+            for _ in 0..<20 where !ready { await sleep(0.1) }
+            if ready { return (l, candidate) }
+            l.cancel()
+        }
+        return nil
+    }
+
+    private func pageText(_ tab: Tab) async -> String {
+        await js(tab, "return document.body ? document.body.innerText.trim() : '';") as? String ?? ""
+    }
+
+    private func testStability(in space: Space) async {
+        // 1. HTTP authentication. /open/… answers without it; everything else asks for void / secret.
+        let expected = "Authorization: Basic " + Data("void:secret".utf8).base64EncodedString()
+        let server = await startServer(ports: [8766, 18766, 28766]) { request in
+            let path = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            func page(_ status: String, _ body: String, _ extra: String = "") -> String {
+                "HTTP/1.1 \(status)\r\nContent-Type: text/html; charset=utf-8\r\n\(extra)Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+            }
+            if path.hasPrefix("/open/") { return page("200 OK", "<!doctype html><title>\(path)</title><body>\(path)</body>") }
+            if request.contains(expected) { return page("200 OK", "<!doctype html><body>auth-ok</body>") }
+            return page("401 Unauthorized", "<!doctype html><body>auth-required</body>", "WWW-Authenticate: Basic realm=\"Void test\"\r\n")
+        }
+        guard let (listener, port) = server else { check("Stabilité : serveur de test", false); return }
+        defer { listener.cancel() }
+        let base = "http://127.0.0.1:\(port)"
+
+        let shown = await htmlTab("<!doctype html><body>devant</body>", in: space)
+        let hidden = browser.openTab(url: URL(string: base + "/prive")!, in: space, background: true)
+        await waitForLoad(hidden)
+        let hiddenText = await pageText(hidden)
+        check("Authentification HTTP : onglet en arrière-plan → page 401 du serveur, sans dialogue",
+              hiddenText == "auth-required" && browser.window?.attachedSheet == nil && browser.selectedTab === shown, hiddenText)
+
+        browser.select(hidden)
+        browser.reload()
+        var sheet: NSWindow?
+        for _ in 0..<30 where sheet == nil { await sleep(0.1); sheet = browser.window?.attachedSheet }
+        if let sheet {
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            let all = sheet.contentView.map(views) ?? []
+            let texts = all.compactMap { $0 as? NSTextField }.filter { $0.isEditable }
+            let user = texts.first { !($0 is NSSecureTextField) }, password = texts.first { $0 is NSSecureTextField }
+            user?.stringValue = "void"
+            password?.stringValue = "secret"
+            let button = all.compactMap { $0 as? NSButton }.first { $0.title == "Se connecter" }
+            button?.performClick(nil)
+            await waitForLoad(hidden)
+            let text = await pageText(hidden)
+            check("Authentification HTTP : l'onglet affiché demande les identifiants, la page s'ouvre", text == "auth-ok",
+                  "champs=\(user != nil && password != nil) bouton=\(button != nil) page=\(text)")
+        } else {
+            check("Authentification HTTP : l'onglet affiché demande les identifiants, la page s'ouvre", false, "aucun dialogue")
+        }
+        browser.close(hidden, force: true)
+
+        // 2. A playing video removed from the page: the tab stops counting as playing.
+        let video = await htmlTab("""
+            <!doctype html><body><video id="v" muted autoplay playsinline width="320" height="180"></video>
+            <script>
+              const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+              const g = c.getContext('2d'); let n = 0;
+              setInterval(() => { g.fillStyle = 'hsl(' + (n++ % 360) + ',80%,50%)'; g.fillRect(0, 0, 320, 180); }, 50);
+              const v = document.getElementById('v'); v.srcObject = c.captureStream(25); v.play();
+            </script></body>
+            """, in: space, base: "https://void-video.example/")
+        for _ in 0..<20 where !video.isPlayingVideo { await sleep(0.25) }
+        let wasPlaying = video.isPlayingVideo
+        _ = await js(video, "document.getElementById('v').remove(); return 1;")
+        for _ in 0..<32 where video.isPlayingVideo { await sleep(0.25) }
+        check("Vidéo retirée de la page en cours de lecture : l'onglet n'est plus « en lecture »", wasPlaying && !video.isPlayingVideo,
+              "lecture avant=\(wasPlaying) après=\(video.isPlayingVideo)")
+        browser.close(video, force: true)
+
+        // 3. Quick successive changes of the blocker's allowlist: one list installed, the last one.
+        let settings = AppSettings.shared
+        if settings.adBlockEnabled {
+            let saved = settings.adBlockAllowlist
+            var identifiers = Set<String>()
+            for i in 1...4 {
+                settings.adBlockAllowlist = saved + ["void-course-\(i).example"]
+                identifiers.insert(ContentRules.adBlockIdentifier(allowlist: settings.adBlockAllowlist))
+            }
+            let last = ContentRules.adBlockIdentifier(allowlist: settings.adBlockAllowlist)
+            await sleep(2)
+            let installed = ContentRules.shared.installedIdentifiers.filter { $0.hasPrefix("void-adblock") }
+            check("Bloqueur : changements rapides → une seule liste installée, la dernière", installed == [last], installed.sorted().joined(separator: ", "))
+            settings.adBlockAllowlist = saved
+            await sleep(1.5)
+            let restored = ContentRules.shared.installedIdentifiers.filter { $0.hasPrefix("void-adblock") }
+            check("Bloqueur : liste d'origine rétablie", restored == [ContentRules.adBlockIdentifier(allowlist: saved)], restored.sorted().joined(separator: ", "))
+            // The test's compiled lists don't stay in WebKit's store.
+            for identifier in identifiers { try? await WKContentRuleListStore.default().removeContentRuleList(forIdentifier: identifier) }
+        }
+
+        // 4. ⌘W on a pinned tab in PiP, shown again before PiP is left: it keeps its page.
+        let pip = await htmlTab("<!doctype html><body>pip</body>", in: space, base: "https://void-pip2.example/")
+        browser.togglePin(pip)
+        browser.select(pip)
+        pip.isInPiP = true
+        browser.closeCurrentTab()
+        browser.select(pip)
+        await sleep(1.5)
+        check("⌘W sur un épinglé en PiP puis retour immédiat : la page reste", !pip.isAsleep && browser.selectedTab === pip)
+        browser.close(pip, force: true)
+
+        // 5. The login form of the previous page is forgotten when another page commits.
+        let login = await htmlTab("<!doctype html><body>a</body>", in: space, base: "https://void-login-reset.example/")
+        login.loginHost = "void-login-reset.example"
+        login.webView?.loadHTMLString("<!doctype html><body>b</body>", baseURL: URL(string: "https://void-autre-page.example/"))
+        await waitForLoad(login)
+        check("Mots de passe : formulaire de la page précédente oublié au changement de page", login.loginHost == nil && login.loginFrame == nil)
+        browser.close(login, force: true)
+
+        // 6. Memory pressure: idle background tabs sleep right away, the tab shown stays.
+        let sleepSetting = settings.sleepInactiveTabs
+        settings.sleepInactiveTabs = true
+        let idle = await htmlTab("<!doctype html><body>idle</body>", in: space, base: "https://void-idle.example/")
+        let front = await htmlTab("<!doctype html><body>front</body>", in: space, base: "https://void-front2.example/")
+        BrowserWindows.shared.memoryPressure(critical: true)
+        await sleep(1)
+        check("Mémoire critique : onglets inactifs en veille, l'onglet affiché reste", idle.isAsleep && !front.isAsleep)
+        settings.sleepInactiveTabs = sleepSetting
+        browser.close(idle, force: true)
+
+        // 7. A space deleted in the main window, the only one of a ⌘N window: that window moves to another space.
+        let current = browser.currentSpace
+        let extra = browser.addSpace(name: "Self-test 2", icon: "star")
+        let secondary = BrowserWindows.shared.openNormalWindow()
+        if secondary !== browser {
+            secondary.spaces.removeAll { $0.id != extra.id }
+            secondary.currentSpaceID = extra.id
+            secondary.openTab(url: nil)
+            browser.deleteSpace(extra)
+            check("Espace supprimé, seul espace d'une fenêtre ⌘N : la fenêtre passe à un autre espace",
+                  secondary.spaces.count == 1 && secondary.spaces[0].id != extra.id && secondary.currentSpaceID == secondary.spaces[0].id,
+                  secondary.spaces.map(\.name).joined(separator: ", "))
+            secondary.window?.close()
+        } else {
+            browser.deleteSpace(extra)
+            check("Espace supprimé, seul espace d'une fenêtre ⌘N : la fenêtre passe à un autre espace", false, "fenêtre ⌘N non ouverte")
+        }
+        browser.switchSpace(to: current)
+        browser.window?.makeKeyAndOrderFront(nil)
+
+        // 8. Main window closed: every page stops, and comes back with its history when shown again.
+        let history = browser.openTab(url: URL(string: base + "/open/1")!, in: space)
+        await waitForLoad(history)
+        history.load(URL(string: base + "/open/2")!)
+        await waitForLoad(history)
+        browser.windowClosed()
+        let allAsleep = browser.allTabs.allSatisfy(\.isAsleep)
+        browser.select(history)
+        await waitForLoad(history)
+        check("Fenêtre principale fermée : pages arrêtées, puis rendues avec leur historique",
+              allAsleep && history.webView?.url?.path() == "/open/2" && history.canGoBack,
+              "en veille=\(allAsleep) page=\(history.webView?.url?.path() ?? "nil") retour=\(history.canGoBack)")
+        browser.close(history, force: true)
+        browser.close(front, force: true)
+        browser.close(shown, force: true)
     }
 
     // MARK: - Session file

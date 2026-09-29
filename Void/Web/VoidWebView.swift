@@ -13,6 +13,14 @@ final class VoidWebView: WKWebView {
         MainActor.assumeIsolated { customize(menu) }
     }
 
+    /// A page that swallows the next right-click before core.js sees it must not get this link
+    /// offered again.
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        contextLinkURL = nil
+        contextImageURL = nil
+    }
+
     @MainActor
     private func customize(_ menu: NSMenu) {
         var linkItemIndex: Int?
