@@ -50,6 +50,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         set { if let data = try? JSONEncoder().encode(newValue) { try? data.write(to: listURL, options: .atomic) } }
     }
 
+    var installedRecords: [InstalledExtension] { installed }
+
     func record(for context: WKWebExtensionContext) -> InstalledExtension? {
         installed.first { $0.id == context.uniqueIdentifier }
     }
@@ -123,6 +125,21 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     func isInstalled(chromeID: String) -> Bool {
         installed.contains { $0.chromeID == chromeID }
+    }
+
+    func context(chromeID: String) -> WKWebExtensionContext? {
+        guard let record = installed.first(where: { $0.chromeID == chromeID }) else { return nil }
+        return contexts.first { $0.uniqueIdentifier == record.id }
+    }
+
+    static let webStoreURL = URL(string: "https://chromewebstore.google.com/category/extensions")!
+
+    /// "Ouvrir le Store": in a normal window (the store never needs a private one).
+    func openWebStore(in browser: BrowserModel? = nil) {
+        let target = browser.flatMap { $0.isPrivate ? nil : $0 } ?? BrowserWindows.shared.normalTarget
+        target.openTab(url: Self.webStoreURL)
+        target.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func runInstall(_ name: String, _ work: () async throws -> WKWebExtensionContext) async {

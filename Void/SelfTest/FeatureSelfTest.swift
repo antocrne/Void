@@ -48,6 +48,8 @@ final class FeatureSelfTest {
         "adresse": { t, space in await t.testAddressSpoofing(in: space) },
         "glisser": { t, space in await t.testTabDrag(in: space) },
         "extensions": { t, space in await t.testExtensions(in: space) },
+        "lancement-extensions": { t, _ in await t.testInstalledExtensionsLoad() },
+        "store": { t, space in await t.testWebStorePage(in: space) },
     ]
 
     func run() async {
@@ -615,6 +617,11 @@ final class FeatureSelfTest {
 
         // A press on a tab makes the window unmovable until the release (hover can't be simulated:
         // the pointer is put over a tab through the same entry point as SwiftUI's onHover).
+        // In the sidebar layout: the top bar keeps the window unmovable all the time.
+        let layoutBefore = AppSettings.shared.tabLayout
+        AppSettings.shared.tabLayout = .sidebar
+        await sleep(0.5)
+        defer { AppSettings.shared.tabLayout = layoutBefore }
         if let window = browser.window, let tab = space.tabs.first {
             TabDragWindowLock.pointer(isOver: tab.id, true)
             let location = NSPoint(x: window.frame.width / 2, y: window.frame.height / 2)   // on the page, where a click does nothing
@@ -633,6 +640,8 @@ final class FeatureSelfTest {
             check("Glisser-déposer : la fenêtre ne peut pas être déplacée pendant qu'on tient un onglet", lockedDuringPress && window.isMovable)
         }
 
+        await testTopBarMouse(in: space)
+
         // Pinned tiles: a grid of 4 columns; a pin takes the cell under its centre, among pins only.
         let pins = (0..<2).map { i -> Tab in
             let tab = browser.openTab(url: URL(string: "https://example.com/?pin\(i)"), in: space, background: true)
@@ -647,7 +656,126 @@ final class FeatureSelfTest {
         for pin in pins { browser.close(pin, force: true) }
     }
 
+    /// Top bar, with mouse events posted to the window: a tab dragged moves the tab and not the
+    /// window; the bar's empty places move the window. (The window server's own title bar drag
+    /// can't be reached this way: that the window is unmovable by the system covers it.)
+    private func testTopBarMouse(in space: Space) async {
+        let settings = AppSettings.shared
+        let savedLayout = settings.tabLayout
+        defer { settings.tabLayout = savedLayout }
+        settings.tabLayout = .top
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        guard let window = browser.window, let content = window.contentView else { return check("Barre du haut : fenêtre introuvable", false) }
+        browser.switchSpace(to: space)
+        while space.tabs.count > 3 { browser.close(space.tabs.last!, force: true) }
+        while space.tabs.count < 3 { browser.openTab(url: nil, in: space, background: true) }
+        browser.select(space.tabs[0])
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        await sleep(1.5)
+        check("Barre du haut : la fenêtre n'est pas déplaçable par le système (seulement par les zones vides)", !window.isMovable,
+              "app active=\(NSApp.isActive) fenêtre principale=\(window.isKeyWindow)")
+
+        func post(_ type: NSEvent.EventType, _ topLeft: CGPoint) {
+            let location = NSPoint(x: topLeft.x, y: content.bounds.height - topLeft.y)
+            if let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                NSApp.postEvent(e, atStart: false)
+            }
+        }
+        func drag(from start: CGPoint, by dx: CGFloat, steps: Int) async {
+            post(.leftMouseDown, start)
+            await sleep(0.1)
+            for i in 1...steps {
+                post(.leftMouseDragged, CGPoint(x: start.x + dx * CGFloat(i) / CGFloat(steps), y: start.y))
+                await sleep(0.03)
+            }
+            post(.leftMouseUp, CGPoint(x: start.x + dx, y: start.y))
+            await sleep(0.8)
+        }
+
+        // A tab: the second one, dragged past the third.
+        let second = space.tabs[1]
+        if let frame = TabReorder.windowFrames[second.id], let third = TabReorder.windowFrames[space.tabs[2].id] {
+            let origin = window.frame.origin
+            await drag(from: CGPoint(x: frame.midX, y: frame.midY), by: third.maxX - frame.midX + 10, steps: 12)
+            let index = space.tabs.firstIndex { $0 === second }
+            check("Barre du haut : glisser un onglet le déplace, la fenêtre ne bouge pas",
+                  index == 2 && window.frame.origin == origin, "position \(index.map(String.init) ?? "?") · fenêtre \(NSStringFromPoint(origin)) → \(NSStringFromPoint(window.frame.origin))")
+        } else {
+            check("Barre du haut : onglets non mesurés", false)
+        }
+
+        // An empty place: between the last tab's ＋ and the tools on the right.
+        let lastTab = space.tabs.compactMap { TabReorder.windowFrames[$0.id] }.map(\.maxX).max() ?? 0
+        let empty = CGPoint(x: (lastTab + 40 + content.bounds.width - 110) / 2, y: 22)
+        let origin = window.frame.origin
+        await drag(from: empty, by: 40, steps: 1)
+        let moved = window.frame.origin
+        check("Barre du haut : glisser dans une zone vide déplace la fenêtre", moved.x == origin.x + 40 && moved.y == origin.y,
+              "x=\(Int(empty.x)) · \(NSStringFromPoint(origin)) → \(NSStringFromPoint(moved))")
+        window.setFrameOrigin(origin)
+    }
+
+    /// What the Chrome Web Store's page offers in Void: the store's button replaced by Void's.
+    private func testWebStorePage(in space: Space) async {
+        guard #available(macOS 15.4, *) else { return }
+        let tab = browser.openTab(url: URL(string: "https://chromewebstore.google.com/detail/proton-pass-free-password/ghmbeldphafepmbegfdlkpapadhbakde"), in: space)
+        await waitForLoad(tab, timeout: 30)
+        if tab.url?.host() == "consent.google.com" {
+            // A fresh profile: Google's cookie page first — refused.
+            _ = await js(tab, "const b = [...document.querySelectorAll('button')].find(b => /reject all|tout refuser/i.test(b.innerText)); if (b) b.click(); return !!b;")
+            await waitForLoad(tab, timeout: 30)
+        }
+        var ours: [String: Any]?
+        for _ in 0..<40 {
+            ours = await js(tab, "const b = document.querySelector('button[data-void-store]'); return b ? {text: b.innerText.trim(), disabled: b.disabled, visible: b.offsetWidth > 0} : null;") as? [String: Any]
+            if ours != nil { break }
+            await sleep(0.25)
+        }
+        let expected = ExtensionManager.shared.isInstalled(chromeID: "ghmbeldphafepmbegfdlkpapadhbakde") ? "Retirer de Void" : "Ajouter à Void"
+        check("Chrome Web Store : « \(expected) » à la place du bouton de Chrome", ours?["text"] as? String == expected
+              && ours?["disabled"] as? Bool == false && ours?["visible"] as? Bool == true, ours.map { "\($0)" } ?? "bouton absent")
+        let savedLayout = AppSettings.shared.tabLayout
+        AppSettings.shared.tabLayout = .top
+        await sleep(1.5)
+        await snapshotWindow("store", tab: tab)
+        AppSettings.shared.tabLayout = savedLayout
+        browser.close(tab, force: true)
+
+        // Settings → Extensions.
+        let savedPanel = UserDefaults.standard.string(forKey: "settingsPanel")
+        UserDefaults.standard.set("extensions", forKey: "settingsPanel")
+        browser.openSettingsAction?()
+        await sleep(1.5)
+        if let settingsWindow = NSApp.windows.first(where: { $0.isVisible && $0 !== browser.window && $0.title != "Void" && !($0 is NSPanel) }) {
+            await snapshotWindow("settings-extensions", window: settingsWindow)
+            settingsWindow.performClose(nil)
+        }
+        UserDefaults.standard.set(savedPanel, forKey: "settingsPanel")
+    }
+
     // MARK: - Chrome extensions
+
+    /// The extensions already installed (extensions.json) are all running shortly after launch,
+    /// and their button is in the chrome. Meant for a copy of a real profile.
+    private func testInstalledExtensionsLoad() async {
+        guard #available(macOS 15.4, *) else { return }
+        let manager = ExtensionManager.shared
+        let records = manager.installedRecords
+        for _ in 0..<40 where manager.contexts.count < records.count { await sleep(0.25) }
+        check("Extensions installées : chargées au lancement", !records.isEmpty && manager.contexts.count == records.count,
+              "\(manager.contexts.count) / \(records.count) — activées=\(AppSettings.shared.extensionsEnabled) démarré=\(manager.isStarted) \(manager.lastError ?? "")")
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        if browser.currentSpace.allTabs.isEmpty { _ = await htmlTab("<!doctype html><title>Page</title><body>Page</body>", in: browser.currentSpace, base: "https://example.com/") }
+        let savedLayout = AppSettings.shared.tabLayout
+        for layout in [TabLayout.top, .sidebar] {
+            AppSettings.shared.tabLayout = layout
+            await sleep(1.5)
+            await snapshotWindow("installees-\(layout.rawValue)")
+        }
+        AppSettings.shared.tabLayout = savedLayout
+    }
 
     /// A Manifest V3 extension written like a Chrome one (`chrome.*`, service worker), packed as a
     /// .crx the way the Chrome Web Store serves it, installed and run on a page.

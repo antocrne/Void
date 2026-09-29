@@ -16,6 +16,50 @@ struct WindowAccessor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// The top bar is also the window's title bar, where macOS would move the window from anywhere
+/// — tabs included, before they can be dragged. While this view is in a window, the window
+/// can't be moved by the system; it moves only from the bar's empty places (this view, behind
+/// the bar's content), and a double-click there does what the title bar's would.
+struct TitleBarDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ view: DragView, context: Context) {}
+
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { false }
+        /// As a title bar: an inactive window is moved by its first click.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            // Back to the sidebar layout: the window is movable by its background again.
+            if newWindow == nil { window?.isMovable = true }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.isMovable = false
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            if event.clickCount == 2 {
+                switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+                case "Minimize": window.miniaturize(nil)
+                case "None": break
+                default: window.zoom(nil)
+                }
+                return
+            }
+            // The pointer keeps its place in the window while the window follows it.
+            let grab = event.locationInWindow
+            while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), next.type == .leftMouseDragged {
+                let pointer = window.convertPoint(toScreen: next.locationInWindow)
+                window.setFrameOrigin(NSPoint(x: pointer.x - grab.x, y: pointer.y - grab.y))
+            }
+        }
+    }
+}
+
 /// Detects a horizontal two-finger swipe over its area (sidebar / tab bar) to switch spaces.
 /// Uses a local event monitor so it works above SwiftUI buttons and lists without stealing
 /// vertical scrolling.

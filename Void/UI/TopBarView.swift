@@ -6,6 +6,7 @@ struct TopBarView: View {
     @Namespace private var selection
     @State private var reorder = TabReorder(layout: .horizontal, spacing: 4)
     @State private var pinnedReorder = TabReorder(layout: .horizontal, spacing: 4)
+    @State private var creatingSpace = false
 
     var body: some View {
         let space = browser.currentSpace
@@ -14,11 +15,15 @@ struct TopBarView: View {
 
             if browser.isPrivate {
                 PrivateBadge()
-            } else if browser.spaces.count > 1 {
-                // Only worth showing when there is a choice to make.
+            } else if browser.spaces.count > 1 || browser.managesSpaces {
+                // The spaces, as the sidebar's bottom bar has them: switch, or create one.
                 Menu {
                     ForEach(browser.spaces) { s in
                         Button { browser.switchSpace(to: s) } label: { Label(s.name, systemImage: s.icon) }
+                    }
+                    if browser.managesSpaces {
+                        Divider()
+                        Button { creatingSpace = true } label: { Label("Nouvel espace…", systemImage: "plus") }
                     }
                 } label: {
                     Label(space.name, systemImage: space.icon)
@@ -32,6 +37,7 @@ struct TopBarView: View {
                 .fixedSize()
                 .padding(.horizontal, 4)
                 .help("Espace : \(space.name) (⌃⌘← / ⌃⌘→)")
+                .popover(isPresented: $creatingSpace, arrowEdge: .bottom) { NewSpaceForm { creatingSpace = false } }
             }
 
             ChromeButton(symbol: "chevron.left", help: "Précédent (⌘[)", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
@@ -53,7 +59,13 @@ struct TopBarView: View {
             }
             ChromeButton(symbol: "plus", help: "Nouvel onglet (⌘T)") { browser.showCommandBar(.newTab) }
             Spacer(minLength: 0)
+            // The sidebar's tools, on the right.
             ExtensionsButton()
+            if browser.isPrivate {
+                ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }
+            } else {
+                ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
+            }
             DownloadsButton()
         }
         .padding(.horizontal, 8)

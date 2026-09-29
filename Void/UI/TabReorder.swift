@@ -27,6 +27,11 @@ final class TabReorder {
     @ObservationIgnored private var slot: CGRect = .zero
     @ObservationIgnored private var lineStart: CGFloat = 0
 
+    #if DEBUG
+    /// Each tab's frame in its window (top-left origin), for the self-test.
+    @ObservationIgnored static var windowFrames: [UUID: CGRect] = [:]
+    #endif
+
     init(layout: Layout, spacing: CGFloat) {
         self.layout = layout
         self.spacing = spacing
@@ -138,10 +143,13 @@ private struct TabReorderable: ViewModifier {
             // only the slot would make it lag behind the pointer.
             .transaction { if dragged { $0.animation = nil } }
             .zIndex(dragged ? 1 : 0)
-            .background(WindowDragBlocker())
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(reorder.coordinateSpace)) } action: {
                 reorder.record($0, for: tab.id)
             }
+            #if DEBUG
+            // Where the tab is in its window, for the self-test's mouse events.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { TabReorder.windowFrames[tab.id] = $0 }
+            #endif
             .onHover { TabDragWindowLock.pointer(isOver: tab.id, $0) }
             // A tab closed with its own cross goes while the pointer is still on it.
             .onDisappear { TabDragWindowLock.pointer(isOver: tab.id, false) }
@@ -153,20 +161,6 @@ private struct TabReorderable: ViewModifier {
     }
 }
 
-/// Under a tab, a view that says it doesn't move the window. In the top layout the tabs are in
-/// the title bar, whose drag regions macOS works out ahead of time from these views (the window
-/// server can start moving the window before the app sees the press): the lock below would come
-/// too late there. It takes no clicks: the tab's own gestures get them.
-private struct WindowDragBlocker: NSViewRepresentable {
-    func makeNSView(context: Context) -> BlockerView { BlockerView() }
-    func updateNSView(_ view: BlockerView, context: Context) {}
-
-    final class BlockerView: NSView {
-        override var mouseDownCanMoveWindow: Bool { false }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-}
-
 /// The window is movable by its background, and SwiftUI's hosting view says the window may be
 /// moved from anywhere in it: a tab pressed in the sidebar would take the window with it. So a
 /// press that starts on a tab makes its window unmovable until the button is released. The flag
@@ -175,6 +169,8 @@ private struct WindowDragBlocker: NSViewRepresentable {
 enum TabDragWindowLock {
     private static var hovered: Set<UUID> = []
     private static weak var locked: NSWindow?
+    /// Whether the window was movable before the press (the top bar keeps it unmovable).
+    private static var wasMovable = true
     private static var observers: [Any] = []
 
     static func pointer(isOver id: UUID, _ inside: Bool) {
@@ -187,6 +183,7 @@ enum TabDragWindowLock {
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp], handler: { event in
             MainActor.assumeIsolated {
                 if event.type == .leftMouseDown, !hovered.isEmpty, let window = event.window {
+                    wasMovable = window.isMovable
                     window.isMovable = false
                     locked = window
                 } else if event.type == .leftMouseUp {
@@ -202,7 +199,7 @@ enum TabDragWindowLock {
     }
 
     private static func unlock() {
-        locked?.isMovable = true
+        locked?.isMovable = wasMovable
         locked = nil
     }
 }

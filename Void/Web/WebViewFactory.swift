@@ -18,6 +18,10 @@ enum WebViewFactory {
         ucc.addUserScript(WKUserScript(source: Scripts.media, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
         ucc.addUserScript(WKUserScript(source: Scripts.autofill, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         ucc.addUserScript(WKUserScript(source: Scripts.activity, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+        if #available(macOS 15.4, *) {
+            // "Ajouter à Void" on the Chrome Web Store's extension pages.
+            ucc.addUserScript(WKUserScript(source: Scripts.webstore, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
+        }
         return ucc
     }()
 

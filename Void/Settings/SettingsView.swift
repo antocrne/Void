@@ -500,15 +500,17 @@ private struct ExtensionsSettings: View {
         Form {
             if #available(macOS 15.4, *) {
                 Section {
-                    Toggle("Activer les extensions", isOn: $settings.extensionsEnabled)
-                    Text("Les extensions Chrome fonctionnent dans Void (même interface WebExtensions). Elles s'appliquent aux onglets ouverts après l'activation.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Toggle("Autoriser dans les fenêtres privées", isOn: $settings.extensionsInPrivate)
-                        .disabled(!settings.extensionsEnabled)
-                    Text("Désactivé par défaut : une extension peut conserver des données de navigation privée dans son propre stockage. S'applique aux fenêtres privées ouvertes ensuite.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    CaptionedToggle(title: "Activer les extensions",
+                                    caption: "Les extensions Chrome fonctionnent dans Void. Elles s'appliquent aux onglets ouverts ensuite.",
+                                    isOn: $settings.extensionsEnabled)
                 }
                 ExtensionInstall()
+                Section {
+                    CaptionedToggle(title: "Autoriser dans les fenêtres privées",
+                                    caption: "Désactivé par défaut — une fenêtre privée ne garde rien, extensions comprises.",
+                                    isOn: $settings.extensionsInPrivate)
+                        .disabled(!settings.extensionsEnabled)
+                }
                 if settings.extensionsEnabled {
                     ExtensionList()
                 }
@@ -520,6 +522,24 @@ private struct ExtensionsSettings: View {
     }
 }
 
+/// A switch with its title in bold and an explanation under it.
+private struct CaptionedToggle: View {
+    let title: String
+    let caption: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        // One label (a grouped form would lay out two texts side by side).
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text(caption).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 @available(macOS 15.4, *)
 private struct ExtensionInstall: View {
     @State private var storeLink = ""
@@ -528,14 +548,31 @@ private struct ExtensionInstall: View {
     var body: some View {
         Section {
             HStack {
-                TextField("Lien du Chrome Web Store ou identifiant", text: $storeLink)
+                Text("Ajouter depuis le Chrome Web Store").font(.headline)
+                Spacer()
+                Button("Ouvrir le Store") { manager.openWebStore() }
+            }
+            HStack {
+                TextField("", text: $storeLink, prompt: Text("Coller le lien d'une extension, ou son identifiant"))
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
                     .onSubmit(installFromStore)
-                Button("Installer", action: installFromStore)
+                Button("Ajouter", action: installFromStore)
                     .disabled(storeLink.trimmingCharacters(in: .whitespaces).isEmpty || manager.installing != nil)
             }
-            Text("Ou, sur la page d'une extension du Chrome Web Store, cliquer sur la pièce de puzzle dans la barre d'adresse.")
+            Text("Ou trouvez-la dans le Store et cliquez sur « Ajouter à Void » sur sa page.")
                 .font(.caption).foregroundStyle(.secondary)
+            if let name = manager.installing {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Installation : \(name)…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let error = manager.lastError {
+                Text(error).font(.caption).foregroundStyle(Theme.danger)
+            }
+        }
+        Section {
             HStack {
                 Button("Fichier .crx, .zip ou dossier…") {
                     let panel = NSOpenPanel()
@@ -567,17 +604,8 @@ private struct ExtensionInstall: View {
                 .fixedSize()
                 .disabled(manager.installing != nil)
             }
-            if let name = manager.installing {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Installation : \(name)…").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if let error = manager.lastError {
-                Text(error).font(.caption).foregroundStyle(Theme.danger)
-            }
         } header: {
-            Text("Ajouter une extension Chrome")
+            Text("Autres sources")
         }
     }
 
