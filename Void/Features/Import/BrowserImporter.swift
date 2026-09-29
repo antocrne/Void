@@ -74,6 +74,8 @@ struct ImportResult {
 @MainActor
 enum BrowserImporter {
     static func run(from browser: SourceBrowser, bookmarks: Bool, history: Bool, passwords: Bool) -> ImportResult {
+        // The copies hold the other browser's history and (encrypted) passwords: never leave them behind.
+        defer { removeTemporaryCopies() }
         var result = ImportResult()
         guard let profile = browser.profileFolder else {
             result.notes.append("\(browser.name) introuvable")
@@ -215,6 +217,16 @@ enum BrowserImporter {
     }
 
     // MARK: - Helpers
+
+    /// Deletes the copies made by `openCopy` (their databases are closed by then: each one is
+    /// released when the function that opened it returns).
+    static func removeTemporaryCopies() {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+        for name in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where name.hasPrefix("void-import-") {
+            try? fm.removeItem(at: tmp.appendingPathComponent(name))
+        }
+    }
 
     /// Browsers keep their databases locked while running: work on a temporary copy.
     private static func openCopy(_ file: URL) -> SQLiteDB? {
