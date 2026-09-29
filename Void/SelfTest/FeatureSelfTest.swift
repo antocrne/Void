@@ -209,6 +209,9 @@ final class FeatureSelfTest {
         // 7a'. Session file: tolerant decoding, damaged file set aside, backup used.
         testSessionStore()
 
+        // 7c. Tab lifecycle: dialogs, crashes, pinned tabs.
+        await testTabLifecycle(in: space)
+
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
         settings.accent = .green
@@ -343,6 +346,57 @@ final class FeatureSelfTest {
             }
             await sleep(type == .mouseMoved ? 0.4 : 0.08)
         }
+    }
+
+    // MARK: - Tab lifecycle
+
+    private func testTabLifecycle(in space: Space) async {
+        let page = "<!doctype html><body style='font:30px system-ui'>Void</body>"
+        let front = await htmlTab(page, in: space, base: "https://void-front.example/")
+        let back = await htmlTab(page, in: space, base: "https://void-back.example/")
+        browser.select(front)
+        await sleep(0.3)
+
+        // A dialog from a tab that isn't shown must not block the app.
+        let start = Date()
+        let answer = await js(back, "const ok = confirm('?'); alert('x'); return ok === false ? 'dismissed' : 'shown';") as? String
+        let elapsed = Date().timeIntervalSince(start)
+        check("Dialogue d'un onglet en arrière-plan : ne bloque pas l'app", answer == "dismissed" && elapsed < 2,
+              "\(answer ?? "nil") en \(String(format: "%.1f", elapsed)) s")
+
+        // Crash of the page's process: background tab sleeps, shown tab reloads once, then stops.
+        if let wv = back.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            check("Plantage d'un onglet en arrière-plan : mis en veille, pas rechargé", back.isAsleep)
+        }
+        if let wv = front.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            let firstError = front.loadError
+            delegate.webViewWebContentProcessDidTerminate(wv)
+            check("Plantages répétés de l'onglet affiché : un rechargement puis un message, pas de boucle",
+                  firstError == nil && front.loadError != nil, front.loadError ?? "nil")
+            front.loadError = nil
+        }
+
+        // A pinned tab whose first load turns into a download stays pinned.
+        let pinnedFile = browser.openTab(url: nil, in: space)
+        browser.togglePin(pinnedFile)
+        if let wv = pinnedFile.webView, let delegate = wv.navigationDelegate as? TabWebDelegate {
+            delegate.closeIfEmpty(wv)
+            check("Onglet épinglé devenu téléchargement : jamais supprimé", space.pinned.contains { $0 === pinnedFile })
+        }
+        browser.close(pinnedFile, force: true)
+
+        // ⌘W on a pinned tab in Picture in Picture: PiP is left, then the tab really sleeps.
+        let pip = await htmlTab(page, in: space, base: "https://void-pip.example/")
+        browser.togglePin(pip)
+        browser.select(pip)
+        pip.isInPiP = true
+        browser.closeCurrentTab()
+        await sleep(1.5)
+        check("⌘W sur un épinglé en PiP : sort du PiP puis se met en veille",
+              pip.isAsleep && !pip.isInPiP && space.pinned.contains { $0 === pip })
+        browser.close(pip, force: true)
     }
 
     // MARK: - Session file

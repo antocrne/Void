@@ -131,8 +131,10 @@ final class Tab: Identifiable {
         wv.load(URLRequest(url: url))
     }
 
-    /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP.
-    func sleep() {
+    /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP, unless `force`
+    /// (the tab is being closed, or its page is gone): PiP must then already have been exited.
+    func sleep(force: Bool = false) {
+        if force { isInPiP = false; isInFloatingPlayer = false; autoPiPEngaged = false }
         guard let webView, !isInPiP, !isInFloatingPlayer else { return }
         observations.forEach { $0.invalidate() }
         observations = []
@@ -163,6 +165,14 @@ final class Tab: Identifiable {
         if let position, position.count == 2 { pendingScroll = CGPoint(x: position[0], y: position[1]) }
         savedInteractionState = webView.interactionState
         sleep()
+    }
+
+    /// The web content process of a tab that isn't shown has crashed: release the web view and
+    /// keep its back/forward list, so the page reloads — once — when the tab is shown again.
+    func sleepAfterCrash() {
+        guard let webView else { return }
+        savedInteractionState = webView.interactionState
+        sleep(force: true)
     }
 
     /// After waking up: puts the page back where it was if WebKit didn't.

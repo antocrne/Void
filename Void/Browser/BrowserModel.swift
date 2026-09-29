@@ -188,10 +188,14 @@ final class BrowserModel {
         guard let space = tab.space else { return }
         if tab.isPinned && !force {
             // ⌘W on a pinned tab puts it to sleep instead of closing it.
-            if tab.isInPiP { Task { await PiPController.shared.exit(tab) } }
             let wasSelected = space.selectedTabID == tab.id
             if wasSelected { selectNeighbor(of: tab, in: space) }
-            tab.sleep()
+            if tab.isInPiP || tab.isInFloatingPlayer {
+                // Sleep once PiP (or the floating player) has actually been left.
+                Task { await PiPController.shared.exit(tab); tab.sleep(force: true) }
+            } else {
+                tab.sleep()
+            }
             showToast("moon.zzz", "Onglet épinglé mis en veille")
             return
         }
@@ -205,7 +209,7 @@ final class BrowserModel {
             space.pinned.removeAll { $0 === tab }
         }
         tab.isPinned = false
-        tab.sleep()
+        tab.sleep(force: true)
         setNeedsSave()
     }
 
@@ -399,7 +403,7 @@ final class BrowserModel {
         for tab in allTabs {
             if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
             if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
-            tab.sleep()
+            tab.sleep(force: true)
         }
         if isPrivate {
             for space in spaces {
