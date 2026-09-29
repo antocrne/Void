@@ -1,11 +1,11 @@
 # Void
 
-**Un navigateur qui s'efface.** Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
+**Un navigateur qui s'efface.** Version **0.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Apple silicon, macOS 14 minimum
 - **≈ 5 Mo** (build Release), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~8 600 lignes de Swift (dont ~1 400 d'auto-tests), ~580 lignes de JavaScript injecté
+- ~9 800 lignes de Swift (dont ~1 400 d'auto-tests), ~580 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -89,6 +89,11 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
   - téléchargements : noms nettoyés (inversion bidirectionnelle, fichiers cachés), pas de collision, quarantaine garantie ; liens vers d'autres apps confirmés, refusés depuis un cadre intégré, `smb:`/`ssh:`… refusés ;
   - historique SQLite en WAL, titres inchangés non réécrits ; copies temporaires de l'import supprimées.
 - ✅ **Picture in Picture** manuel, automatique et plan B — voir [le compte rendu](docs/PIP_TEST_REPORT.md).
+- ✅ **Extensions Chrome** (macOS 15.4+, `WKWebExtension`, même interface WebExtensions que Chrome : `chrome.*`, Manifest V3 et V2, service worker) :
+  - installation depuis le **Chrome Web Store** (bouton 🧩 dans la barre d'adresse sur la page d'une extension, ou lien/identifiant dans Réglages → Extensions), depuis un fichier **.crx**, .zip ou un dossier, ou **importées de Chrome, Brave, Edge ou Arc** ; Void garde sa propre copie (`Extensions/`), une réinstallation met à jour en gardant les données ;
+  - onglets et fenêtres de Void exposés aux extensions (`chrome.tabs`, `chrome.windows` : requêtes, création, activation, déplacement, épinglage, son, mode lecture, événements) ; scripts de contenu, `declarativeNetRequest`, stockage, page d'options dans un onglet, menus contextuels (`chrome.contextMenus`) ;
+  - bouton 🧩 dans la barre (latérale ou du haut) : liste des extensions avec leur badge, popups d'action ; autorisations optionnelles demandées au moment voulu ;
+  - vérifié par l'auto-test avec une extension MV3 empaquetée en .crx : installation, script de contenu, `chrome.tabs.query`, `chrome.tabs.create`, page d'options, désinstallation. **Non testés automatiquement** : le téléchargement réel depuis le Chrome Web Store et les popups d'action à la souris. **Non pris en charge** : messagerie native, raccourcis clavier des extensions (`commands`), remplacement de la page Nouvel onglet, et les API propres à Chrome que WebKit n'implémente pas (`sidePanel`, `offscreen`…) : une extension qui en dépend fonctionnera en partie.
 
 ### Terminé, non testé automatiquement
 - ☑️ **Web Inspector** (`isInspectable`, « Inspecter l'élément » au clic droit). ⌥⌘J ouvre la console via une API interne de WebKit (`_inspector`), appelée avec garde-fous.
@@ -97,15 +102,13 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ☑️ **Balayage à deux doigts** pour changer d'espace (sur la barre latérale ou la barre d'onglets ; dans la page, le balayage reste « précédent/suivant »). Un geste trackpad ne peut pas être simulé de façon fiable par le test.
 - ☑️ Historique (SQLite), favoris, téléchargements (dans ~/Téléchargements, progression, rebond du Dock), recherche dans la page, zoom, impression, pop-ups/`window.open`, alertes JS, envoi de fichiers, liens `mailto:`/`tel:` vers les apps système (les autres apps après confirmation).
 
-- ☑️ **Réorganiser les onglets par glisser-déposer dans la barre latérale** (liste des onglets et grille des onglets épinglés) : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre. Le réordonnancement et le verrou de la fenêtre sont vérifiés par l'auto-test, le geste à la souris à la main.
+- ☑️ **Réorganiser les onglets par glisser-déposer**, dans la barre latérale (liste et grille des épinglés) comme dans la barre du haut : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre (dans la barre du haut, qui est la barre de titre, chaque onglet est exclu des zones de déplacement de la fenêtre). Le réordonnancement et le verrou de la fenêtre sont vérifiés par l'auto-test, le geste à la souris à la main.
 
 ### Partiel
 - 🟡 **Import** — Chrome, Arc, Brave, Edge : favoris, historique, mots de passe (déchiffrés avec la clé « Safe Storage » du trousseau, après accord de macOS). Arc : les éléments de la barre latérale sont importés comme favoris. Firefox : favoris et historique ; **mots de passe uniquement via un export CSV** (Firefox les chiffre avec NSS, non réimplémenté). Le code n'a pas été exécuté contre de vrais profils (pour ne pas toucher à vos données sans accord) — à valider avec la checklist ci-dessous.
-- 🟡 **Extensions web** (option, macOS 15.4+, `WKWebExtension`) : installation depuis un dossier ou un .zip, permissions accordées à l'installation, scripts de contenu, `declarativeNetRequest`, stockage, popup d'action. **Non branché** : `chrome.tabs`/`chrome.windows` (Void n'expose pas encore ses onglets aux extensions). Non testé avec une extension réelle.
 - 🟡 **Remplissage automatique** : formulaires classiques et React ; pas de gestion des formulaires en plusieurs étapes complexes ni des passkeys.
 
 ### Non implémenté
-- ❌ Glisser-déposer des onglets dans la barre du haut : elle est la barre de titre de la fenêtre, et macOS y déplace la fenêtre au lieu de l'onglet.
 - 🟡 Fenêtres supplémentaires (⌘N) : leurs onglets ne sont pas restaurés au relancement (seule la fenêtre principale l'est) ; épinglage et gestion des espaces depuis la fenêtre principale uniquement.
 - ❌ Synchronisation entre appareils, cartes bancaires, passkeys, gestion fine des permissions par site.
 - ❌ Listes de blocage externes (EasyList…) et blocage des publicités YouTube intégrées au flux vidéo.
@@ -113,14 +116,15 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 ## Checklist manuelle rapide (hors PiP)
 1. ⌘T → taper `apple.com` → Entrée ; ⌘T → taper `trou noir` → recherche.
 2. ⌘-clic sur un lien → nouvel onglet en arrière-plan ; clic droit → « Ouvrir le lien dans un nouvel onglet ».
-3. Glisser un onglet plus bas dans la barre latérale → les autres s'écartent, la fenêtre ne bouge pas ; relancer Void → l'ordre est conservé. Même chose avec deux onglets épinglés.
-4. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
-5. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
-6. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
-7. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
-8. Réglages → Importer → choisir un navigateur installé.
-9. ⌥⌘J → la console du Web Inspector s'ouvre.
-10. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
+3. Glisser un onglet plus bas dans la barre latérale → les autres s'écartent, la fenêtre ne bouge pas ; relancer Void → l'ordre est conservé. Même chose avec deux onglets épinglés, puis en mode « onglets en haut » (glisser vers la droite).
+4. Ouvrir la page d'une extension sur chromewebstore.google.com → 🧩 dans la barre d'adresse → « … ajoutée » ; 🧩 de la barre → l'extension → son popup s'ouvre sous le bouton.
+5. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
+6. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
+7. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
+8. Se connecter à un site → « Enregistrer le mot de passe ? » → Enregistrer ; se déconnecter → icône 🔑 → Touch ID → champs remplis. Réglages → Mots de passe → Touch ID → affichage.
+9. Réglages → Importer → choisir un navigateur installé.
+10. ⌥⌘J → la console du Web Inspector s'ouvre.
+11. Réglages → Général → « Définir Void par défaut » (macOS demande confirmation).
 
 ## Architecture
 
@@ -149,12 +153,12 @@ Choix notables :
 - **APIs internes WebKit** (préférences PiP/outils de développement, ouverture de la console) : toutes appelées après `responds(to:)` ; si Apple les retire, la fonction se désactive sans plantage.
 
 ## Données
-Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite, favoris, éléments masqués, extensions). Les mots de passe sont uniquement dans le trousseau macOS. Les données des sites sont gérées par WebKit, un magasin par espace.
+Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite, favoris, éléments masqués, extensions et leurs copies dans `Extensions/`). Les mots de passe sont uniquement dans le trousseau macOS. Les données des sites sont gérées par WebKit, un magasin par espace.
 
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément) et la lecture des vidéos en streaming du test PiP échouent quand l'écran du Mac est verrouillé ; ce n'est pas une régression.
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse`.
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,glisser,extensions`.
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md
