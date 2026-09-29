@@ -1,7 +1,7 @@
 # Void — auto-test des fonctionnalités
 
-- Date : 2026-09-28T14:38:59Z
-- Résultat : 46 ✅ / 0 ❌
+- Date : 2026-09-29T07:55:36Z
+- Résultat : 73 ✅ / 2 ❌
 
 - ✅ **Adresse : « apple.com » → https** 
 - ✅ **Adresse : « localhost:3000 » → http** 
@@ -16,7 +16,7 @@
 - ✅ **Onglet épinglé réveillé au clic** 
 - ✅ **Espaces : stockage séparé (cookie)** — A="voidtest=spaceA" B=""
 - ✅ **⌘⇧N : fenêtre privée ouverte et active** 
-- ✅ **Nouvelle fenêtre : même taille que la fenêtre d'origine, stable** — {1679, 964} vs {1679, 964}
+- ✅ **Nouvelle fenêtre : même taille que la fenêtre d'origine, stable** — {1280, 820} vs {1280, 820}
 - ✅ **⌘T dans une fenêtre privée : onglet privé, stockage éphémère** 
 - ✅ **Lien ouvert depuis une fenêtre privée : onglet privé, même stockage** — cookie="voidprivate=1"
 - ✅ **Fenêtre privée isolée des fenêtres normales** — normal="voidtest=spaceA"
@@ -26,26 +26,55 @@
 - ✅ **Fermeture : onglets détruits, fenêtre retirée** 
 - ✅ **Fenêtre privée fermée : modèle et stockage libérés** — modèle=libéré stockage=libéré
 - ✅ **Fenêtre privée fermée : rien ne persiste (nouvelle fenêtre sans le cookie)** — cookie=""
-- ✅ **Seconde fenêtre privée : taille stable** — {1679, 964}
+- ✅ **Seconde fenêtre privée : taille stable** — {1280, 820}
 - ✅ **⌘N : nouvelle fenêtre normale (historique actif, session non écrasée)** 
 - ✅ **⌘N : mêmes espaces, même stockage (cookie de l'espace visible)** — cookie="voidtest=spaceA"
-- ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0971, page 0.0971
+- ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0833, page 0.0833
 - ✅ **Veille après 30 min d'inactivité** 
 - ✅ **Veille : l'onglet où du texte a été saisi reste éveillé** 
 - ✅ **Veille : l'onglet épinglé reste éveillé** 
 - ✅ **Veille : l'onglet affiché reste éveillé** 
 - ✅ **Réveil : même page, historique Précédent conservé** — précédent=true
-- ✅ **Réveil : revient à l'endroit où on l'a laissé** — scrollY=2400 mémorisé=2400 url=https://fr.wikipedia.org/wiki/Trou_noir hauteur=25666
+- ✅ **Réveil : revient à l'endroit où on l'a laissé** — scrollY=2400 mémorisé=2400 url=https://fr.wikipedia.org/wiki/Trou_noir hauteur=29577
 - ✅ **Bloqueur : doubleclick bloqué** — 0,0,1,none
 - ✅ **Bloqueur : Google Tag Manager bloqué** 
 - ✅ **Bloqueur : ressource légitime chargée** 
 - ✅ **Bloqueur : règle cosmétique (.adsbygoogle masqué)** 
-- ✅ **Mode lecture : article extrait** — « Trou noir — Wikipédia », 14626 mots, 10 images
-- ✅ **Masquer un élément : sélecteur enregistré** — div > h1
-- ✅ **Masquer un élément : toujours masqué après rechargement (règle compilée)** — display=none
+- ✅ **Mode lecture : article extrait** — « Trou noir — Wikipédia », 14620 mots, 10 images
+- ❌ **Masquer un élément : sélecteur enregistré** 
+- ❌ **Masquer un élément : toujours masqué au chargement suivant (règle compilée)** — display=block
+- ✅ **Mots de passe : formulaire rattaché à l'origine du cadre** — void-login-a.example
+- ✅ **Mots de passe : remplissage sur la bonne origine** — ok moi@void.test|selftest-1
+- ✅ **Mots de passe : jamais écrits dans une autre origine** — origin p=""
+- ✅ **Session : format plus récent relu (champs inconnus ou manquants)** — espaces=1 épinglés=1 onglets=3
+- ✅ **Session : fichier abîmé mis de côté, copie de secours relue** — secours=true mis de côté=1
+- ✅ **Session : rien de lisible → session neuve, fichiers abîmés conservés** — conservés=2
+- ✅ **Dialogue d'un onglet en arrière-plan : ne bloque pas l'app** — dismissed en 0.0 s
+- ✅ **Plantage d'un onglet en arrière-plan : mis en veille, pas rechargé** 
+- ✅ **Plantages répétés de l'onglet affiché : un rechargement puis un message, pas de boucle** — La page a cessé de fonctionner.
+- ✅ **Onglet épinglé devenu téléchargement : jamais supprimé** 
+- ✅ **⌘W sur un épinglé en PiP : sort du PiP puis se met en veille** 
+- ✅ **Téléchargement : caractères d'inversion retirés du nom** — facturefdp.app
+- ✅ **Téléchargement : pas de fichier caché ni de chemin** — -.profile
+- ✅ **Téléchargement : deux fichiers du même nom en même temps → deux chemins** — rapport 2.pdf
+- ✅ **Téléchargement : fichier en quarantaine (Gatekeeper le vérifiera)** — Unknown
+- ✅ **Liens vers d'autres apps : smb:// refusé** 
+- ✅ **Liens vers d'autres apps : refusés depuis un cadre intégré ou un script** 
+- ✅ **Liens vers d'autres apps : mailto ouvert, les autres après confirmation** 
+- ✅ **Adresse : pushState suivi** — http://localhost:8765/suite
+- ✅ **Adresse : une navigation qui n'aboutit pas n'est pas affichée** — affiché=localhost · WebKit expose l'URL en cours : oui (http://127.0.0.1:8765/banque, connexions=2, chargement=true, erreur=aucune)
+- ✅ **Adresse : une navigation aboutie est affichée** — void-autre.example
+- ✅ **Historique : journal WAL (écritures sans synchronisation complète)** — wal
+- ✅ **Historique : un titre inchangé n'est écrit qu'une fois** — 1 écriture(s)
+- ✅ **Barre de commande : suggestions stables d'un calcul à l'autre** 
 - ✅ **Couleur : mémorisée** 
 - ✅ **Couleur : palette centralisée (vert, thème clair)** — #12703A
 - ✅ **Barre de favoris + lettres + largeur : mémorisés** 
 - ✅ **Onglets masqués (⌘S) : la page occupe la fenêtre, boutons de fenêtre masqués** 
 - ✅ **Personnalisation : jamais affichée pendant l'auto-test** 
 - ✅ **Personnalisation : « Commencer » la ferme et la mémorise** 
+- ✅ **Glisser-déposer (barre latérale) : l'onglet prend la place visée** — position 3 / 3
+- ✅ **Glisser-déposer (barre latérale) : l'onglet suit le pointeur** — (0.0, 4.0)
+- ✅ **Glisser-déposer : relâché, l'onglet rejoint sa place** 
+- ✅ **Glisser-déposer : la fenêtre ne peut pas être déplacée pendant qu'on tient un onglet** 
+- ✅ **Glisser-déposer : les onglets épinglés se réordonnent entre eux** 
