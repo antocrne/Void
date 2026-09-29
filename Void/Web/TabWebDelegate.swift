@@ -21,8 +21,15 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
 
         if !Self.internalSchemes.contains(scheme) {
-            // mailto:, tel:, zoommtg:, … → hand over to macOS, but only on a user click.
-            if navigationAction.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
+            // mailto:, tel:, zoommtg:, … → hand over to macOS, only on a user click in the page
+            // itself, and after asking for anything but the usual system apps.
+            let policy = ExternalURLPolicy.decide(scheme: scheme, userClick: navigationAction.navigationType == .linkActivated,
+                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame)
+            switch policy {
+            case .open: NSWorkspace.shared.open(url)
+            case .ask: ExternalURLPolicy.confirmAndOpen(url, from: navigationAction.sourceFrame.securityOrigin.host, in: webView.window)
+            case .refuse: break
+            }
             return .cancel
         }
 

@@ -62,6 +62,7 @@ final class DownloadManager {
 
     func cancel(_ item: DownloadItem) {
         item.download?.cancel { _ in }
+        DownloadManager.release(item.destination)
         item.state = .cancelled
     }
 
@@ -85,18 +86,66 @@ final class DownloadManager {
         items.removeAll { $0.browser === browser || ($0.isPrivate && $0.browser == nil) }
     }
 
-    static func uniqueDestination(for filename: String) -> URL {
-        let folder = AppSettings.shared.downloadFolder
-        let safe = filename.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        var candidate = folder.appendingPathComponent(safe.isEmpty ? "Téléchargement" : safe)
+    /// A file name that can't pass for something else or hide: no path separators, no control
+    /// characters, no bidirectional overrides ("facture\u{202E}fdp.app" displays as "facture ppa.pdf"),
+    /// no leading dot (hidden file), at most 200 characters with the extension kept.
+    static func sanitizedFilename(_ filename: String) -> String {
+        let invisible: Set<UInt32> = [0x200E, 0x200F, 0x061C, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+                                      0x2066, 0x2067, 0x2068, 0x2069, 0xFEFF]
+        var name = String(String.UnicodeScalarView(filename.unicodeScalars.filter {
+            !invisible.contains($0.value) && !CharacterSet.controlCharacters.contains($0)
+        }))
+        name = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        while name.hasPrefix(".") { name.removeFirst() }
+        if name.count > 200 {
+            let ext = (name as NSString).pathExtension
+            let keep = ext.isEmpty || ext.count > 20 ? "" : "." + ext
+            name = String(name.prefix(200 - keep.count)) + keep
+        }
+        return name.isEmpty ? "Téléchargement" : name
+    }
+
+    /// Destinations of downloads still running: two downloads of the same name must not get the
+    /// same path while neither file exists yet.
+    private static var reserved: Set<String> = []
+
+    static func uniqueDestination(for filename: String, in folder: URL? = nil) -> URL {
+        let folder = folder ?? AppSettings.shared.downloadFolder
+        var candidate = folder.appendingPathComponent(sanitizedFilename(filename))
         let base = candidate.deletingPathExtension().lastPathComponent
         let ext = candidate.pathExtension
         var n = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
+        while FileManager.default.fileExists(atPath: candidate.path) || reserved.contains(candidate.path) {
             candidate = folder.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
             n += 1
         }
+        reserved.insert(candidate.path)
         return candidate
+    }
+
+    static func release(_ destination: URL?) {
+        if let destination { reserved.remove(destination.path) }
+    }
+
+    /// Marks a downloaded file as coming from the web, so that Gatekeeper checks it before it is
+    /// first opened (Void isn't sandboxed: nothing else guarantees it). Returns whether the file
+    /// already carried a quarantine before Void looked at it.
+    @discardableResult
+    static func quarantine(_ file: URL, source: URL?) -> Bool {
+        var url = file
+        if (try? url.resourceValues(forKeys: [.quarantinePropertiesKey]))?.quarantineProperties != nil { return true }
+        var properties: [String: Any] = [
+            kLSQuarantineAgentNameKey as String: "Void",
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+        ]
+        if let source, ["http", "https"].contains(source.scheme?.lowercased() ?? "") {
+            properties[kLSQuarantineDataURLKey as String] = source
+        }
+        var values = URLResourceValues()
+        values.quarantineProperties = properties
+        do { try url.setResourceValues(values) } catch { NSLog("[Void] quarantaine impossible : %@", error.localizedDescription) }
+        return false
     }
 }
 
@@ -117,6 +166,11 @@ private final class DownloadDelegate: NSObject, WKDownloadDelegate {
             guard let item = DownloadManager.shared.item(for: download) else { return }
             item.state = .finished
             item.progress = 1
+            DownloadManager.release(item.destination)
+            if let destination = item.destination {
+                let already = DownloadManager.quarantine(destination, source: item.sourceURL)
+                NSLog("[Void] téléchargement terminé, quarantaine %@", already ? "déjà posée par WebKit" : "posée par Void")
+            }
             if let path = item.destination?.path {
                 // Makes the Downloads stack in the Dock bounce, like Safari.
                 DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: path)
@@ -128,6 +182,7 @@ private final class DownloadDelegate: NSObject, WKDownloadDelegate {
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         MainActor.assumeIsolated {
             guard let item = DownloadManager.shared.item(for: download), item.state == .running else { return }
+            DownloadManager.release(item.destination)
             item.state = .failed(error.localizedDescription)
         }
     }
