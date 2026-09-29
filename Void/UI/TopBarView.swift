@@ -4,6 +4,8 @@ import SwiftUI
 struct TopBarView: View {
     @Environment(BrowserModel.self) private var browser
     @Namespace private var selection
+    @State private var reorder = TabReorder(layout: .horizontal, spacing: 4)
+    @State private var pinnedReorder = TabReorder(layout: .horizontal, spacing: 4)
 
     var body: some View {
         let space = browser.currentSpace
@@ -51,6 +53,7 @@ struct TopBarView: View {
             }
             ChromeButton(symbol: "plus", help: "Nouvel onglet (⌘T)") { browser.showCommandBar(.newTab) }
             Spacer(minLength: 0)
+            ExtensionsButton()
             DownloadsButton()
         }
         .padding(.horizontal, 8)
@@ -62,6 +65,7 @@ struct TopBarView: View {
             ForEach(space.pinned) { tab in
                 PinnedTile(tab: tab, selected: space.selectedTabID == tab.id, height: 30)
                     .frame(width: 36)
+                    .tabReorderable(tab, with: pinnedReorder)
             }
             if !space.pinned.isEmpty {
                 Divider().frame(height: 16).padding(.horizontal, 2)
@@ -71,11 +75,15 @@ struct TopBarView: View {
             }
             ForEach(space.tabs) { tab in
                 TopTabPill(tab: tab, selected: space.selectedTabID == tab.id, namespace: selection)
+                    .tabReorderable(tab, with: reorder)
                     .id(tab.id)
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 2)
+        // Inside the scroll view when there is one: positions move with the scrolled row.
+        .coordinateSpace(.named(reorder.coordinateSpace))
+        .coordinateSpace(.named(pinnedReorder.coordinateSpace))
         .id(space.id)
         .transition(.push(from: browser.spaceTransitionEdge))
     }
