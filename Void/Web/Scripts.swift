@@ -9,6 +9,7 @@ enum Scripts {
     static let hider = load("hider")
     static let activity = load("activity")
     static let webstore = load("webstore")
+    static let extensionShim = load("extension-shim")
 
     private static func load(_ name: String) -> String {
         guard let url = Bundle.main.url(forResource: name, withExtension: "js"),

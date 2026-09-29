@@ -95,7 +95,11 @@ private struct ExtensionPopupAnchor: NSViewRepresentable {
             super.viewDidMoveToWindow()
             MainActor.assumeIsolated {
                 guard let browser else { return }
-                ExtensionManager.shared.setAnchor(window == nil ? nil : self, for: browser)
+                if window == nil {
+                    ExtensionManager.shared.removeAnchor(self, for: browser)
+                } else {
+                    ExtensionManager.shared.setAnchor(self, for: browser)
+                }
             }
         }
     }

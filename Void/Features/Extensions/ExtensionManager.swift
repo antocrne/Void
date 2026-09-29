@@ -3,7 +3,10 @@ import WebKit
 import Observation
 
 struct InstalledExtension: Codable, Identifiable, Hashable {
-    var id: String          // stable uniqueIdentifier → keeps the extension's storage across launches
+    /// Stable uniqueIdentifier → keeps the extension's storage across launches. It is also the
+    /// extension's `chrome.runtime.id`: the Chrome Web Store ID when there is one, since sites
+    /// talk to their extension by that ID (externally_connectable — Proton's sign-in, for one).
+    var id: String
     var path: String        // unpacked folder (Void's own copy; older installs may point elsewhere)
     /// Chrome Web Store ID, when it came from the store or from another Chromium browser.
     var chromeID: String?
@@ -63,6 +66,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         guard !isStarted else { return }
         isStarted = true
         Self.isRunning = true
+        migrateIdentifiers()
         for item in installed where !contexts.contains(where: { $0.uniqueIdentifier == item.id }) {
             Task {
                 do { try await load(URL(fileURLWithPath: item.path), identifier: item.id) } catch {
@@ -70,6 +74,20 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                 }
             }
         }
+    }
+
+    /// Earlier installs had a random ID, which sites can't address: they take their
+    /// Chrome ID (their stored data, kept under the old ID, starts over).
+    private func migrateIdentifiers() {
+        let records = installed
+        let migrated = records.map { record in
+            guard let chromeID = record.chromeID, record.id != chromeID,
+                  !records.contains(where: { $0.id == chromeID }) else { return record }
+            var copy = record
+            copy.id = chromeID
+            return copy
+        }
+        if migrated != records { installed = migrated }
     }
 
     /// Switched off: every extension stops (content scripts, background pages, popups).
@@ -163,7 +181,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             try? controller.unload(old)
             contexts.removeAll { $0 === old }
         }
-        let id = previous?.id ?? UUID().uuidString
+        let id = previous?.id ?? chromeID.flatMap { id in installed.contains { $0.id == id } ? nil : id } ?? UUID().uuidString
         do {
             let context = try await load(folder, identifier: id)
             if let previous {
@@ -211,8 +229,87 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         try await ChromeExtensions.unzip(temporary, to: destination)
     }
 
+    /// extension-shim.js in Void's copy of an extension, and the background script that loads it
+    /// before the extension's own.
+    private static let shimFile = "void-shim.js"
+    private static let backgroundWrapperFile = "void-background.js"
+
+    /// Void's copy of an extension gets extension-shim.js, run first in each of its contexts: the
+    /// background script, its pages (popup, options…) and its content scripts. Never another
+    /// folder (an older Void may point at the user's own). Content scripts injected by the
+    /// extension itself (chrome.scripting) go without.
+    static func addShims(to folder: URL) {
+        let fm = FileManager.default
+        let manifestURL = folder.appendingPathComponent("manifest.json")
+        guard folder.standardizedFileURL.path.hasPrefix(Self.folder.standardizedFileURL.path + "/"),
+              let data = try? Data(contentsOf: manifestURL),
+              var manifest = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              // Always rewritten: a new Void may bring a new version.
+              (try? Data(Scripts.extensionShim.utf8).write(to: folder.appendingPathComponent(shimFile))) != nil
+        else { return }
+        var changed = false
+
+        if var background = manifest["background"] as? [String: Any] {
+            if let worker = background["service_worker"] as? String, worker != backgroundWrapperFile {
+                // A service worker is one file: a new one imports the shim, then the extension's.
+                func literal(_ path: String) -> String {
+                    let data = try? JSONSerialization.data(withJSONObject: "/" + path.drop { $0 == "/" }, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+                    return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"/\(path)\""
+                }
+                let source = background["type"] as? String == "module"
+                    ? "import \(literal(shimFile));\nimport \(literal(worker));\n"
+                    : "importScripts(\(literal(shimFile)), \(literal(worker)));\n"
+                if (try? Data(source.utf8).write(to: folder.appendingPathComponent(backgroundWrapperFile))) != nil {
+                    background["service_worker"] = backgroundWrapperFile
+                    changed = true
+                }
+            } else if var scripts = background["scripts"] as? [String], scripts.first != shimFile {
+                scripts.insert(shimFile, at: 0)
+                background["scripts"] = scripts
+                changed = true
+            }
+            manifest["background"] = background
+        }
+
+        // Content scripts, in the extension's isolated world (not those running in the page's own).
+        if var entries = manifest["content_scripts"] as? [[String: Any]] {
+            for index in entries.indices where (entries[index]["world"] as? String)?.uppercased() != "MAIN" {
+                guard var scripts = entries[index]["js"] as? [String], scripts.first != shimFile else { continue }
+                scripts.insert(shimFile, at: 0)
+                entries[index]["js"] = scripts
+                changed = true
+            }
+            manifest["content_scripts"] = entries
+        }
+
+        if changed, let patched = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .withoutEscapingSlashes]) {
+            try? patched.write(to: manifestURL, options: .atomic)
+        }
+
+        // Pages: the shim as their first script.
+        let tag = "<script src=\"/\(shimFile)\"></script>"
+        let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url.lastPathComponent == "_metadata" { enumerator?.skipDescendants(); continue }
+            guard ["html", "htm"].contains(url.pathExtension.lowercased()),
+                  let page = try? String(contentsOf: url, encoding: .utf8), !page.contains(tag) else { continue }
+            // Right after <head>, or <html>, or the doctype; else at the very start.
+            var insertion = page.startIndex
+            for pattern in ["<head(\\s[^>]*)?>", "<html(\\s[^>]*)?>", "<!doctype[^>]*>"] {
+                if let range = page.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                    insertion = range.upperBound
+                    break
+                }
+            }
+            var patched = page
+            patched.insert(contentsOf: tag, at: insertion)
+            try? patched.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     @discardableResult
     private func load(_ url: URL, identifier: String) async throws -> WKWebExtensionContext {
+        Self.addShims(to: url)
         let ext = try await WKWebExtension(resourceBaseURL: url)
         let context = WKWebExtensionContext(for: ext)
         context.uniqueIdentifier = identifier
@@ -267,8 +364,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         return controller.extensionContext(for: url)?.webViewConfiguration
     }
 
-    func setAnchor(_ view: NSView?, for browser: BrowserModel) {
-        anchors[ObjectIdentifier(browser)] = view.map(WeakView.init)
+    func setAnchor(_ view: NSView, for browser: BrowserModel) {
+        anchors[ObjectIdentifier(browser)] = WeakView(view)
+    }
+
+    /// Only if it is still the anchor: while the tabs move from the sidebar to the top (or back),
+    /// the new button can arrive before the old one leaves.
+    func removeAnchor(_ view: NSView, for browser: BrowserModel) {
+        if anchors[ObjectIdentifier(browser)]?.view === view { anchors[ObjectIdentifier(browser)] = nil }
     }
 
     private final class WeakView {
@@ -367,8 +470,16 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
         let browser = ExtensionBridge.tab(action.associatedTab)?.browser ?? BrowserWindows.shared.active
         guard let popover = action.popupPopover else { return completionHandler(nil) }
-        if let anchor = anchors[ObjectIdentifier(browser)]?.view, anchor.window != nil, !anchor.visibleRect.isEmpty {
-            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        let anchor = anchors[ObjectIdentifier(browser)]?.view
+        // Under the button in the top bar, above it at the bottom of the sidebar.
+        let above = anchor?.window.map { anchor!.convert(anchor!.bounds, to: nil).midY < $0.contentLayoutRect.midY } ?? false
+        if let webView = action.popupWebView {
+            ExtensionPopupSizing.prepare(popover, webView: webView, extensionID: context.uniqueIdentifier, growsUp: above,
+                                         screen: anchor?.window?.screen ?? browser.window?.screen)
+        }
+        if let anchor, anchor.window != nil, !anchor.visibleRect.isEmpty {
+            // The anchor isn't flipped: maxY is its top edge.
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: above ? .maxY : .minY)
         } else if let content = browser.window?.contentView {
             // The button isn't shown (tabs hidden at the edge): under the window's top-right corner.
             let corner = NSRect(x: content.bounds.maxX - 40, y: content.bounds.maxY - 40, width: 1, height: 1)

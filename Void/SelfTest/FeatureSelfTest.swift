@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Network
+import SwiftUI
 import WebKit
 
 /// Automated checks of Void's other features, through the real app code.
@@ -47,6 +48,7 @@ final class FeatureSelfTest {
         "telechargements": { t, space in await t.testDownloads(in: space) },
         "adresse": { t, space in await t.testAddressSpoofing(in: space) },
         "glisser": { t, space in await t.testTabDrag(in: space) },
+        "disposition": { t, space in await t.testLayoutSwitch(in: space) },
         "extensions": { t, space in await t.testExtensions(in: space) },
         "lancement-extensions": { t, _ in await t.testInstalledExtensionsLoad() },
         "store": { t, space in await t.testWebStorePage(in: space) },
@@ -641,6 +643,7 @@ final class FeatureSelfTest {
         }
 
         await testTopBarMouse(in: space)
+        await testLayoutSwitch(in: space)
 
         // Pinned tiles: a grid of 4 columns; a pin takes the cell under its centre, among pins only.
         let pins = (0..<2).map { i -> Tab in
@@ -654,6 +657,29 @@ final class FeatureSelfTest {
         grid.dragEnded()
         check("Glisser-déposer : les onglets épinglés se réordonnent entre eux", space.pinned.last === pins[0] && !space.tabs.contains { $0 === pins[0] })
         for pin in pins { browser.close(pin, force: true) }
+    }
+
+    /// Tabs moved between the sidebar and the top, animated as in Settings: the page stays in the
+    /// window (both page areas exist during the animation; the old one used to keep the web view).
+    private func testLayoutSwitch(in space: Space) async {
+        let settings = AppSettings.shared
+        let savedLayout = settings.tabLayout
+        defer { settings.tabLayout = savedLayout }
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        browser.switchSpace(to: space)
+        let tab = await htmlTab("<!doctype html><title>Disposition</title><body>Page</body>", in: space)
+        var lost: [String] = []
+        for i in 0..<6 {
+            withAnimation(Theme.spring) { settings.tabLayout = settings.tabLayout == .sidebar ? .top : .sidebar }
+            // Quick switches too, before the previous animation ends.
+            await sleep(i % 2 == 0 ? 0.1 : 1.2)
+            if i % 2 == 1, tab.webView?.window !== browser.window { lost.append("\(i) → \(settings.tabLayout.rawValue)") }
+        }
+        await sleep(1.2)
+        if tab.webView?.window !== browser.window { lost.append("fin") }
+        check("Disposition des onglets : la page reste affichée en passant de la barre latérale au haut (et retour)",
+              lost.isEmpty, lost.isEmpty ? "" : "page hors de la fenêtre : \(lost.joined(separator: ", "))")
+        browser.close(tab, force: true)
     }
 
     /// Top bar, with mouse events posted to the window: a tab dragged moves the tab and not the
@@ -808,9 +834,13 @@ final class FeatureSelfTest {
              "permissions": ["tabs", "storage"], "host_permissions": ["<all_urls>"],
              "background": {"service_worker": "background.js"},
              "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"}],
-             "action": {"default_title": "Void Self-Test"}, "options_page": "options.html"}
+             "action": {"default_title": "Void Self-Test", "default_popup": "popup.html"}, "options_page": "options.html"}
             """,
             "background.js": """
+            // Like Proton Pass: an API WebKit lacks, used right away, and the API globals hidden
+            // once started (extension-shim.js must keep both working).
+            chrome.runtime.onUpdateAvailable.addListener(() => {});
+            setTimeout(() => { for (const name of ["chrome", "browser"]) globalThis[name] = new Proxy({}, {}); }, 0);
             chrome.runtime.onMessage.addListener((message, sender, reply) => {
               if (message.kind === "tabs") {
                 chrome.tabs.query({}, (all) => chrome.tabs.query({active: true, currentWindow: true}, (active) =>
@@ -822,7 +852,10 @@ final class FeatureSelfTest {
             });
             """,
             "options.html": "<!doctype html><title>Options</title><script src=options.js></script>",
-            "options.js": "chrome.tabs.query({}, (tabs) => { document.title = 'options:' + tabs.length; });",
+            "options.js": "chrome.tabs.query({}, (tabs) => { chrome.runtime.sendMessage({kind: 'tabs'}, (r) => { chrome.tabs.getCurrent((tab) => { document.title = 'options:' + tabs.length + (tab ? ':tab' : '') + (r && r.count ? ':bg' : ''); }); }); });",
+            // A popup isn't in a tab (Chrome's answer, which extensions rely on to size it).
+            "popup.html": "<!doctype html><title>Popup</title><body style='width: 300px; height: 200px'>Popup<script src=popup.js></script>",
+            "popup.js": "chrome.tabs.getCurrent().then((tab) => { document.title = 'popup:' + (tab ? 'tab' : 'none'); });",
             "content.js": """
             document.documentElement.dataset.voidExt = "content";
             if (location.pathname === "/void-ext") chrome.runtime.sendMessage({kind: "tabs"}, (reply) => {
@@ -913,9 +946,28 @@ final class FeatureSelfTest {
             optionsTitle = BrowserWindows.shared.normalTarget.selectedTab?.title ?? ""
         }
         let optionsTab = BrowserWindows.shared.normalTarget.selectedTab
-        check("Extensions : la page d'options s'ouvre dans un onglet et accède à chrome.tabs",
-              optionsTab?.url?.scheme == "webkit-extension" && optionsTitle.hasPrefix("options:"), "« \(optionsTitle) » \(optionsTab?.url?.absoluteString ?? "")")
+        check("Extensions : la page d'options s'ouvre dans un onglet, accède à chrome.tabs et joint le script d'arrière-plan (globales masquées par l'extension, API absente de WebKit)",
+              optionsTab?.url?.scheme == "webkit-extension" && optionsTitle.hasPrefix("options:") && optionsTitle.hasSuffix(":tab:bg"), "« \(optionsTitle) » \(optionsTab?.url?.absoluteString ?? "")")
         if let optionsTab, optionsTab.url?.scheme == "webkit-extension" { optionsTab.browser?.close(optionsTab, force: true) }
+
+        // The action's popup, over a page: not a tab for the extension, and sized to its content.
+        let under = await htmlTab("<!doctype html><title>Sous le popup</title><body>Page</body>", in: space, base: "https://example.com/popup")
+        browser.window?.makeKeyAndOrderFront(nil)
+        manager.performAction(context, in: browser)
+        var popupTitle = ""
+        for _ in 0..<40 where !popupTitle.hasPrefix("popup:") {
+            await sleep(0.25)
+            popupTitle = manager.action(context, in: browser)?.popupWebView?.title ?? ""
+        }
+        await sleep(0.5)
+        let popover = manager.action(context, in: browser)?.popupPopover
+        let popoverSize = popover?.contentSize ?? .zero
+        check("Extensions : le popup d'action n'est pas un onglet pour l'extension (tabs.getCurrent) et prend la taille de son contenu",
+              popupTitle == "popup:none" && popover?.isShown == true && popoverSize.width >= 300 && popoverSize.height >= 200,
+              "« \(popupTitle) » \(NSStringFromSize(popoverSize)) affiché=\(popover?.isShown ?? false)")
+        await testPopupResize(manager.action(context, in: browser), extensionID: context.uniqueIdentifier)
+        manager.action(context, in: browser)?.closePopup()
+        browser.close(under, force: true)
 
         let folder = manager.record(for: context)?.path
         manager.uninstall(context)
@@ -1043,6 +1095,53 @@ final class FeatureSelfTest {
         check("Réveil : revient à l'endroit où on l'a laissé", abs(y - 2400) < 80,
               "scrollY=\(Int(y)) mémorisé=\(remembered.map { "\(Int($0.y))" } ?? "nil") url=\(long.webView?.url?.absoluteString ?? "nil") hauteur=\(Int(height))")
         browser.close(typed, force: true)
+    }
+
+    /// The popup's grip, with mouse events posted to the popover: the popup grows, the page gets
+    /// the new size (a popup made to fill it follows), the size is remembered; double-click: back.
+    @available(macOS 15.4, *)
+    private func testPopupResize(_ action: WKWebExtension.Action?, extensionID: String) async {
+        guard let popover = action?.popupPopover, let popup = action?.popupWebView, let container = popup.superview,
+              let grip = container.subviews.last(where: { $0 !== popup }), let window = grip.window else {
+            return check("Popup d'extension : poignée de redimensionnement absente", false)
+        }
+        let key = ExtensionPopupSizing.key(extensionID)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let before = popover.contentSize
+        let growsUp = grip.frame.minY > container.bounds.midY
+        window.makeKey()   // as the user's click would
+        let start = grip.convert(NSPoint(x: grip.bounds.midX, y: grip.bounds.midY), to: nil)
+        func post(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1) {
+            // The grip reads the pointer's screen position.
+            let screen = window.convertPoint(toScreen: point)
+            CGWarpMouseCursorPosition(CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y))
+            if let e = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: 1) {
+                NSApp.postEvent(e, atStart: false)
+            }
+        }
+        post(.leftMouseDown, start)
+        await sleep(0.2)
+        let end = NSPoint(x: start.x + 120, y: start.y + (growsUp ? 80 : -80))
+        for i in 1...10 {
+            post(.leftMouseDragged, NSPoint(x: start.x + (end.x - start.x) * CGFloat(i) / 10, y: start.y + (end.y - start.y) * CGFloat(i) / 10))
+            await sleep(0.05)
+        }
+        post(.leftMouseUp, end)
+        await sleep(1)
+        let after = popover.contentSize
+        let inner = await popup.voidCall("return [innerWidth, innerHeight];", timeout: 3) as? [Double]
+        let saved = UserDefaults.standard.string(forKey: key).map(NSSizeFromString)
+        check("Popup d'extension : la poignée l'agrandit, la page suit, la taille est retenue",
+              after.width > before.width + 60 && after.height > before.height + 40 && inner?.first == Double(after.width) && saved == after,
+              "\(NSStringFromSize(before)) → \(NSStringFromSize(after)) · page \(inner.map { "\($0)" } ?? "?") · retenue \(saved.map(NSStringFromSize) ?? "non")")
+
+        let grip2 = grip.convert(NSPoint(x: grip.bounds.midX, y: grip.bounds.midY), to: nil)
+        post(.leftMouseDown, grip2, clicks: 2)
+        post(.leftMouseUp, grip2, clicks: 2)
+        await sleep(1)
+        check("Popup d'extension : double-clic sur la poignée, retour à sa taille",
+              popover.contentSize == before && UserDefaults.standard.string(forKey: key) == nil, NSStringFromSize(popover.contentSize))
     }
 
     /// Chrome (SwiftUI) + page, composited from the window's views.
