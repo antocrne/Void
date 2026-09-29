@@ -15,6 +15,12 @@ import Observation
 /// SwiftUI calling updateNSView, which could be skipped during animated transitions and
 /// leave the selected tab's web view out of the window.
 ///
+/// Element fullscreen (a video's fullscreen button): WebKit moves the web view into its own
+/// window and puts a placeholder in its place, which it swaps back on exit. Re-adding the web
+/// view here meanwhile (e.g. the video starts playing, so keep-alive tabs change) would pull it
+/// out of the fullscreen window, which turns black, and removing the placeholder would leave the
+/// page blank afterwards: the host doesn't touch its views until fullscreen ends.
+///
 /// One host per window holds the web views: the last one to join the window. Moving the tabs
 /// between the sidebar and the top builds a new page area while the old one fades out; both
 /// would claim the same web views, and the old one could keep them as it goes (a blank page).
@@ -87,16 +93,18 @@ final class WebHostView: NSView {
     }
 
     @MainActor
-    private static func desired(for browser: BrowserModel?) -> (active: WKWebView?, keepAlive: [WKWebView]) {
-        guard let browser else { return (nil, []) }
+    private static func desired(for browser: BrowserModel?) -> (active: WKWebView?, keepAlive: [WKWebView], frozen: Bool) {
+        guard let browser else { return (nil, [], false) }
         let tab = browser.selectedTab
         let active = (tab?.isInFloatingPlayer ?? true) ? nil : tab?.webView
-        return (active, browser.keepAliveTabs.compactMap(\.webView))
+        let frozen = browser.allTabs.contains(where: \.isInElementFullscreen)
+        return (active, browser.keepAliveTabs.compactMap(\.webView), frozen)
     }
 
     func sync() {
         guard Self.owner(of: browser) === self else { return }
-        let (active, keepAlive) = MainActor.assumeIsolated { Self.desired(for: browser) }
+        let (active, keepAlive, frozen) = MainActor.assumeIsolated { Self.desired(for: browser) }
+        guard !frozen else { return }
         let background = keepAlive.filter { $0 !== active }
         let desired: [WKWebView] = background + (active.map { [$0] } ?? [])
 

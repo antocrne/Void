@@ -20,7 +20,7 @@ struct BrowserWindowView: View {
                 }
             }
             if let request = browser.commandBar {
-                CommandBarOverlay(request: request)
+                CommandBarOverlay(request: request, leadingInset: dockedSidebarWidth)
                     .transition(.opacity)
                     .zIndex(10)
             }
@@ -46,6 +46,11 @@ struct BrowserWindowView: View {
 
     /// ⌘S / Settings → Onglets: the page fills the window, the sidebar appears at the left edge.
     private var tabsKeptHidden: Bool { settings.tabLayout == .sidebar && settings.sidebarAutoHide }
+
+    /// Width taken by the docked sidebar on the left of the page (0 when the page spans the window).
+    private var dockedSidebarWidth: CGFloat {
+        settings.tabLayout == .sidebar && settings.sidebarVisible && !tabsKeptHidden ? CGFloat(settings.sidebarWidth) : 0
+    }
 
     private var sidebarLayout: some View {
         let hidden = tabsKeptHidden

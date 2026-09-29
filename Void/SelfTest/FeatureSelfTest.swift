@@ -53,6 +53,8 @@ final class FeatureSelfTest {
         "extensions": { t, space in await t.testExtensions(in: space) },
         "lancement-extensions": { t, _ in await t.testInstalledExtensionsLoad() },
         "store": { t, space in await t.testWebStorePage(in: space) },
+        "plein-ecran": { t, space in await t.testElementFullscreen(in: space) },
+        "barre-commande": { t, space in await t.snapshotCommandBar(in: space) },
     ]
 
     func run() async {
@@ -563,6 +565,59 @@ final class FeatureSelfTest {
 
     private func pageText(_ tab: Tab) async -> String {
         await js(tab, "return document.body ? document.body.innerText.trim() : '';") as? String ?? ""
+    }
+
+    /// A page element goes fullscreen (a video's button): WebKit moves the web view into its own
+    /// window. A media change meanwhile (the video starts: keep-alive tabs change, the page area
+    /// re-syncs) must leave it there, and it must come back to the page area on exit.
+    private func testElementFullscreen(in space: Space) async {
+        let tab = await htmlTab("<!doctype html><body><div id=v style='width:320px;height:180px;background:#000'></div></body>", in: space)
+        guard let webView = tab.webView else { check("Plein écran : vue web", false); return }
+        let host = webView.superview
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        await sleep(0.5)
+        // Page world: requestFullscreen needs the user gesture WebKit grants to app-run scripts.
+        let request = try? await webView.callAsyncJavaScript(
+            "try { await document.getElementById('v').requestFullscreen(); return 'ok'; } catch (e) { return String(e); }",
+            contentWorld: .page)
+        for _ in 0..<50 where !tab.isInElementFullscreen { await sleep(0.1) }
+        await sleep(1.5)
+        let entered = tab.isInElementFullscreen && webView.window != nil && webView.window !== browser.window
+        check("Plein écran : la vue web passe dans la fenêtre plein écran de WebKit", entered,
+              "état=\(webView.fullscreenState.rawValue) requête=\(String(describing: request))")
+        guard entered else { return }
+
+        tab.isPlayingVideo = true
+        await sleep(0.8)
+        check("Plein écran : un changement de lecture ne ramène pas la vue web dans la fenêtre (écran noir)",
+              webView.window != nil && webView.window !== browser.window)
+
+        _ = try? await webView.callAsyncJavaScript("await document.exitFullscreen();", contentWorld: .page)
+        for _ in 0..<50 where tab.isInElementFullscreen { await sleep(0.1) }
+        await sleep(1)
+        tab.isPlayingVideo = false
+        await sleep(0.3)
+        check("Plein écran : en sortant, la page revient à sa place", webView.window === browser.window && webView.superview === host
+              && host?.subviews.last === webView)
+        browser.close(tab)
+    }
+
+    /// The command bar over a docked sidebar: centered on the page, not on the window.
+    private func snapshotCommandBar(in space: Space) async {
+        let settings = AppSettings.shared
+        let saved = (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide)
+        settings.tabLayout = .sidebar
+        settings.sidebarVisible = true
+        settings.sidebarAutoHide = false
+        browser.window?.makeKeyAndOrderFront(nil)
+        let tab = await htmlTab("<!doctype html><body>page</body>", in: space)
+        browser.showCommandBar(.currentTab)
+        await sleep(1)
+        await snapshotWindow("command-bar")
+        browser.commandBar = nil
+        browser.close(tab)
+        (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide) = saved
     }
 
     private func testStability(in space: Space) async {
