@@ -46,6 +46,8 @@ final class FeatureSelfTest {
         "onglets": { t, space in await t.testTabLifecycle(in: space) },
         "telechargements": { t, space in await t.testDownloads(in: space) },
         "adresse": { t, space in await t.testAddressSpoofing(in: space) },
+        "glisser": { t, space in await t.testTabDrag(in: space) },
+        "extensions": { t, space in await t.testExtensions(in: space) },
     ]
 
     func run() async {
@@ -351,6 +353,9 @@ final class FeatureSelfTest {
         // Reordering tabs by dragging them, with mouse events posted to the event queue
         await testTabDrag(in: space)
 
+        // A Chrome extension (.crx) installed and run: content script, chrome.tabs
+        await testExtensions(in: space)
+
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
         settings.sidebarVisible = savedSidebar
@@ -592,6 +597,22 @@ final class FeatureSelfTest {
         list.dragEnded()
         check("Glisser-déposer : relâché, l'onglet rejoint sa place", list.draggedID == nil && list.offset == .zero)
 
+        // Top bar: a row of pills 4 pt apart, the active one wider (360 pt, the others 150). The
+        // first pill, dragged 300 pt right, passes the middle of the wide one only, and stays on the row.
+        let row2 = TabReorder(layout: .horizontal, spacing: 4)
+        var x: CGFloat = 0
+        for (i, tab) in space.tabs.enumerated() {
+            let width: CGFloat = i == 1 ? 360 : 150
+            row2.record(CGRect(x: x, y: 7, width: width, height: 30), for: tab.id)
+            x += width + 4
+        }
+        let pill = space.tabs[0]
+        drag(pill, row2, to: CGSize(width: 300, height: 9))
+        let pillIndex = space.tabs.firstIndex { $0 === pill }
+        check("Glisser-déposer (barre du haut) : l'onglet prend la place visée", pillIndex == 1, "position \(pillIndex.map(String.init) ?? "?") / 1")
+        check("Glisser-déposer (barre du haut) : l'onglet suit le pointeur sur la ligne", row2.offset == CGSize(width: -64, height: 0), "\(row2.offset)")
+        row2.dragEnded()
+
         // A press on a tab makes the window unmovable until the release (hover can't be simulated:
         // the pointer is put over a tab through the same entry point as SwiftUI's onHover).
         if let window = browser.window, let tab = space.tabs.first {
@@ -624,6 +645,155 @@ final class FeatureSelfTest {
         grid.dragEnded()
         check("Glisser-déposer : les onglets épinglés se réordonnent entre eux", space.pinned.last === pins[0] && !space.tabs.contains { $0 === pins[0] })
         for pin in pins { browser.close(pin, force: true) }
+    }
+
+    // MARK: - Chrome extensions
+
+    /// A Manifest V3 extension written like a Chrome one (`chrome.*`, service worker), packed as a
+    /// .crx the way the Chrome Web Store serves it, installed and run on a page.
+    private func testExtensions(in space: Space) async {
+        let links = [
+            "https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh?hl=fr",
+            "https://chrome.google.com/webstore/detail/ddkjiahejlhfcafbddmgiahcphecmpfh",
+            "ddkjiahejlhfcafbddmgiahcphecmpfh",
+        ]
+        check("Extensions : identifiant tiré d'un lien du Chrome Web Store (nouveau et ancien format) ou saisi seul",
+              links.allSatisfy { ChromeExtensions.extensionID(from: $0) == "ddkjiahejlhfcafbddmgiahcphecmpfh" }
+              && ChromeExtensions.extensionID(from: "https://example.com/detail/ddkjiahejlhfcafbddmgiahcphecmpfh") == nil
+              && ChromeExtensions.extensionID(from: "ddkjiahejlhfcafbddmgiahcphecmpfz") == nil)
+
+        guard #available(macOS 15.4, *) else {
+            check("Extensions : macOS 15.4 requis, test non exécuté", true)
+            return
+        }
+        let settings = AppSettings.shared
+        let wasEnabled = settings.extensionsEnabled
+        let manager = ExtensionManager.shared
+        let fm = FileManager.default
+        let work = fm.temporaryDirectory.appendingPathComponent("void-ext-\(UUID().uuidString)")
+        let source = work.appendingPathComponent("src")
+        defer { try? fm.removeItem(at: work) }
+        try? fm.createDirectory(at: source, withIntermediateDirectories: true)
+        let files = [
+            "manifest.json": """
+            {"manifest_version": 3, "name": "Void Self-Test", "version": "1.0", "description": "Auto-test de Void",
+             "permissions": ["tabs", "storage"], "host_permissions": ["<all_urls>"],
+             "background": {"service_worker": "background.js"},
+             "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"}],
+             "action": {"default_title": "Void Self-Test"}, "options_page": "options.html"}
+            """,
+            "background.js": """
+            chrome.runtime.onMessage.addListener((message, sender, reply) => {
+              if (message.kind === "tabs") {
+                chrome.tabs.query({}, (all) => chrome.tabs.query({active: true, currentWindow: true}, (active) =>
+                  reply({count: all.length, active: active[0] && active[0].url, sender: sender.tab && sender.tab.url})));
+              } else if (message.kind === "create") {
+                chrome.tabs.create({url: message.url, active: false}, (tab) => reply({id: tab && tab.id}));
+              }
+              return true;
+            });
+            """,
+            "options.html": "<!doctype html><title>Options</title><script src=options.js></script>",
+            "options.js": "chrome.tabs.query({}, (tabs) => { document.title = 'options:' + tabs.length; });",
+            "content.js": """
+            document.documentElement.dataset.voidExt = "content";
+            if (location.pathname === "/void-ext") chrome.runtime.sendMessage({kind: "tabs"}, (reply) => {
+              document.documentElement.dataset.voidTabs = JSON.stringify(reply || {error: String(chrome.runtime.lastError && chrome.runtime.lastError.message)});
+              chrome.runtime.sendMessage({kind: "create", url: location.origin + "/?from-extension"}, () => {});
+            });
+            """,
+        ]
+        for (name, text) in files { try? text.write(to: source.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+
+        // zip → CRX3: "Cr24", version 3, header size, header (a stand-in: Void doesn't read it), zip.
+        let zip = work.appendingPathComponent("ext.zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", source.path, zip.path]
+        try? ditto.run()
+        ditto.waitUntilExit()
+        func le32(_ v: Int) -> Data { Data([UInt8(v & 0xff), UInt8(v >> 8 & 0xff), UInt8(v >> 16 & 0xff), UInt8(v >> 24 & 0xff)]) }
+        let header = Data(repeating: 0x2a, count: 64)
+        let crx = work.appendingPathComponent("void-self-test.crx")
+        var crxData = Data("Cr24".utf8) + le32(3) + le32(header.count) + header
+        crxData.append((try? Data(contentsOf: zip)) ?? Data())
+        try? crxData.write(to: crx)
+        check("Extensions : l'archive d'un .crx (CRX3) est retrouvée", (try? ChromeExtensions.zipData(fromCRX: crxData)) == (try? Data(contentsOf: zip)))
+
+        await manager.install(from: crx)
+        let context = manager.contexts.first { $0.webExtension.displayName == "Void Self-Test" }
+        check("Extensions : un .crx s'installe (copie dans le dossier de Void), les extensions s'activent",
+              context != nil && settings.extensionsEnabled && manager.record(for: context!)?.path.hasPrefix(ExtensionManager.folder.path) == true,
+              manager.lastError ?? "")
+        guard let context else { settings.extensionsEnabled = wasEnabled; return }
+
+        let other = browser.openTab(url: URL(string: "https://example.com/?other-tab"), in: space, background: true)
+        let page = await htmlTab("<!doctype html><title>Extensions</title><body>Page</body>", in: space, base: "https://example.com/void-ext")
+        var tabsReply: [String: Any]?
+        var injected = false
+        for _ in 0..<40 {
+            let state = await js(page, "return [document.documentElement.dataset.voidExt || '', document.documentElement.dataset.voidTabs || ''];") as? [String]
+            injected = state?.first == "content"
+            if let json = state?.last, !json.isEmpty {
+                tabsReply = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
+                break
+            }
+            await sleep(0.25)
+        }
+        let errors = context.errors.map(\.localizedDescription).joined(separator: " · ")
+        check("Extensions : le script de contenu s'exécute dans la page", injected, errors)
+        check("Extensions : manifeste Chrome accepté sans erreur", context.errors.isEmpty, errors)
+        // Counted without the tab the extension opens right after answering.
+        let visible = BrowserWindows.shared.all.filter { !$0.isPrivate }.flatMap(\.extensionTabs)
+            .filter { $0.url?.absoluteString.contains("from-extension") != true }.count
+        check("Extensions : chrome.tabs.query voit les onglets de Void et l'onglet actif",
+              tabsReply?["count"] as? Int == visible && (tabsReply?["active"] as? String)?.contains("example.com/void-ext") == true
+              && (tabsReply?["sender"] as? String)?.contains("example.com/void-ext") == true,
+              (tabsReply.map { "\($0)" } ?? "pas de réponse — \(errors)") + " · onglets Void : \(visible)")
+        var created: [Tab] = []
+        for _ in 0..<20 where created.isEmpty {
+            created = browser.allTabs.filter { $0.url?.absoluteString.contains("from-extension") == true }
+            await sleep(0.25)
+        }
+        await sleep(1)
+        created = browser.allTabs.filter { $0.url?.absoluteString.contains("from-extension") == true }
+        check("Extensions : chrome.tabs.create ouvre un onglet Void", created.count == 1 && created.first?.space === space, "\(created.count) onglet(s)")
+        for tab in created { browser.close(tab, force: true) }
+        browser.close(page, force: true)
+        browser.close(other, force: true)
+
+        // Captures: the extensions button, and the install button on a store page (not fetched:
+        // a local page under the store's address).
+        let savedLayout = settings.tabLayout
+        let store = await htmlTab("<!doctype html><title>Void Self-Test — Chrome Web Store</title><body>Store</body>", in: space,
+                                  base: "https://chromewebstore.google.com/detail/void-self-test/ddkjiahejlhfcafbddmgiahcphecmpfh")
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }   // run alone, the window may still be opening
+        browser.window?.makeKeyAndOrderFront(nil)
+        for layout in [TabLayout.sidebar, .top] {
+            settings.tabLayout = layout
+            await sleep(1)
+            await snapshotWindow("extensions-\(layout.rawValue)", tab: store)
+        }
+        settings.tabLayout = savedLayout
+        browser.close(store, force: true)
+
+        // The options page: an extension page, in a tab, with the extension's APIs.
+        manager.openOptions(context)
+        var optionsTitle = ""
+        for _ in 0..<40 where !optionsTitle.hasPrefix("options:") {
+            await sleep(0.25)
+            optionsTitle = BrowserWindows.shared.normalTarget.selectedTab?.title ?? ""
+        }
+        let optionsTab = BrowserWindows.shared.normalTarget.selectedTab
+        check("Extensions : la page d'options s'ouvre dans un onglet et accède à chrome.tabs",
+              optionsTab?.url?.scheme == "webkit-extension" && optionsTitle.hasPrefix("options:"), "« \(optionsTitle) » \(optionsTab?.url?.absoluteString ?? "")")
+        if let optionsTab, optionsTab.url?.scheme == "webkit-extension" { optionsTab.browser?.close(optionsTab, force: true) }
+
+        let folder = manager.record(for: context)?.path
+        manager.uninstall(context)
+        check("Extensions : désinstallée, sa copie est supprimée", !manager.contexts.contains { $0 === context }
+              && folder.map { !fm.fileExists(atPath: $0) } == true)
+        settings.extensionsEnabled = wasEnabled
     }
 
     // MARK: - Windows, sleep

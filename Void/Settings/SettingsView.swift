@@ -500,14 +500,15 @@ private struct ExtensionsSettings: View {
         Form {
             if #available(macOS 15.4, *) {
                 Section {
-                    Toggle("Activer les extensions web (WKWebExtension)", isOn: $settings.extensionsEnabled)
-                    Text("Les extensions s'appliquent aux onglets ouverts après l'activation.")
+                    Toggle("Activer les extensions", isOn: $settings.extensionsEnabled)
+                    Text("Les extensions Chrome fonctionnent dans Void (même interface WebExtensions). Elles s'appliquent aux onglets ouverts après l'activation.")
                         .font(.caption).foregroundStyle(.secondary)
                     Toggle("Autoriser dans les fenêtres privées", isOn: $settings.extensionsInPrivate)
                         .disabled(!settings.extensionsEnabled)
                     Text("Désactivé par défaut : une extension peut conserver des données de navigation privée dans son propre stockage. S'applique aux fenêtres privées ouvertes ensuite.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                ExtensionInstall()
                 if settings.extensionsEnabled {
                     ExtensionList()
                 }
@@ -516,6 +517,76 @@ private struct ExtensionsSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+@available(macOS 15.4, *)
+private struct ExtensionInstall: View {
+    @State private var storeLink = ""
+    private var manager: ExtensionManager { .shared }
+
+    var body: some View {
+        Section {
+            HStack {
+                TextField("Lien du Chrome Web Store ou identifiant", text: $storeLink)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(installFromStore)
+                Button("Installer", action: installFromStore)
+                    .disabled(storeLink.trimmingCharacters(in: .whitespaces).isEmpty || manager.installing != nil)
+            }
+            Text("Ou, sur la page d'une extension du Chrome Web Store, cliquer sur la pièce de puzzle dans la barre d'adresse.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Fichier .crx, .zip ou dossier…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = true
+                    panel.allowedContentTypes = [.zip, .folder, UTType(filenameExtension: "crx") ?? .data]
+                    guard panel.runModal() == .OK, let url = panel.url else { return }
+                    Task { await manager.install(from: url) }
+                }
+                Menu("Importer depuis…") {
+                    ForEach(SourceBrowser.allCases.filter { $0.isChromium && $0.isInstalled }) { browser in
+                        let found = ChromeExtensions.installed(in: browser)
+                        Menu(browser.name) {
+                            if found.isEmpty { Text("Aucune extension") }
+                            ForEach(found) { item in
+                                Button(item.name + (manager.isInstalled(chromeID: item.id) ? " ✓" : "")) {
+                                    Task { await manager.importExtension(item) }
+                                }
+                            }
+                            if found.count > 1 {
+                                Divider()
+                                Button("Tout importer") {
+                                    Task { for item in found where !manager.isInstalled(chromeID: item.id) { await manager.importExtension(item) } }
+                                }
+                            }
+                        }
+                    }
+                }
+                .fixedSize()
+                .disabled(manager.installing != nil)
+            }
+            if let name = manager.installing {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Installation : \(name)…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let error = manager.lastError {
+                Text(error).font(.caption).foregroundStyle(Theme.danger)
+            }
+        } header: {
+            Text("Ajouter une extension Chrome")
+        }
+    }
+
+    private func installFromStore() {
+        let link = storeLink
+        Task {
+            await manager.installFromWebStore(link)
+            if manager.lastError == nil { storeLink = "" }
+        }
     }
 }
 
@@ -533,25 +604,22 @@ private struct ExtensionList: View {
                     VStack(alignment: .leading) {
                         Text(context.webExtension.displayName ?? "Extension")
                         Text(context.webExtension.displayVersion ?? "").font(.caption).foregroundStyle(.secondary)
+                        if !context.errors.isEmpty {
+                            Text(context.errors.map(\.localizedDescription).joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .help(context.errors.map(\.localizedDescription).joined(separator: "\n"))
+                        }
                     }
                     Spacer()
-                    Button("Action") { manager.performAction(context) }
+                    if context.optionsPageURL != nil {
+                        Button("Options") { manager.openOptions(context) }
+                    }
                     Button("Retirer", role: .destructive) { manager.uninstall(context) }
                 }
             }
             if manager.contexts.isEmpty {
                 Text("Aucune extension.").foregroundStyle(.secondary)
-            }
-            Button("Installer depuis un dossier ou un .zip…") {
-                let panel = NSOpenPanel()
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = true
-                panel.allowedContentTypes = [.zip, .folder]
-                guard panel.runModal() == .OK, let url = panel.url else { return }
-                Task { await manager.install(from: url) }
-            }
-            if let error = manager.lastError {
-                Text(error).font(.caption).foregroundStyle(Theme.danger)
             }
         }
     }

@@ -36,14 +36,18 @@ final class Tab: Identifiable {
     // Media / Picture in Picture
     var hasVideo = false
     var isPlayingVideo = false
-    var isAudible = false
+    var isAudible = false {
+        didSet { if isAudible != oldValue { ExtensionEvents.tabChanged(self, .audio) } }
+    }
     var isInPiP = false
     var isInFloatingPlayer = false
     @ObservationIgnored var autoPiPEngaged = false
     @ObservationIgnored var mediaFrames: [String: MediaFrameState] = [:]
 
     // Reader mode
-    var reader: ReaderArticle?
+    var reader: ReaderArticle? {
+        didSet { if (reader == nil) != (oldValue == nil) { ExtensionEvents.tabChanged(self, .readerMode) } }
+    }
 
     // Tab UI / automatic sleep
     /// 0…1, how far the main frame is scrolled (activity.js).
@@ -101,7 +105,7 @@ final class Tab: Identifiable {
         // re-enter here synchronously (PageView.onChange) and must get this same web view.
         if let webViewBeingCreated { return webViewBeingCreated }
         let isPopup = popupConfiguration != nil
-        let configuration = popupConfiguration ?? WebViewFactory.configuration(for: space, isPrivate: isPrivate)
+        let configuration = popupConfiguration ?? WebViewFactory.configuration(for: space, isPrivate: isPrivate, url: url)
         popupConfiguration = nil
 
         let wv = WebViewFactory.makeWebView(configuration: configuration)
@@ -181,6 +185,7 @@ final class Tab: Identifiable {
     func didCommit(_ url: URL?) {
         guard let url, url != self.url else { return }
         self.url = url
+        ExtensionEvents.tabChanged(self, .url)
         browser?.setNeedsSave()
     }
 
@@ -213,6 +218,7 @@ final class Tab: Identifiable {
                 MainActor.assumeIsolated {
                     guard let self, let t = wv.title, !t.isEmpty else { return }
                     self.title = t
+                    ExtensionEvents.tabChanged(self, .title)
                     if !self.isPrivate, self.browser?.isEphemeralSession != true, let url = wv.url {
                         HistoryStore.shared.updateTitle(url: url, title: t)
                     }
@@ -227,6 +233,7 @@ final class Tab: Identifiable {
                     guard let self, let u = wv.url, u != self.url else { return }
                     guard self.url == nil || u.voidSameOrigin(as: self.url) else { return }
                     self.url = u
+                    ExtensionEvents.tabChanged(self, .url)
                     self.browser?.setNeedsSave()
                 }
             },
@@ -234,7 +241,11 @@ final class Tab: Identifiable {
                 MainActor.assumeIsolated { self?.hasOnlySecureContent = wv.hasOnlySecureContent }
             },
             wv.observe(\.isLoading, options: [.new]) { [weak self] wv, _ in
-                MainActor.assumeIsolated { self?.isLoading = wv.isLoading }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isLoading = wv.isLoading
+                    ExtensionEvents.tabChanged(self, .loading)
+                }
             },
             wv.observe(\.estimatedProgress, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }

@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Copies left by an import that was interrupted (crash, quit).
             BrowserImporter.removeTemporaryCopies()
             if #available(macOS 15.4, *), AppSettings.shared.extensionsEnabled {
-                ExtensionManager.shared.loadInstalled()
+                ExtensionManager.shared.start()
             }
             var selfTest = false
             #if DEBUG

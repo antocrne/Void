@@ -37,6 +37,23 @@ enum WebKitSPI {
         if inspector.responds(to: action) { inspector.perform(action) }
     }
 
+    // MARK: Muting (chrome.tabs.update({muted}))
+
+    /// `_WKMediaAudioMuted`, the first bit of WebKit's muted state.
+    static func isPageMuted(_ webView: WKWebView) -> Bool {
+        let sel = NSSelectorFromString("_mediaMutedState")
+        guard webView.responds(to: sel) else { return false }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> UInt
+        return unsafeBitCast(webView.method(for: sel), to: Getter.self)(webView, sel) & 1 != 0
+    }
+
+    static func setPageMuted(_ webView: WKWebView, _ muted: Bool) {
+        let sel = NSSelectorFromString("_setPageMuted:")
+        guard webView.responds(to: sel) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, UInt) -> Void
+        unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, muted ? 1 : 0)
+    }
+
     private static func boolValue(_ object: NSObject, _ name: String) -> Bool {
         let sel = NSSelectorFromString(name)
         guard object.responds(to: sel) else { return false }

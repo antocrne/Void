@@ -72,7 +72,14 @@ final class AppSettings {
     var autoPiP: Bool { didSet { defaults.set(autoPiP, forKey: "autoPiP") } }
     var adBlockEnabled: Bool { didSet { defaults.set(adBlockEnabled, forKey: "adBlockEnabled"); ContentRules.shared.reload() } }
     var adBlockAllowlist: [String] { didSet { defaults.set(adBlockAllowlist, forKey: "adBlockAllowlist"); ContentRules.shared.reload() } }
-    var extensionsEnabled: Bool { didSet { defaults.set(extensionsEnabled, forKey: "extensionsEnabled") } }
+    var extensionsEnabled: Bool {
+        didSet {
+            defaults.set(extensionsEnabled, forKey: "extensionsEnabled")
+            if #available(macOS 15.4, *) {
+                if extensionsEnabled { ExtensionManager.shared.start() } else { ExtensionManager.shared.stop() }
+            }
+        }
+    }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
     var extensionsInPrivate: Bool {
         didSet {

@@ -27,7 +27,11 @@ enum WebViewFactory {
         return "Version/\(safari ?? "18.0") Safari/605.1.15"
     }()
 
-    static func configuration(for space: Space?, isPrivate: Bool) -> WKWebViewConfiguration {
+    /// `url`: the page the web view will show first — an extension's page gets the extension's configuration.
+    static func configuration(for space: Space?, isPrivate: Bool, url: URL? = nil) -> WKWebViewConfiguration {
+        if #available(macOS 15.4, *), let extensionPage = ExtensionManager.running?.configuration(for: url) {
+            return extensionPage
+        }
         let config = WKWebViewConfiguration()
         config.userContentController = contentController
         // Normal windows: the space's persistent store. Private windows: their space's in-memory

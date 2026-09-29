@@ -66,6 +66,7 @@ struct AddressTools: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            WebStoreInstallButton(tab: tab)
             if !tab.loginAccounts.isEmpty {
                 Menu {
                     ForEach(tab.loginAccounts, id: \.self) { account in
