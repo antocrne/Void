@@ -14,6 +14,7 @@ final class BrowserWindows {
     @ObservationIgnored private var controllers: [BrowserWindowController] = []
     @ObservationIgnored private weak var lastNormal: BrowserModel?
     @ObservationIgnored private var sleepTimer: Timer?
+    @ObservationIgnored private var memoryPressureSource: DispatchSourceMemoryPressure?
     @ObservationIgnored private var started = false
 
     private init() {}
@@ -32,9 +33,31 @@ final class BrowserWindows {
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
             MainActor.assumeIsolated { BrowserWindows.shared.windowBecameKey(note.object as? NSWindow) }
         }
+        // The main window is a SwiftUI scene: its model outlives it (see BrowserModel.windowClosed).
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            MainActor.assumeIsolated {
+                let main = BrowserModel.shared
+                if let window = note.object as? NSWindow, window === main.window { main.windowClosed() }
+            }
+        }
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             MainActor.assumeIsolated { BrowserWindows.shared.all.forEach { $0.sleepInactiveTabs() } }
         }
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak pressure] in
+            guard let event = pressure?.data else { return }
+            MainActor.assumeIsolated { BrowserWindows.shared.memoryPressure(critical: event.contains(.critical)) }
+        }
+        pressure.resume()
+        memoryPressureSource = pressure
+    }
+
+    /// macOS runs low on memory: idle tabs go to sleep without waiting for the usual delay
+    /// (five minutes of inactivity, none when it's critical), before WebKit has to kill pages.
+    func memoryPressure(critical: Bool) {
+        let idle: TimeInterval = critical ? 0 : 5 * 60
+        NSLog("[Void] mémoire %@ : mise en veille des onglets inactifs depuis %.0f s", critical ? "critique" : "basse", idle)
+        all.forEach { $0.sleepInactiveTabs(idleFor: idle) }
     }
 
     private func windowBecameKey(_ window: NSWindow?) {

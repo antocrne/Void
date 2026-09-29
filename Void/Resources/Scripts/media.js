@@ -48,15 +48,44 @@
     };
   };
 
+  // While a video is reported playing, the state is checked again every few seconds: a playing
+  // video removed from the page (feeds that recycle their posts, a closed player) pauses away
+  // from the document, so its "pause" never reaches the listeners below, and the tab would stay
+  // "playing" (never put to sleep, kept attached to the window) until the next page load.
   let timer = 0;
+  let watchdog = 0;
+  let last = '';
+  const send = (type) => {
+    const current = state();
+    last = [current.hasVideo, current.playing, current.audible, current.inPiP].join();
+    post(Object.assign({ type }, current));
+    const active = current.playing || current.audible || current.inPiP;
+    if (active && !watchdog) {
+      watchdog = setInterval(() => {
+        const s = state();
+        if ([s.hasVideo, s.playing, s.audible, s.inPiP].join() !== last) send('watchdog');
+      }, 3000);
+    } else if (!active && watchdog) {
+      clearInterval(watchdog);
+      watchdog = 0;
+    }
+  };
   const report = (type) => {
     clearTimeout(timer);
     const immediate = /picture|presentation/.test(type);
-    timer = setTimeout(() => post(Object.assign({ type }, state())), immediate ? 0 : 120);
+    timer = setTimeout(() => send(type), immediate ? 0 : 120);
   };
   ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'volumechange',
    'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']
     .forEach((name) => document.addEventListener(name, () => report(name), true));
+  // An embedded frame going away (iframe removed, navigated): its entry is dropped in the app.
+  // The main frame's entries are reset when the next page commits.
+  if (window !== window.top) {
+    addEventListener('pagehide', () => {
+      clearTimeout(timer);
+      post({ type: 'gone', hasVideo: false, playing: false, audible: false, inPiP: false });
+    });
+  }
 
   async function enterPiP() {
     const v = best();

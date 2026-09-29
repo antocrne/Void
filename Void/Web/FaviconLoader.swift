@@ -4,7 +4,7 @@ import WebKit
 /// Finds the page's icon (link rel=icon, else /favicon.ico) and stores a 32 px PNG on the tab.
 @MainActor
 enum FaviconLoader {
-    private static let session = URLSession(configuration: .ephemeral)
+    nonisolated private static let session = URLSession(configuration: .ephemeral)
     private static var cache: [String: (NSImage, Data)] = [:]
 
     static func load(for tab: Tab) {
@@ -23,17 +23,38 @@ enum FaviconLoader {
             var candidates = (await webView.voidCall(script) as? [String] ?? []).compactMap(URL.init(string:))
             if let fallback = URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL { candidates.append(fallback) }
             for url in candidates.prefix(3) {
-                guard let (data, response) = try? await session.data(from: url),
-                      (response as? HTTPURLResponse)?.statusCode ?? 200 < 400,
+                guard let data = await download(url),
                       let image = NSImage(data: data), image.isValid,
                       let png = image.voidResizedPNG(side: 32),
                       let resized = NSImage(data: png) else { continue }
                 // Private windows leave no trace, not even in this in-memory cache.
-                if !tab.isPrivate { cache[host] = (resized, png) }
+                if !tab.isPrivate {
+                    if cache.count >= 300 { cache.removeAll() }
+                    cache[host] = (resized, png)
+                }
                 tab.setFavicon(resized, data: png)
                 return
             }
         }
+    }
+
+    /// An icon is a few kilobytes: a page pointing its icon at a huge file doesn't get it read into memory.
+    nonisolated private static let maximumSize = 512 * 1024
+
+    nonisolated private static func download(_ url: URL) async -> Data? {
+        guard let (bytes, response) = try? await session.bytes(from: url),
+              (response as? HTTPURLResponse)?.statusCode ?? 200 < 400,
+              response.expectedContentLength <= Int64(maximumSize) else { return nil }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > maximumSize { return nil }
+            }
+        } catch {
+            return nil
+        }
+        return data
     }
 }
 

@@ -84,6 +84,8 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         tab.didCommit(webView.url)
         tab.reader = nil
         tab.loginAccounts = []
+        tab.loginHost = nil
+        tab.loginFrame = nil
         tab.readingProgress = 0
         tab.hasUserInput = false
         PiPController.shared.resetFrames(of: tab)
@@ -113,6 +115,53 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
         if ns.domain == "WebKitErrorDomain" && (ns.code == 102 || ns.code == 204) { return }
         tab?.loadError = ns.localizedDescription
+    }
+
+    // MARK: - HTTP authentication
+
+    /// Methods for which the user types a name and a password. Kerberos (Negotiate) and client
+    /// certificates stay with WebKit's default handling.
+    private static let passwordMethods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
+                                                      NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
+
+    /// Sites behind HTTP authentication (routers, NAS, intranets): without this, WebKit never asks
+    /// and shows the server's 401 page.
+    func webView(_ webView: WKWebView, respondTo challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        let space = challenge.protectionSpace
+        // Refused three times: the server's own error page.
+        guard Self.passwordMethods.contains(space.authenticationMethod), challenge.previousFailureCount < 3 else {
+            return (.performDefaultHandling, nil)
+        }
+        // Only over the tab being shown (like JS dialogs); a hidden tab gets the 401 page, which a reload asks again.
+        guard let tab, tab.browser?.selectedTab === tab, let window = webView.window else {
+            return (.performDefaultHandling, nil)
+        }
+        let port = [80, 443].contains(space.port) ? "" : ":\(space.port)"
+        let alert = NSAlert()
+        alert.messageText = "Connexion à \(space.host)\(port)"
+        var info = space.realm.map { "« \($0) » demande un nom d'utilisateur et un mot de passe." }
+            ?? "Ce site demande un nom d'utilisateur et un mot de passe."
+        if challenge.previousFailureCount > 0 { info = "Nom d'utilisateur ou mot de passe incorrect. " + info }
+        if !space.receivesCredentialSecurely { info += "\n\nLa connexion n'est pas chiffrée : le mot de passe sera envoyé en clair." }
+        alert.informativeText = info
+        let user = NSTextField(string: challenge.proposedCredential?.user ?? "")
+        user.placeholderString = "Nom d'utilisateur"
+        let password = NSSecureTextField(string: "")
+        password.placeholderString = "Mot de passe"
+        let fields = NSStackView(views: [user, password])
+        fields.orientation = .vertical
+        fields.spacing = 8
+        fields.frame = NSRect(x: 0, y: 0, width: 280, height: 56)
+        for field in [user, password] { field.widthAnchor.constraint(equalToConstant: 280).isActive = true }
+        alert.accessoryView = fields
+        alert.addButton(withTitle: "Se connecter")
+        alert.addButton(withTitle: "Annuler")
+        alert.window.initialFirstResponder = user.stringValue.isEmpty ? user : password
+        let response = await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+        }
+        guard response == .alertFirstButtonReturn else { return (.performDefaultHandling, nil) }
+        return (.useCredential, URLCredential(user: user.stringValue, password: password.stringValue, persistence: .forSession))
     }
 
     /// Last automatic reload after a crash of the page's process (at most one per 30 s).

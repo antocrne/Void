@@ -48,10 +48,22 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         controller.delegate = self
     }
 
+    /// extensions.json, read once (the toolbar asks at every redraw).
+    @ObservationIgnored private var installedCache: [InstalledExtension]?
     private var installed: [InstalledExtension] {
-        get { (try? JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: listURL))) ?? [] }
-        set { if let data = try? JSONEncoder().encode(newValue) { try? data.write(to: listURL, options: .atomic) } }
+        get {
+            if let installedCache { return installedCache }
+            let list = (try? JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: listURL))) ?? []
+            installedCache = list
+            return list
+        }
+        set {
+            installedCache = newValue
+            if let data = try? JSONEncoder().encode(newValue) { try? data.write(to: listURL, options: .atomic) }
+        }
     }
+    /// Bumped by start() and stop(): a load begun before extensions were switched off is dropped.
+    @ObservationIgnored private var runGeneration = 0
 
     var installedRecords: [InstalledExtension] { installed }
 
@@ -66,10 +78,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         guard !isStarted else { return }
         isStarted = true
         Self.isRunning = true
+        runGeneration &+= 1
+        let generation = runGeneration
         migrateIdentifiers()
         for item in installed where !contexts.contains(where: { $0.uniqueIdentifier == item.id }) {
             Task {
-                do { try await load(URL(fileURLWithPath: item.path), identifier: item.id) } catch {
+                do { try await load(URL(fileURLWithPath: item.path), identifier: item.id, generation: generation) } catch is CancellationError {
+                    // Switched off (or back on) while it was loading.
+                } catch {
                     lastError = "\(URL(fileURLWithPath: item.path).lastPathComponent) : \(error.localizedDescription)"
                 }
             }
@@ -93,6 +109,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// Switched off: every extension stops (content scripts, background pages, popups).
     func stop() {
         guard isStarted else { return }
+        runGeneration &+= 1
         for context in contexts { try? controller.unload(context) }
         contexts = []
         isStarted = false
@@ -307,10 +324,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
     }
 
+    /// `generation`: the start() it belongs to; nothing is loaded if extensions were switched off since.
     @discardableResult
-    private func load(_ url: URL, identifier: String) async throws -> WKWebExtensionContext {
+    private func load(_ url: URL, identifier: String, generation: Int? = nil) async throws -> WKWebExtensionContext {
         Self.addShims(to: url)
         let ext = try await WKWebExtension(resourceBaseURL: url)
+        if let generation, generation != runGeneration || contexts.contains(where: { $0.uniqueIdentifier == identifier }) {
+            throw CancellationError()
+        }
         let context = WKWebExtensionContext(for: ext)
         context.uniqueIdentifier = identifier
         context.isInspectable = true
@@ -436,29 +457,35 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void) {
         let list = permissions.map(\.rawValue).sorted().joined(separator: ", ")
-        completionHandler(confirm(extensionContext, asks: "des autorisations supplémentaires : \(list)") ? permissions : [], nil)
+        confirm(extensionContext, asks: "des autorisations supplémentaires : \(list)") { completionHandler($0 ? permissions : [], nil) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionToAccess urls: Set<URL>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<URL>, Date?) -> Void) {
         let hosts = Set(urls.compactMap { $0.host() }).sorted().joined(separator: ", ")
-        completionHandler(confirm(extensionContext, asks: "l'accès à \(hosts)") ? urls : [], nil)
+        confirm(extensionContext, asks: "l'accès à \(hosts)") { completionHandler($0 ? urls : [], nil) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionMatchPatterns matchPatterns: Set<WKWebExtension.MatchPattern>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void) {
         let sites = matchPatterns.map(\.description).sorted().joined(separator: ", ")
-        completionHandler(confirm(extensionContext, asks: "l'accès à \(sites)") ? matchPatterns : [], nil)
+        confirm(extensionContext, asks: "l'accès à \(sites)") { completionHandler($0 ? matchPatterns : [], nil) }
     }
 
-    private func confirm(_ context: WKWebExtensionContext, asks what: String) -> Bool {
+    /// A sheet over the frontmost browser window: an app-wide modal loop inside WebKit's callback
+    /// would run WebKit's other callbacks re-entrantly.
+    private func confirm(_ context: WKWebExtensionContext, asks what: String, _ answer: @escaping (Bool) -> Void) {
         let alert = NSAlert()
         alert.messageText = "« \(context.webExtension.displayName ?? "Une extension") » demande \(what)."
         alert.addButton(withTitle: "Autoriser")
         alert.addButton(withTitle: "Refuser")
-        return alert.runModal() == .alertFirstButtonReturn
+        guard let window = BrowserWindows.shared.active.window, window.isVisible else {
+            answer(alert.runModal() == .alertFirstButtonReturn)
+            return
+        }
+        alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, didUpdate action: WKWebExtension.Action,
