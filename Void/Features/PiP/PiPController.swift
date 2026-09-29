@@ -38,9 +38,9 @@ final class PiPController {
     // MARK: - Reports from media.js
 
     func handleReport(_ body: [String: Any], frame: WKFrameInfo, tab: Tab) {
-        let key = frameKey(frame)
+        let key = frameKey(body, frame)
         if body["type"] as? String == "gone" {
-            // An embedded frame left (media.js, pagehide): nothing of it plays any more.
+            // The frame's page went away (media.js, pagehide): nothing of it plays any more.
             tab.mediaFrames[key] = nil
         } else {
             tab.mediaFrames[key] = MediaFrameState(frame: frame,
@@ -81,8 +81,10 @@ final class PiPController {
         tab.isInPiP = frames.contains { $0.inPiP } || spiActive
     }
 
-    private func frameKey(_ frame: WKFrameInfo) -> String {
-        (frame.isMainFrame ? "main|" : "sub|") + (frame.request.url?.absoluteString ?? "") + "|" + frame.securityOrigin.host
+    /// media.js gives each document its own id; the frame's URL changes without a new document.
+    private func frameKey(_ body: [String: Any], _ frame: WKFrameInfo) -> String {
+        if let id = body["frame"] as? String { return id }
+        return (frame.isMainFrame ? "main|" : "sub|") + (frame.request.url?.absoluteString ?? "") + "|" + frame.securityOrigin.host
     }
 
     // MARK: - Actions

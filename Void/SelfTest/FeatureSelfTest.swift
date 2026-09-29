@@ -55,6 +55,7 @@ final class FeatureSelfTest {
         "store": { t, space in await t.testWebStorePage(in: space) },
         "plein-ecran": { t, space in await t.testElementFullscreen(in: space) },
         "barre-commande": { t, space in await t.snapshotCommandBar(in: space) },
+        "lecteurs": { t, space in await t.testPlayers(in: space) },
     ]
 
     func run() async {
@@ -600,7 +601,142 @@ final class FeatureSelfTest {
         await sleep(0.3)
         check("Plein écran : en sortant, la page revient à sa place", webView.window === browser.window && webView.superview === host
               && host?.subviews.last === webView)
+
+        // Closing the tab while it's fullscreen: WebKit's fullscreen window goes away.
+        _ = try? await webView.callAsyncJavaScript("await document.getElementById('v').requestFullscreen();", contentWorld: .page)
+        for _ in 0..<50 where !tab.isInElementFullscreen { await sleep(0.1) }
+        await sleep(1.5)
+        let fullscreenWindow = webView.window
         browser.close(tab)
+        await sleep(1.5)
+        check("Plein écran : fermer l'onglet ferme aussi la fenêtre plein écran", fullscreenWindow !== browser.window
+              && fullscreenWindow?.isVisible == false && tab.webView == nil,
+              "fenêtre=\(fullscreenWindow.map { String(describing: type(of: $0)) } ?? "nil") visible=\(fullscreenWindow?.isVisible ?? false)")
+    }
+
+    /// A page with a video that plays without network (a canvas stream).
+    private static let streamPage = """
+        <!doctype html><body style='margin:0'><canvas id=c width=160 height=90></canvas><div id=slot></div><script>
+        const c = document.getElementById('c'), x = c.getContext('2d'); let n = 0;
+        setInterval(() => { x.fillStyle = 'hsl(' + (n++ * 12) + ',80%,50%)'; x.fillRect(0, 0, 160, 90); }, 40);
+        window.makeVideo = (shadow) => {
+          const v = document.createElement('video');
+          v.id = 'v'; v.muted = true; v.style.cssText = 'width:320px;height:180px;display:block';
+          v.srcObject = c.captureStream(25);
+          if (shadow) { const host = document.createElement('x-player'); host.attachShadow({ mode: 'open' }).appendChild(v); slot.appendChild(host); }
+          else slot.appendChild(v);
+          window.video = v;
+        };
+        </script></body>
+        """
+
+    /// Waits until `condition` holds (or `timeout`).
+    private func until(_ timeout: Double = 4, _ condition: () -> Bool) async -> Bool {
+        for _ in 0..<Int(timeout * 10) {
+            if condition() { return true }
+            await sleep(0.1)
+        }
+        return condition()
+    }
+
+    private func key(_ window: NSWindow, code: UInt16, scalar: Int) {
+        let chars = String(UnicodeScalar(scalar)!)
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [.numericPad, .function], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                        isARepeat: false, keyCode: code) {
+                window.sendEvent(e)
+            }
+        }
+    }
+
+    /// Video players: media state, keys, context menu download.
+    private func testPlayers(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // 1. The page changes its address without reloading (next video): pausing must still be seen.
+        let spa = await htmlTab(Self.streamPage, in: space)
+        _ = try? await spa.webView?.callAsyncJavaScript("makeVideo(false); await video.play(); return 1;", contentWorld: .page)
+        let played = await until { spa.isPlayingVideo }
+        _ = try? await spa.webView?.callAsyncJavaScript("history.pushState({}, '', '/video-suivante'); await new Promise(r => setTimeout(r, 300)); video.pause(); return 1;", contentWorld: .page)
+        let paused = await until { !spa.isPlayingVideo }
+        check("Lecteurs : pause vue après un changement d'adresse sans rechargement", played && paused,
+              "lecture=\(played) pause=\(paused) entrées=\(spa.mediaFrames.count)")
+
+        // 2. A player inside a shadow root (web component): play and pause are seen.
+        let shadow = await htmlTab(Self.streamPage, in: space)
+        _ = try? await shadow.webView?.callAsyncJavaScript("makeVideo(true); return 1;", contentWorld: .page)
+        await sleep(0.6)
+        _ = try? await shadow.webView?.callAsyncJavaScript("await video.play(); return 1;", contentWorld: .page)
+        let shadowPlayed = await until { shadow.isPlayingVideo }
+        _ = try? await shadow.webView?.callAsyncJavaScript("video.pause(); return 1;", contentWorld: .page)
+        let shadowPaused = await until { !shadow.isPlayingVideo }
+        check("Lecteurs : lecteur dans un shadow DOM, lecture et pause vues", shadowPlayed && shadowPaused,
+              "lecture=\(shadowPlayed) pause=\(shadowPaused)")
+        browser.close(shadow)
+        browser.close(spa)
+
+        // 3. Keys the page leaves unhandled: dropped (no system beep), handled ones still work.
+        let fixed = await htmlTab("<!doctype html><body style='overflow:hidden;margin:0'><div style='height:100px'>lecteur</div></body>", in: space)
+        if let webView = fixed.webView, let window = webView.window {
+            window.makeFirstResponder(webView)
+            let before = webView.droppedKeyDowns
+            key(window, code: 124, scalar: NSRightArrowFunctionKey)
+            let dropped = await until(2) { webView.droppedKeyDowns > before }
+            check("Clavier : flèche que la page ne traite pas → ignorée sans bip", dropped, "ignorées=\(webView.droppedKeyDowns - before)")
+        } else { check("Clavier : vue web", false) }
+        browser.close(fixed)
+        let scrolling = await htmlTab("<!doctype html><body style='margin:0;height:6000px'>long</body>", in: space)
+        if let webView = scrolling.webView, let window = webView.window {
+            window.makeFirstResponder(webView)
+            let before = webView.droppedKeyDowns
+            key(window, code: 125, scalar: NSDownArrowFunctionKey)
+            await sleep(0.8)
+            let y = await js(scrolling, "return window.scrollY;") as? Double ?? 0
+            check("Clavier : flèche traitée par la page (défilement) → inchangée", y > 0 && webView.droppedKeyDowns == before, "scrollY=\(y)")
+        }
+        browser.close(scrolling)
+
+        // 4. Right-click → "Download Linked File": the download starts.
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("void-menu-dl-\(UUID().uuidString)")
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let settings = AppSettings.shared
+        let savedFolder = settings.downloadFolderPath
+        settings.downloadFolderPath = folder.path
+        defer { settings.downloadFolderPath = savedFolder; try? fm.removeItem(at: folder) }
+        let links = await htmlTab("<!doctype html><body style='margin:0'><a id=l href='data:application/octet-stream;base64,Vm9pZA==' style='font:40px system-ui;display:inline-block;margin:40px'>fichier</a></body>", in: space)
+        var identifiers: [String] = []
+        var picked = false
+        VoidWebView.menuTestHook = { menu in
+            identifiers = menu.items.compactMap(\.identifier?.rawValue)
+            if let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile" }) {
+                menu.performActionForItem(at: index)
+                picked = true
+            }
+            DispatchQueue.main.async { menu.cancelTrackingWithoutAnimation() }
+        }
+        let count = DownloadManager.shared.items.count
+        if let webView = links.webView, let window = webView.window,
+           let p = await webView.voidCall("const r = document.getElementById('l').getBoundingClientRect(); return {x: r.left + r.width/2, y: r.top + r.height/2};") as? [String: Double] {
+            let location = webView.convert(NSPoint(x: p["x"]!, y: webView.isFlipped ? p["y"]! : webView.bounds.height - p["y"]!), to: nil)
+            for type in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(e)
+                }
+                await sleep(0.1)
+            }
+        }
+        let started = await until(6) { DownloadManager.shared.items.count > count }
+        let item = started ? DownloadManager.shared.items.first : nil
+        _ = await until(4) { item?.state == .finished }
+        check("Clic droit → Télécharger le fichier lié : le téléchargement démarre et se termine", picked && item?.state == .finished,
+              "menu=\(picked ? "ok" : identifiers.joined(separator: ",")) état=\(String(describing: item?.state))")
+        VoidWebView.menuTestHook = nil
+        if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
+        browser.close(links)
     }
 
     /// The command bar over a docked sidebar: centered on the page, not on the window.

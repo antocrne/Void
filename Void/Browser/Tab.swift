@@ -150,8 +150,17 @@ final class Tab: Identifiable {
     /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP, unless `force`
     /// (the tab is being closed, or its page is gone): PiP must then already have been exited.
     func sleep(force: Bool = false) {
+        // Fullscreen first: WebKit must put the web view back in the window before it's released,
+        // or its fullscreen window would stay behind, black.
+        if isInElementFullscreen, let webView {
+            webView.closeAllMediaPresentations { [weak self] in
+                self?.isInElementFullscreen = false
+                self?.sleep(force: force)
+            }
+            return
+        }
         if force { isInPiP = false; isInFloatingPlayer = false; autoPiPEngaged = false }
-        guard let webView, !isInPiP, !isInFloatingPlayer, force || !isInElementFullscreen else { return }
+        guard let webView, !isInPiP, !isInFloatingPlayer else { return }
         observations.forEach { $0.invalidate() }
         observations = []
         webView.stopLoading()
