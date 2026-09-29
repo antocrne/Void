@@ -80,6 +80,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab else { return }
+        tab.didCommit(webView.url)
         tab.reader = nil
         tab.loginAccounts = []
         tab.readingProgress = 0

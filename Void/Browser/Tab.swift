@@ -30,6 +30,8 @@ final class Tab: Identifiable {
     var canGoBack = false
     var canGoForward = false
     var loadError: String?
+    /// Every resource of the page came over an encrypted connection (the lock in the address field).
+    var hasOnlySecureContent = true
 
     // Media / Picture in Picture
     var hasVideo = false
@@ -175,6 +177,13 @@ final class Tab: Identifiable {
         sleep(force: true)
     }
 
+    /// A navigation committed: the page now shown is the one at `url`.
+    func didCommit(_ url: URL?) {
+        guard let url, url != self.url else { return }
+        self.url = url
+        browser?.setNeedsSave()
+    }
+
     /// After waking up: puts the page back where it was if WebKit didn't.
     func restorePendingScroll() {
         guard let point = pendingScroll, let webView else { return }
@@ -209,9 +218,18 @@ final class Tab: Identifiable {
             },
             wv.observe(\.url, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let u = wv.url else { return }
-                    if u != self.url { self.url = u; self.browser?.setNeedsSave() }
+                    // WebKit reports the URL of a navigation as soon as it starts. Showing it
+                    // before it commits would let a page display "bank.com" (and a lock) over its
+                    // own content with a navigation that never completes: only same-origin
+                    // changes (pushState, anchors) are taken here, the rest at commit.
+                    guard let self, let u = wv.url, u != self.url else { return }
+                    guard self.url == nil || u.voidSameOrigin(as: self.url) else { return }
+                    self.url = u
+                    self.browser?.setNeedsSave()
                 }
+            },
+            wv.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.hasOnlySecureContent = wv.hasOnlySecureContent }
             },
             wv.observe(\.isLoading, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.isLoading = wv.isLoading }
@@ -232,5 +250,14 @@ final class Tab: Identifiable {
         favicon = image
         faviconData = data
         browser?.setNeedsSave()
+    }
+}
+
+extension URL {
+    /// Same scheme, host and port.
+    func voidSameOrigin(as other: URL?) -> Bool {
+        guard let other else { return false }
+        return scheme?.lowercased() == other.scheme?.lowercased() && host()?.lowercased() == other.host()?.lowercased()
+            && port == other.port
     }
 }

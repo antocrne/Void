@@ -37,7 +37,7 @@ struct AddressPill: View {
     private func leadingSymbol(_ tab: Tab?) -> String {
         guard let tab else { return "magnifyingglass" }
         if tab.isPrivate { return "eye.slash" }
-        if tab.url?.scheme == "https" { return "lock.fill" }
+        if tab.url?.scheme == "https" { return tab.hasOnlySecureContent ? "lock.fill" : "lock.trianglebadge.exclamationmark" }
         return tab.url == nil ? "magnifyingglass" : "globe"
     }
 
