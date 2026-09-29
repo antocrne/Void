@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import Network
 import WebKit
 
 /// Automated checks of Void's other features, through the real app code.
@@ -39,7 +40,24 @@ final class FeatureSelfTest {
 
     private func js(_ tab: Tab, _ body: String) async -> Any? { await tab.webView?.voidCall(body) }
 
+    /// `-VoidSelfTestOnly session,adresse,…`: runs only these self-contained sections (quick iteration).
+    private static let sections: [String: (FeatureSelfTest, Space) async -> Void] = [
+        "session": { t, _ in t.testSessionStore() },
+        "onglets": { t, space in await t.testTabLifecycle(in: space) },
+        "telechargements": { t, space in await t.testDownloads(in: space) },
+        "adresse": { t, space in await t.testAddressSpoofing(in: space) },
+    ]
+
     func run() async {
+        if let only = UserDefaults.standard.string(forKey: "VoidSelfTestOnly") {
+            let space = browser.addSpace(name: "Self-test", icon: "hammer")
+            for name in only.split(separator: ",").map(String.init) {
+                if let section = Self.sections[name] { await section(self, space) } else { check("Section inconnue : \(name)", false) }
+            }
+            browser.deleteSpace(space)
+            write()
+            return
+        }
         let settings = AppSettings.shared
         let savedLayout = settings.tabLayout, savedTheme = settings.theme, savedSidebar = settings.sidebarVisible
         let windowList = NSApp.windows.map { "\(type(of: $0))[\($0.title)] visible=\($0.isVisible)" }.joined(separator: ", ")
@@ -211,6 +229,23 @@ final class FeatureSelfTest {
 
         // 7c. Tab lifecycle: dialogs, crashes, pinned tabs.
         await testTabLifecycle(in: space)
+
+        // 7d. Downloads and links to other apps.
+        await testDownloads(in: space)
+
+        // 7e. Address field: shows the page actually displayed, never a navigation in progress.
+        await testAddressSpoofing(in: space)
+
+        // 7f. History database: write-ahead log, no rewrite of an unchanged title, stable suggestions.
+        let history = HistoryStore.shared
+        check("Historique : journal WAL (écritures sans synchronisation complète)", history.journalMode == "wal", history.journalMode ?? "nil")
+        let writes = history.titleWrites
+        let probe = URL(string: "https://void-title.example/\(UUID().uuidString)")!   // no such row: nothing is modified
+        for _ in 0..<10 { history.updateTitle(url: probe, title: "(3) Messages") }
+        check("Historique : un titre inchangé n'est écrit qu'une fois", history.titleWrites - writes == 1, "\(history.titleWrites - writes) écriture(s)")
+        let ids1 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
+        let ids2 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
+        check("Barre de commande : suggestions stables d'un calcul à l'autre", !ids1.isEmpty && ids1 == ids2 && Set(ids1).count == ids1.count)
 
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
@@ -397,6 +432,96 @@ final class FeatureSelfTest {
         check("⌘W sur un épinglé en PiP : sort du PiP puis se met en veille",
               pip.isAsleep && !pip.isInPiP && space.pinned.contains { $0 === pip })
         browser.close(pip, force: true)
+    }
+
+    // MARK: - Downloads
+
+    private func testDownloads(in space: Space) async {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("void-downloads-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let settings = AppSettings.shared
+        let savedFolder = settings.downloadFolderPath
+        settings.downloadFolderPath = folder.path
+        defer { settings.downloadFolderPath = savedFolder; try? fm.removeItem(at: folder) }
+
+        let spoof = DownloadManager.sanitizedFilename("facture\u{202E}fdp.app")
+        check("Téléchargement : caractères d'inversion retirés du nom", !spoof.unicodeScalars.contains { $0.value == 0x202E } && spoof == "facturefdp.app", spoof)
+        let hidden = DownloadManager.sanitizedFilename("../.profile")
+        check("Téléchargement : pas de fichier caché ni de chemin", !hidden.hasPrefix(".") && !hidden.contains("/"), hidden)
+        let first = DownloadManager.uniqueDestination(for: "rapport.pdf", in: folder)
+        let second = DownloadManager.uniqueDestination(for: "rapport.pdf", in: folder)
+        check("Téléchargement : deux fichiers du même nom en même temps → deux chemins", first != second, second.lastPathComponent)
+        DownloadManager.release(first); DownloadManager.release(second)
+
+        // A real download through WebKit, into the temporary folder.
+        let tab = await htmlTab("<!doctype html><body>dl</body>", in: space, base: "https://void-dl.example/")
+        let source = URL(string: "data:application/octet-stream;base64,Vm9pZA==")!
+        tab.webView?.startDownload(using: URLRequest(url: source)) { download in
+            DownloadManager.shared.adopt(download, from: URL(string: "https://void-dl.example/fichier.bin"), in: tab.browser)
+        }
+        var item: DownloadItem?
+        for _ in 0..<40 {
+            await sleep(0.25)
+            item = DownloadManager.shared.items.first { $0.sourceURL?.host() == "void-dl.example" }
+            if item?.state == .finished { break }
+        }
+        let quarantined = item?.destination.flatMap { try? $0.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties } != nil
+        check("Téléchargement : fichier en quarantaine (Gatekeeper le vérifiera)", item?.state == .finished && quarantined,
+              "\(item?.destination?.lastPathComponent ?? "aucun fichier")")
+        if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
+
+        // Links to other apps.
+        check("Liens vers d'autres apps : smb:// refusé", ExternalURLPolicy.decide(scheme: "smb", userClick: true, fromMainFrame: true) == .refuse)
+        check("Liens vers d'autres apps : refusés depuis un cadre intégré ou un script",
+              ExternalURLPolicy.decide(scheme: "zoommtg", userClick: true, fromMainFrame: false) == .refuse
+              && ExternalURLPolicy.decide(scheme: "mailto", userClick: false, fromMainFrame: true) == .refuse)
+        check("Liens vers d'autres apps : mailto ouvert, les autres après confirmation",
+              ExternalURLPolicy.decide(scheme: "mailto", userClick: true, fromMainFrame: true) == .open
+              && ExternalURLPolicy.decide(scheme: "vscode", userClick: true, fromMainFrame: true) == .ask)
+    }
+
+    // MARK: - Address field
+
+    private func testAddressSpoofing(in space: Space) async {
+        // A local server that accepts connections and never answers: the navigation stays provisional.
+        var held: [NWConnection] = []
+        // A fixed port: WebKit refuses a number of "restricted" ports a random one could fall on.
+        var listener: NWListener?
+        var port: UInt16 = 0
+        for candidate: UInt16 in [8765, 18765, 28765] {
+            guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate)!) else { continue }
+            var ready = false
+            l.stateUpdateHandler = { if case .ready = $0 { MainActor.assumeIsolated { ready = true } } }
+            l.newConnectionHandler = { connection in
+                connection.start(queue: .main)
+                MainActor.assumeIsolated { held.append(connection) }
+            }
+            l.start(queue: .main)
+            for _ in 0..<20 where !ready { await sleep(0.1) }
+            if ready { listener = l; port = candidate; break }
+            l.cancel()
+        }
+        defer { listener?.cancel(); held.forEach { $0.cancel() } }
+        guard listener != nil else { check("Adresse : serveur de test", false); return }
+
+        // WebKit blocks a public site from reaching the loopback address: the page itself is local too.
+        let tab = await htmlTab("<!doctype html><body>page</body>", in: space, base: "http://localhost:\(port)/")
+        _ = await js(tab, "history.pushState({}, '', '/suite'); return 1;")
+        await sleep(0.3)
+        check("Adresse : pushState suivi", tab.url?.path() == "/suite", tab.url?.absoluteString ?? "nil")
+
+        // Straight to the web view (as a page-initiated navigation would), not through Tab.load.
+        tab.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/banque")!))
+        await sleep(1.5)
+        let provisional = tab.webView?.url?.host() == "127.0.0.1"
+        check("Adresse : une navigation qui n'aboutit pas n'est pas affichée", tab.addressText == "localhost",
+              "affiché=\(tab.addressText) · WebKit expose l'URL en cours : \(provisional ? "oui" : "non") (\(tab.webView?.url?.absoluteString ?? "nil"), connexions=\(held.count), chargement=\(tab.isLoading), erreur=\(tab.loadError ?? "aucune"))")
+        tab.webView?.stopLoading()
+
+        tab.webView?.loadHTMLString("<!doctype html><body>autre</body>", baseURL: URL(string: "https://void-autre.example/"))
+        await waitForLoad(tab)
+        check("Adresse : une navigation aboutie est affichée", tab.addressText == "void-autre.example", tab.addressText)
     }
 
     // MARK: - Session file
