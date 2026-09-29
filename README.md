@@ -4,8 +4,8 @@
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Apple silicon, macOS 14 minimum
-- **≈ 5 Mo** (build Release), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~9 800 lignes de Swift (dont ~1 400 d'auto-tests), ~580 lignes de JavaScript injecté
+- **≈ 6 Mo** (build Release, image disque de 2,4 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
+- ~10 100 lignes de Swift (dont ~1 500 d'auto-tests), ~650 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -31,7 +31,7 @@ Pour l'installer, copier `Void.app` dans `/Applications`, ou créer une image di
 ./scripts/make-dmg.sh
 ```
 
-Le script compile en Release et produit `build/Void-<version>.dmg` (Void + raccourci vers Applications, à glisser-déposer).
+Le script compile en Release et produit `build/Void-<version>.dmg`, soit `build/Void-0.1.dmg` pour cette version (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script.
 
 La signature est ad hoc (« Sign to Run Locally »), sans compte développeur. Pour distribuer l'app, renseigner une équipe dans *Signing & Capabilities* ; cela permet aussi au trousseau d'utiliser le *data protection keychain* (sinon macOS peut redemander l'accès aux mots de passe après chaque recompilation).
 
