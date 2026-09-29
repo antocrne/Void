@@ -213,7 +213,9 @@ final class Tab: Identifiable {
                 MainActor.assumeIsolated {
                     guard let self, let t = wv.title, !t.isEmpty else { return }
                     self.title = t
-                    if !self.isPrivate, let url = wv.url { HistoryStore.shared.updateTitle(url: url, title: t) }
+                    if !self.isPrivate, self.browser?.isEphemeralSession != true, let url = wv.url {
+                        HistoryStore.shared.updateTitle(url: url, title: t)
+                    }
                 }
             },
             wv.observe(\.url, options: [.new]) { [weak self] wv, _ in

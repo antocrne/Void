@@ -16,7 +16,7 @@ final class HistoryStore {
     private let db: SQLiteDB?
 
     private init() {
-        db = SQLiteDB(path: StateStore.directory.appendingPathComponent("history.sqlite").path)
+        db = SQLiteDB(path: StateStore.directory.appendingPathComponent("history.sqlite").path, ownDatabase: true)
         db?.execute("""
         CREATE TABLE IF NOT EXISTS history (url TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
                                             visits INTEGER NOT NULL DEFAULT 1, last REAL NOT NULL)
@@ -33,8 +33,23 @@ final class HistoryStore {
         """, [url.absoluteString, title, Date().timeIntervalSince1970])
     }
 
+    /// Last title written per URL: pages that animate their title (unread counters, tickers)
+    /// would otherwise write to disk continuously.
+    private var writtenTitles: [String: String] = [:]
+    #if DEBUG
+    private(set) var titleWrites = 0
+    var journalMode: String? { db?.string("PRAGMA journal_mode") }
+    #endif
+
     func updateTitle(url: URL, title: String) {
-        db?.execute("UPDATE history SET title = ? WHERE url = ?", [title, url.absoluteString])
+        let key = url.absoluteString
+        guard writtenTitles[key] != title else { return }
+        if writtenTitles.count > 500 { writtenTitles.removeAll() }
+        writtenTitles[key] = title
+        #if DEBUG
+        titleWrites += 1
+        #endif
+        db?.execute("UPDATE history SET title = ? WHERE url = ?", [title, key])
     }
 
     func search(_ text: String, limit: Int = 8) -> [HistoryEntry] {
@@ -73,6 +88,7 @@ final class HistoryStore {
                     title = CASE WHEN title = '' THEN excluded.title ELSE title END
                 """, [e.url.absoluteString, e.title, e.visits, e.lastVisit.timeIntervalSince1970])
             }
+            return true   // an entry that fails is skipped, the others are kept
         }
     }
 

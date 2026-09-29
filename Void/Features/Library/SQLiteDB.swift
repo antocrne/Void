@@ -6,11 +6,19 @@ final class SQLiteDB {
     private var handle: OpaquePointer?
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-    init?(path: String, readOnly: Bool = false) {
+    /// `ownDatabase`: one of Void's own files (not another browser's copy). It then uses a
+    /// write-ahead log: a write no longer waits for a full sync to disk (it runs on the main
+    /// thread at every page load), and readers don't block the writer.
+    init?(path: String, readOnly: Bool = false, ownDatabase: Bool = false) {
         let flags = readOnly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
         guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
             sqlite3_close(handle)
             return nil
+        }
+        if ownDatabase {
+            sqlite3_busy_timeout(handle, 2000)
+            execute("PRAGMA journal_mode=WAL")
+            execute("PRAGMA synchronous=NORMAL")
         }
     }
 
@@ -30,10 +38,17 @@ final class SQLiteDB {
         while sqlite3_step(stmt) == SQLITE_ROW { row(Row(stmt: stmt)) }
     }
 
-    func transaction(_ body: () -> Void) {
+    /// Runs `body` in a transaction, rolled back if it returns false.
+    func transaction(_ body: () -> Bool) {
         execute("BEGIN")
-        body()
-        execute("COMMIT")
+        execute(body() ? "COMMIT" : "ROLLBACK")
+    }
+
+    /// First column of the first row, as text.
+    func string(_ sql: String, _ args: [Any?] = []) -> String? {
+        var value: String?
+        query(sql, args) { row in if value == nil { value = row.string(0) } }
+        return value
     }
 
     private func prepare(_ sql: String, _ args: [Any?]) -> OpaquePointer? {
