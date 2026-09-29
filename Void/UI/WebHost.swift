@@ -14,6 +14,10 @@ import Observation
 /// The host observes BrowserModel itself (Observation) instead of relying only on
 /// SwiftUI calling updateNSView, which could be skipped during animated transitions and
 /// leave the selected tab's web view out of the window.
+///
+/// One host per window holds the web views: the last one to join the window. Moving the tabs
+/// between the sidebar and the top builds a new page area while the old one fades out; both
+/// would claim the same web views, and the old one could keep them as it goes (a blank page).
 struct WebHost: NSViewRepresentable {
     let browser: BrowserModel
 
@@ -37,9 +41,29 @@ final class WebHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Every host in a window, oldest first.
+    private static var attached: [WeakHost] = []
+
+    private final class WeakHost {
+        weak var view: WebHostView?
+        init(_ view: WebHostView) { self.view = view }
+    }
+
+    /// The host showing `browser`'s pages: the newest one in its window.
+    private static func owner(of browser: BrowserModel?) -> WebHostView? {
+        guard let browser else { return nil }
+        return attached.last { $0.view?.browser === browser && $0.view?.window != nil }?.view
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        Self.attached.removeAll { $0.view == nil || $0.view === self }
+        guard window != nil else {
+            // Leaving: the host still in the window takes the web views back.
+            Self.owner(of: browser)?.sync()
+            return
+        }
+        Self.attached.append(WeakHost(self))
         sync()
         track()
     }
@@ -71,6 +95,7 @@ final class WebHostView: NSView {
     }
 
     func sync() {
+        guard Self.owner(of: browser) === self else { return }
         let (active, keepAlive) = MainActor.assumeIsolated { Self.desired(for: browser) }
         let background = keepAlive.filter { $0 !== active }
         let desired: [WKWebView] = background + (active.map { [$0] } ?? [])

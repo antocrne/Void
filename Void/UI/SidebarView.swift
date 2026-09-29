@@ -11,7 +11,6 @@ struct SidebarView: View {
         VStack(spacing: 10) {
             HStack(spacing: 2) {
                 Spacer()
-                ExtensionsButton()
                 ChromeButton(symbol: "sidebar.left", help: "Masquer la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
                 ChromeButton(symbol: "chevron.left", help: "Précédent (⌘[)", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
                 ChromeButton(symbol: "chevron.right", help: "Suivant (⌘])", disabled: !(browser.selectedTab?.canGoForward ?? false)) { browser.goForward() }
@@ -104,7 +103,7 @@ private struct SpaceTabList: View {
     }
 }
 
-/// Bottom of the sidebar: downloads, private window, spaces (none in a private window).
+/// Bottom of the sidebar: downloads, extensions, private window, spaces (none in a private window).
 private struct SpaceBar: View {
     @Environment(BrowserModel.self) private var browser
     @State private var creating = false
@@ -112,6 +111,7 @@ private struct SpaceBar: View {
     var body: some View {
         HStack(spacing: 2) {
             DownloadsButton()
+            ExtensionsButton()
             if browser.isPrivate {
                 Spacer()
                 ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }

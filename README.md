@@ -5,7 +5,7 @@
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Apple silicon, macOS 14 minimum
 - **≈ 6 Mo** (build Release, image disque de 2,4 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~10 100 lignes de Swift (dont ~1 500 d'auto-tests), ~650 lignes de JavaScript injecté
+- ~10 500 lignes de Swift (dont ~1 600 d'auto-tests), ~750 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -92,9 +92,11 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ✅ **Extensions Chrome** (macOS 15.4+, `WKWebExtension`, même interface WebExtensions que Chrome : `chrome.*`, Manifest V3 et V2, service worker) :
   - installation depuis le **Chrome Web Store** : sur la page d'une extension, le bouton « Ajouter à Chrome » (inactif hors de Chrome) est remplacé par **« Ajouter à Void »** / « Retirer de Void » ; ou un lien/identifiant dans Réglages → Extensions (« Ouvrir le Store »), depuis un fichier **.crx**, .zip ou un dossier, ou **importées de Chrome, Brave, Edge ou Arc** ; Void garde sa propre copie (`Extensions/`), une réinstallation met à jour en gardant les données ;
   - onglets et fenêtres de Void exposés aux extensions (`chrome.tabs`, `chrome.windows` : requêtes, création, activation, déplacement, épinglage, son, mode lecture, événements) ; scripts de contenu, `declarativeNetRequest`, stockage, page d'options dans un onglet, menus contextuels (`chrome.contextMenus`) ;
-  - bouton 🧩 toujours présent dans la barre (latérale ou du haut) : liste des extensions avec leur badge, popups d'action, accès au Store ; autorisations optionnelles demandées au moment voulu ;
-  - vérifié par l'auto-test avec une extension MV3 empaquetée en .crx : installation, script de contenu, `chrome.tabs.query`, `chrome.tabs.create`, page d'options, désinstallation ; bouton « Ajouter à Void » sur la vraie page du Store. **Non testés automatiquement** : le téléchargement réel depuis le Store (vérifié à la main avec Proton Pass) et les popups d'action à la souris. **Non pris en charge** : messagerie native, raccourcis clavier des extensions (`commands`), remplacement de la page Nouvel onglet, et les API propres à Chrome que WebKit n'implémente pas (`sidePanel`, `offscreen`…) : une extension qui en dépend fonctionnera en partie.
+  - bouton 🧩 toujours présent : en bas de la barre latérale, à droite dans la barre du haut ; liste des extensions avec leur badge, popups d'action (au-dessus du bouton en bas de la barre latérale), accès au Store ; les popups sont **redimensionnables** (poignée dans le coin opposé au bouton ; taille retenue par extension, double-clic : taille d'origine), et ceux d'au moins 480 px de large (gestionnaires de mots de passe…) s'ouvrent 25 % plus grands — WebKit les limitait à la taille de leur contenu (800 × 600 au plus), et un popup qui s'adapte à la place qu'on lui donne, comme Proton Pass, restait à sa taille minimale ; autorisations optionnelles demandées au moment voulu ;
+  - compatibilité Chrome → WebKit : Void ajoute à sa copie de l'extension un petit script (`extension-shim.js`) chargé en premier dans son script d'arrière-plan, ses pages et ses scripts de contenu. Il garde à WebKit ses objets `chrome`/`browser` (certaines extensions, dont Proton Pass, les remplacent une fois lancées pour masquer l'API : WebKit ne pouvait alors plus leur transmettre aucun message ni événement), fournit des substituts inertes aux API que WebKit n'a pas (`runtime.onUpdateAvailable`, `offscreen`, `sidePanel`…), dont l'absence arrêtait tout le script d'arrière-plan, et donne à `tabs.getCurrent()` la réponse de Chrome dans un popup (aucun onglet : WebKit renvoyait l'onglet sous le popup, et Proton Pass, se croyant dans un onglet, réduisait son popup à 50 × 50). Une extension venue du Store a son identifiant Chrome comme `chrome.runtime.id`, pour que ses sites puissent lui parler (`externally_connectable` : connexion à Proton Pass depuis account.proton.me) ; une extension installée avant ce changement prend son identifiant Chrome au lancement suivant, et repart avec des données vierges ;
+  - vérifié par l'auto-test avec une extension MV3 empaquetée en .crx : installation, script de contenu, `chrome.tabs.query`, `chrome.tabs.create`, page d'options reliée au script d'arrière-plan (même quand l'extension masque ses globales et utilise une API absente de WebKit), popup d'action à la taille de son contenu puis agrandi à la poignée (la page suit, taille retenue, double-clic : retour), désinstallation ; bouton « Ajouter à Void » sur la vraie page du Store. **Non testés automatiquement** : le téléchargement réel depuis le Store (vérifié à la main avec Proton Pass) et le clic à la souris sur le bouton 🧩 (le popup est ouvert par le test comme le fait ce bouton). **Non pris en charge** : messagerie native, raccourcis clavier des extensions (`commands`), remplacement de la page Nouvel onglet, et les API propres à Chrome que WebKit n'implémente pas (`sidePanel`, `offscreen`… : substituts inertes) : une extension qui en dépend fonctionnera en partie. Les scripts qu'une extension injecte elle-même (`chrome.scripting`) ne reçoivent pas `extension-shim.js`.
 - ✅ **Réorganiser les onglets par glisser-déposer**, dans la barre latérale (liste et grille des épinglés) comme dans la barre du haut : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre. Dans la barre du haut, qui est la barre de titre, les zones sont nettes : un onglet se déplace, les espaces vides déplacent la fenêtre (double-clic : comme la barre de titre). Vérifié par l'auto-test avec des événements souris envoyés à la fenêtre (onglet déplacé, fenêtre immobile ; zone vide : fenêtre déplacée).
+- ✅ **Changer la position des onglets** (barre latérale ↔ barre du haut) sans perdre la page : pendant l'animation, les deux zones de page coexistent et seule la dernière arrivée dans la fenêtre tient les pages (l'ancienne gardait parfois la page en disparaissant : page blanche). Vérifié par l'auto-test (bascules animées, rapides et lentes).
 
 ### Terminé, non testé automatiquement
 - ☑️ **Barre du haut** : mêmes outils que la barre latérale — extensions, fenêtre privée, téléchargements, et menu des espaces (changer d'espace, en créer un).
@@ -117,7 +119,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 1. ⌘T → taper `apple.com` → Entrée ; ⌘T → taper `trou noir` → recherche.
 2. ⌘-clic sur un lien → nouvel onglet en arrière-plan ; clic droit → « Ouvrir le lien dans un nouvel onglet ».
 3. Glisser un onglet plus bas dans la barre latérale → les autres s'écartent, la fenêtre ne bouge pas ; relancer Void → l'ordre est conservé. Même chose avec deux onglets épinglés, puis en mode « onglets en haut » (glisser vers la droite).
-4. Ouvrir la page d'une extension sur chromewebstore.google.com → 🧩 dans la barre d'adresse → « … ajoutée » ; 🧩 de la barre → l'extension → son popup s'ouvre sous le bouton.
+4. Ouvrir la page d'une extension sur chromewebstore.google.com → 🧩 dans la barre d'adresse → « … ajoutée » ; 🧩 (en bas de la barre latérale) → l'extension → son popup s'ouvre au-dessus du bouton (sous le bouton dans la barre du haut).
 5. Épingler un onglet (⌥⌘D), ⌘W → il passe en veille ; quitter/relancer Void → il est toujours là.
 6. Créer un espace (＋ en bas de la barre latérale), s'y connecter à un site → l'autre espace n'est pas connecté. Balayer à deux doigts sur la barre latérale pour passer d'un espace à l'autre.
 7. ⌘⇧R sur un article (Wikipédia, un journal) ; ⌘⇧H puis cliquer une bannière → recharger : elle reste masquée.
@@ -140,7 +142,8 @@ Void/
     PiP/                   PiPController (3 niveaux), FloatingPlayer (plan B)
     Reader/ AdBlock/ ElementHider/ Passwords/ Import/ Library/ Extensions/
   Settings/                Fenêtre de réglages, navigateur par défaut
-  Resources/Scripts/       core.js, media.js, autofill.js, reader.js, hider.js (monde JS isolé « Void »)
+  Resources/Scripts/       core.js, media.js, autofill.js, reader.js, hider.js, webstore.js (monde JS isolé « Void »),
+                           extension-shim.js (copié dans chaque extension : compatibilité Chrome → WebKit)
   SelfTest/                Auto-tests PiP et fonctionnalités (compilés en Debug uniquement)
 scripts/make-icon.swift    Génère l'icône
 docs/                      Compte rendu PiP, rapports d'auto-test, captures
@@ -149,16 +152,17 @@ docs/                      Compte rendu PiP, rapports d'auto-test, captures
 Choix notables :
 - **Légèreté** : une seule vue web est créée au lancement (onglet visible) ; les autres onglets restent « endormis » jusqu'au clic. Règles de blocage compilées une fois puis mises en cache par WebKit.
 - **Scripts dans un monde isolé** : les pages ne voient ni ne modifient les scripts de Void.
+- **Extensions Chrome dans WebKit** : Void modifie uniquement sa propre copie de l'extension (`Extensions/`) pour y charger `extension-shim.js` en premier (manifeste, pages HTML, script d'arrière-plan enveloppé dans `void-background.js`) ; l'original importé d'un autre navigateur n'est jamais touché.
 - **Pas de sandbox** : nécessaire pour lire les profils des autres navigateurs à l'import (comme Chrome ou Firefox, qui ne sont pas sandboxés non plus). Hardened Runtime actif.
-- **APIs internes WebKit** (préférences PiP/outils de développement, ouverture de la console) : toutes appelées après `responds(to:)` ; si Apple les retire, la fonction se désactive sans plantage.
+- **APIs internes WebKit** (préférences PiP/outils de développement, ouverture de la console, taille libre des popups d'extension) : toutes appelées après `responds(to:)` ; si Apple les retire, la fonction se désactive sans plantage.
 
 ## Données
 Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite, favoris, éléments masqués, extensions et leurs copies dans `Extensions/`). Les mots de passe sont uniquement dans le trousseau macOS. Les données des sites sont gérées par WebKit, un magasin par espace.
 
 ## Auto-tests (build Debug)
-Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément) et la lecture des vidéos en streaming du test PiP échouent quand l'écran du Mac est verrouillé ; ce n'est pas une régression.
+Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé ; ce n'est pas une régression.
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,glisser,extensions`.
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,glisser,disposition,extensions`.
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

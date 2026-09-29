@@ -54,6 +54,19 @@ enum WebKitSPI {
         unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, muted ? 1 : 0)
     }
 
+    // MARK: Extension popups
+
+    /// A popup's web view is laid out at its content's own size (up to 800 × 600): off, it is laid
+    /// out at the size it is given, like a window. Returns false when WebKit has no such switch.
+    @discardableResult
+    static func disableSizeToContent(_ webView: WKWebView) -> Bool {
+        let sel = NSSelectorFromString("_setSizeToContentAutoSizeMaximumSize:")
+        guard webView.responds(to: sel) else { return false }
+        typealias Setter = @convention(c) (AnyObject, Selector, CGSize) -> Void
+        unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, .zero)
+        return true
+    }
+
     private static func boolValue(_ object: NSObject, _ name: String) -> Bool {
         let sel = NSSelectorFromString(name)
         guard object.responds(to: sel) else { return false }

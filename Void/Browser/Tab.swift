@@ -91,6 +91,11 @@ final class Tab: Identifiable {
 
     var displayTitle: String {
         if !title.isEmpty { return title }
+        // An extension's page (options…): its name rather than its random address.
+        if url?.scheme == "webkit-extension", #available(macOS 15.4, *),
+           let name = ExtensionManager.running?.controller.extensionContext(for: url!)?.webExtension.displayName {
+            return name
+        }
         if let host = url?.host() { return host.voidNormalizedHost }
         return "Nouvel onglet"
     }

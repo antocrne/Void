@@ -1,13 +1,13 @@
 # Void — auto-test des fonctionnalités
 
-- Date : 2026-09-29T07:55:36Z
-- Résultat : 73 ✅ / 2 ❌
+- Date : 2026-09-29T11:00:00Z
+- Résultat : 90 ✅ / 3 ❌
 
 - ✅ **Adresse : « apple.com » → https** 
 - ✅ **Adresse : « localhost:3000 » → http** 
 - ✅ **Adresse : « trou noir » → recherche** 
 - ✅ **⌘-clic ouvre un nouvel onglet (arrière-plan)** — onglets 1 → 2
-- ✅ **Lien target=_blank ouvre un onglet** 
+- ❌ **Lien target=_blank ouvre un onglet** 
 - ✅ **Clic droit : lien détecté par core.js** — https://example.com/?via=cmdclick
 - ✅ **Menu contextuel : « Ouvrir le lien dans un nouvel onglet »** 
 - ✅ **Menu contextuel : arrière-plan + fenêtre privée (plus d'onglet privé)** 
@@ -16,7 +16,7 @@
 - ✅ **Onglet épinglé réveillé au clic** 
 - ✅ **Espaces : stockage séparé (cookie)** — A="voidtest=spaceA" B=""
 - ✅ **⌘⇧N : fenêtre privée ouverte et active** 
-- ✅ **Nouvelle fenêtre : même taille que la fenêtre d'origine, stable** — {1280, 820} vs {1280, 820}
+- ✅ **Nouvelle fenêtre : même taille que la fenêtre d'origine, stable** — {2036, 1142} vs {2036, 1142}
 - ✅ **⌘T dans une fenêtre privée : onglet privé, stockage éphémère** 
 - ✅ **Lien ouvert depuis une fenêtre privée : onglet privé, même stockage** — cookie="voidprivate=1"
 - ✅ **Fenêtre privée isolée des fenêtres normales** — normal="voidtest=spaceA"
@@ -26,21 +26,21 @@
 - ✅ **Fermeture : onglets détruits, fenêtre retirée** 
 - ✅ **Fenêtre privée fermée : modèle et stockage libérés** — modèle=libéré stockage=libéré
 - ✅ **Fenêtre privée fermée : rien ne persiste (nouvelle fenêtre sans le cookie)** — cookie=""
-- ✅ **Seconde fenêtre privée : taille stable** — {1280, 820}
+- ✅ **Seconde fenêtre privée : taille stable** — {2036, 1142}
 - ✅ **⌘N : nouvelle fenêtre normale (historique actif, session non écrasée)** 
 - ✅ **⌘N : mêmes espaces, même stockage (cookie de l'espace visible)** — cookie="voidtest=spaceA"
-- ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0833, page 0.0833
+- ✅ **Progression de lecture : l'onglet actif se remplit au défilement** — onglet 0.0914, page 0.0914
 - ✅ **Veille après 30 min d'inactivité** 
 - ✅ **Veille : l'onglet où du texte a été saisi reste éveillé** 
 - ✅ **Veille : l'onglet épinglé reste éveillé** 
 - ✅ **Veille : l'onglet affiché reste éveillé** 
 - ✅ **Réveil : même page, historique Précédent conservé** — précédent=true
-- ✅ **Réveil : revient à l'endroit où on l'a laissé** — scrollY=2400 mémorisé=2400 url=https://fr.wikipedia.org/wiki/Trou_noir hauteur=29577
+- ✅ **Réveil : revient à l'endroit où on l'a laissé** — scrollY=2400 mémorisé=2400 url=https://fr.wikipedia.org/wiki/Trou_noir hauteur=27390
 - ✅ **Bloqueur : doubleclick bloqué** — 0,0,1,none
 - ✅ **Bloqueur : Google Tag Manager bloqué** 
 - ✅ **Bloqueur : ressource légitime chargée** 
 - ✅ **Bloqueur : règle cosmétique (.adsbygoogle masqué)** 
-- ✅ **Mode lecture : article extrait** — « Trou noir — Wikipédia », 14620 mots, 10 images
+- ✅ **Mode lecture : article extrait** — « Trou noir — Wikipédia », 14490 mots, 10 images
 - ❌ **Masquer un élément : sélecteur enregistré** 
 - ❌ **Masquer un élément : toujours masqué au chargement suivant (règle compilée)** — display=block
 - ✅ **Mots de passe : formulaire rattaché à l'origine du cadre** — void-login-a.example
@@ -49,7 +49,7 @@
 - ✅ **Session : format plus récent relu (champs inconnus ou manquants)** — espaces=1 épinglés=1 onglets=3
 - ✅ **Session : fichier abîmé mis de côté, copie de secours relue** — secours=true mis de côté=1
 - ✅ **Session : rien de lisible → session neuve, fichiers abîmés conservés** — conservés=2
-- ✅ **Dialogue d'un onglet en arrière-plan : ne bloque pas l'app** — dismissed en 0.0 s
+- ✅ **Dialogue d'un onglet en arrière-plan : ne bloque pas l'app** — dismissed en 0.2 s
 - ✅ **Plantage d'un onglet en arrière-plan : mis en veille, pas rechargé** 
 - ✅ **Plantages répétés de l'onglet affiché : un rechargement puis un message, pas de boucle** — La page a cessé de fonctionner.
 - ✅ **Onglet épinglé devenu téléchargement : jamais supprimé** 
@@ -76,5 +76,23 @@
 - ✅ **Glisser-déposer (barre latérale) : l'onglet prend la place visée** — position 3 / 3
 - ✅ **Glisser-déposer (barre latérale) : l'onglet suit le pointeur** — (0.0, 4.0)
 - ✅ **Glisser-déposer : relâché, l'onglet rejoint sa place** 
+- ✅ **Glisser-déposer (barre du haut) : l'onglet prend la place visée** — position 1 / 1
+- ✅ **Glisser-déposer (barre du haut) : l'onglet suit le pointeur sur la ligne** — (-64.0, 0.0)
 - ✅ **Glisser-déposer : la fenêtre ne peut pas être déplacée pendant qu'on tient un onglet** 
+- ✅ **Barre du haut : la fenêtre n'est pas déplaçable par le système (seulement par les zones vides)** — app active=true fenêtre principale=true
+- ✅ **Barre du haut : glisser un onglet le déplace, la fenêtre ne bouge pas** — position 2 · fenêtre {3030, -118} → {3030, -118}
+- ✅ **Barre du haut : glisser dans une zone vide déplace la fenêtre** — x=1525 · {3030, -118} → {3070, -118}
+- ✅ **Disposition des onglets : la page reste affichée en passant de la barre latérale au haut (et retour)** 
 - ✅ **Glisser-déposer : les onglets épinglés se réordonnent entre eux** 
+- ✅ **Extensions : identifiant tiré d'un lien du Chrome Web Store (nouveau et ancien format) ou saisi seul** 
+- ✅ **Extensions : l'archive d'un .crx (CRX3) est retrouvée** 
+- ✅ **Extensions : un .crx s'installe (copie dans le dossier de Void), les extensions s'activent** 
+- ✅ **Extensions : le script de contenu s'exécute dans la page** 
+- ✅ **Extensions : manifeste Chrome accepté sans erreur** 
+- ✅ **Extensions : chrome.tabs.query voit les onglets de Void et l'onglet actif** — ["active": https://example.com/void-ext, "count": 7, "sender": https://example.com/void-ext] · onglets Void : 7
+- ✅ **Extensions : chrome.tabs.create ouvre un onglet Void** — 1 onglet(s)
+- ✅ **Extensions : la page d'options s'ouvre dans un onglet, accède à chrome.tabs et joint le script d'arrière-plan (globales masquées par l'extension, API absente de WebKit)** — « options:6:tab:bg » webkit-extension://64a40ba9-3e5d-4497-9f46-75eacce1aea7/options.html
+- ✅ **Extensions : le popup d'action n'est pas un onglet pour l'extension (tabs.getCurrent) et prend la taille de son contenu** — « popup:none » {316, 216} affiché=true
+- ✅ **Popup d'extension : la poignée l'agrandit, la page suit, la taille est retenue** — {316, 216} → {398, 656} · page [398.0, 656.0] · retenue {398, 656}
+- ✅ **Popup d'extension : double-clic sur la poignée, retour à sa taille** — {316, 216}
+- ✅ **Extensions : désinstallée, sa copie est supprimée** 
