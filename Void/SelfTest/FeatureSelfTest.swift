@@ -206,6 +206,9 @@ final class FeatureSelfTest {
         let after = await js(login, "return document.getElementById('p').value;") as? String
         check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
 
+        // 7a'. Session file: tolerant decoding, damaged file set aside, backup used.
+        testSessionStore()
+
         // 7b. Accent color: live, persisted, used by reader and picker
         let savedAccent = settings.accent
         settings.accent = .green
@@ -340,6 +343,48 @@ final class FeatureSelfTest {
             }
             await sleep(type == .mouseMoved ? 0.4 : 0.08)
         }
+    }
+
+    // MARK: - Session file
+
+    /// Works in a temporary folder: the user's session.json is never read or written.
+    private func testSessionStore() {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("void-session-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let saved = StateStore.sessionDirectory
+        StateStore.sessionDirectory = dir
+        defer { StateStore.sessionDirectory = saved; try? fm.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("session.json")
+        let space = UUID().uuidString, tab = UUID().uuidString
+
+        // A newer version: unknown fields, a missing field, one damaged tab among good ones.
+        let future = """
+            {"version":2,"windows":[],"currentSpaceID":"\(space)","spaces":[{"id":"\(space)","name":"Perso","color":"red",
+             "pinned":[{"id":"\(tab)","url":"https://example.com/","title":"Épinglé"}],
+             "tabs":[{"id":"not-a-uuid-but-tab-kept","url":"https://a.example/"},{"id":42},{"url":"https://b.example/","title":"B","group":"x"}]}]}
+            """
+        try? Data(future.utf8).write(to: file)
+        let s1 = StateStore.load()
+        let sp = s1?.spaces.first
+        check("Session : format plus récent relu (champs inconnus ou manquants)",
+              sp?.id.uuidString == space && sp?.pinned.count == 1 && sp?.tabs.count == 3 && sp?.icon == "circle",
+              "espaces=\(s1?.spaces.count ?? -1) épinglés=\(sp?.pinned.count ?? -1) onglets=\(sp?.tabs.count ?? -1)")
+
+        // Truncated file (crash, full disk): set aside, the last good copy is used.
+        try? Data(future.prefix(60).utf8).write(to: file)
+        let s2 = StateStore.load()
+        let corrupt = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("session.corrupt-") }
+        check("Session : fichier abîmé mis de côté, copie de secours relue",
+              s2?.spaces.first?.id.uuidString == space && corrupt.count == 1,
+              "secours=\(s2 != nil) mis de côté=\(corrupt.count)")
+
+        // Damaged and no backup: a fresh session, but the damaged file is still kept.
+        try? fm.removeItem(at: dir.appendingPathComponent("session.backup.json"))
+        try? Data("{".utf8).write(to: file)
+        let s3 = StateStore.load()
+        let kept = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("session.corrupt-") }.count
+        check("Session : rien de lisible → session neuve, fichiers abîmés conservés", s3 == nil && kept == 2, "conservés=\(kept)")
     }
 
     // MARK: - Tab drag and drop
