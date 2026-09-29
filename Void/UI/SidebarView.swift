@@ -11,6 +11,7 @@ struct SidebarView: View {
         VStack(spacing: 10) {
             HStack(spacing: 2) {
                 Spacer()
+                ExtensionsButton()
                 ChromeButton(symbol: "sidebar.left", help: "Masquer la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
                 ChromeButton(symbol: "chevron.left", help: "Précédent (⌘[)", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
                 ChromeButton(symbol: "chevron.right", help: "Suivant (⌘])", disabled: !(browser.selectedTab?.canGoForward ?? false)) { browser.goForward() }

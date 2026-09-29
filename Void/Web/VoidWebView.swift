@@ -53,6 +53,14 @@ final class VoidWebView: WKWebView {
             menu.insertItem(.separator(), at: 1)
         }
 
+        if #available(macOS 15.4, *), let tab, let manager = ExtensionManager.running {
+            let items = manager.menuItems(for: tab)
+            if !items.isEmpty {
+                menu.addItem(.separator())
+                items.forEach(menu.addItem)
+            }
+        }
+
         menu.addItem(.separator())
         if tab?.hasVideo == true {
             let pip = NSMenuItem(title: "Picture in Picture", action: #selector(togglePiP), keyEquivalent: "")

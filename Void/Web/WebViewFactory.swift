@@ -18,6 +18,10 @@ enum WebViewFactory {
         ucc.addUserScript(WKUserScript(source: Scripts.media, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
         ucc.addUserScript(WKUserScript(source: Scripts.autofill, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         ucc.addUserScript(WKUserScript(source: Scripts.activity, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+        if #available(macOS 15.4, *) {
+            // "Ajouter à Void" on the Chrome Web Store's extension pages.
+            ucc.addUserScript(WKUserScript(source: Scripts.webstore, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
+        }
         return ucc
     }()
 
@@ -27,7 +31,11 @@ enum WebViewFactory {
         return "Version/\(safari ?? "18.0") Safari/605.1.15"
     }()
 
-    static func configuration(for space: Space?, isPrivate: Bool) -> WKWebViewConfiguration {
+    /// `url`: the page the web view will show first — an extension's page gets the extension's configuration.
+    static func configuration(for space: Space?, isPrivate: Bool, url: URL? = nil) -> WKWebViewConfiguration {
+        if #available(macOS 15.4, *), let extensionPage = ExtensionManager.running?.configuration(for: url) {
+            return extensionPage
+        }
         let config = WKWebViewConfiguration()
         config.userContentController = contentController
         // Normal windows: the space's persistent store. Private windows: their space's in-memory

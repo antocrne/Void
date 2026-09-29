@@ -160,6 +160,7 @@ final class BrowserModel {
                 space.tabs.append(tab)
             }
         }
+        ExtensionEvents.tabOpened(tab)
         if background {
             // Background tabs still start loading so they're ready when selected.
             if popupConfiguration == nil, url != nil { tab.ensureWebView() }
@@ -181,6 +182,7 @@ final class BrowserModel {
         tab.ensureWebView()
         findBarVisible = false
         if previous !== tab { PiPController.shared.selectionChanged(from: previous, to: tab) }
+        ExtensionEvents.tabActivated(tab, previous: previous)
         setNeedsSave()
     }
 
@@ -208,6 +210,7 @@ final class BrowserModel {
             space.tabs.removeAll { $0 === tab }
             space.pinned.removeAll { $0 === tab }
         }
+        ExtensionEvents.tabClosed(tab)
         tab.isPinned = false
         tab.sleep(force: true)
         setNeedsSave()
@@ -243,6 +246,11 @@ final class BrowserModel {
 
     func togglePin(_ tab: Tab) {
         guard let space = tab.space, managesSpaces, !tab.isPrivate else { return }
+        let index = extensionTabs.firstIndex { $0 === tab } ?? 0
+        defer {
+            ExtensionEvents.tabChanged(tab, .pinned)
+            ExtensionEvents.tabMoved(tab, from: index)
+        }
         withAnimation(Theme.spring) {
             if tab.isPinned {
                 space.pinned.removeAll { $0 === tab }
@@ -260,6 +268,8 @@ final class BrowserModel {
     /// Moves a tab to `index` among its space's pinned tabs, or among its ordinary tabs (drag and drop).
     func moveTab(_ tab: Tab, to index: Int) {
         guard let space = tab.space else { return }
+        let before = extensionTabs.firstIndex { $0 === tab } ?? 0
+        defer { ExtensionEvents.tabMoved(tab, from: before) }
         func move(in list: inout [Tab]) {
             guard let from = list.firstIndex(where: { $0 === tab }), list.indices.contains(index), from != index else { return }
             list.remove(at: from)
@@ -327,6 +337,7 @@ final class BrowserModel {
         withAnimation(Theme.spring) { currentSpaceID = space.id }
         space.selectedTab?.ensureWebView()
         PiPController.shared.selectionChanged(from: previous, to: space.selectedTab)
+        if let shown = space.selectedTab { ExtensionEvents.tabActivated(shown, previous: previous) }
         setNeedsSave()
     }
 

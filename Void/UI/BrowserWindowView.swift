@@ -106,16 +106,20 @@ struct BrowserWindowView: View {
 
     private var topLayout: some View {
         VStack(spacing: 0) {
-            TopBarView()
-                .frame(height: 44)
-                .privateChrome(browser.isPrivate)
-            if settings.showBookmarksBar {
-                BookmarksBar()
+            VStack(spacing: 0) {
+                TopBarView()
+                    .frame(height: 44)
                     .privateChrome(browser.isPrivate)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
+                if settings.showBookmarksBar {
+                    BookmarksBar()
+                        .privateChrome(browser.isPrivate)
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 4)
+                        .transition(.opacity)
+                }
             }
+            // Tabs are dragged, the bar's empty places move the window.
+            .background(TitleBarDragArea())
             PageView()
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))

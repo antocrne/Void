@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Live reordering of tabs by dragging, in the sidebar: the list of tabs and the pinned grid.
-/// The dragged tab follows the pointer; the others make room as soon as it passes their middle
-/// (their cell, in the grid), and the space's order — hence ⌘1…⌘9 and the saved session —
-/// changes as it goes. Pinned tabs and ordinary tabs are reordered separately.
+/// Live reordering of tabs by dragging: the sidebar's list of tabs and pinned grid, and the
+/// top bar's row. The dragged tab follows the pointer; the others make room as soon as it passes
+/// their middle (their cell, in the grid), and the space's order — hence ⌘1…⌘9 and the saved
+/// session — changes as it goes. Pinned tabs and ordinary tabs are reordered separately.
 @MainActor @Observable
 final class TabReorder {
-    enum Layout { case vertical, grid }
+    enum Layout { case vertical, horizontal, grid }
 
     let layout: Layout
     let spacing: CGFloat
@@ -26,6 +26,11 @@ final class TabReorder {
     @ObservationIgnored private var startSlot: CGRect = .zero
     @ObservationIgnored private var slot: CGRect = .zero
     @ObservationIgnored private var lineStart: CGFloat = 0
+
+    #if DEBUG
+    /// Each tab's frame in its window (top-left origin), for the self-test.
+    @ObservationIgnored static var windowFrames: [UUID: CGRect] = [:]
+    #endif
 
     init(layout: Layout, spacing: CGFloat) {
         self.layout = layout
@@ -47,7 +52,7 @@ final class TabReorder {
             draggedID = tab.id
             // Worked back from the dragged tab: the first rows of a lazy list may never have been measured.
             let before = list.prefix { $0 !== tab }.reduce(CGFloat(0)) { $0 + extent(of: $1.id) + spacing }
-            lineStart = frame.minY - before
+            lineStart = (layout == .horizontal ? frame.minX : frame.minY) - before
         }
         guard draggedID == tab.id else { return }
 
@@ -62,8 +67,8 @@ final class TabReorder {
                 browser.moveTab(tab, to: target)
                 slot = cells[target]
             }
-        case .vertical:
-            let c = center.y
+        case .vertical, .horizontal:
+            let c = layout == .horizontal ? center.x : center.y
             while true {
                 let spans = lineSpans(order)
                 if index + 1 < order.count, c > spans[index + 1].mid {
@@ -73,7 +78,8 @@ final class TabReorder {
                     order.swapAt(index, index - 1)
                     index -= 1
                 } else {
-                    slot.origin = CGPoint(x: startSlot.minX, y: spans[index].start)
+                    slot.origin = layout == .horizontal ? CGPoint(x: spans[index].start, y: startSlot.minY)
+                                                        : CGPoint(x: startSlot.minX, y: spans[index].start)
                     break
                 }
             }
@@ -82,8 +88,9 @@ final class TabReorder {
             }
         }
 
+        // A row or a column: the tab stays on it, whatever the pointer does across it.
         offset = CGSize(width: layout == .vertical ? 0 : startSlot.minX + translation.width - slot.minX,
-                        height: startSlot.minY + translation.height - slot.minY)
+                        height: layout == .horizontal ? 0 : startSlot.minY + translation.height - slot.minY)
     }
 
     func dragEnded() {
@@ -95,7 +102,7 @@ final class TabReorder {
         cells = []
     }
 
-    /// Top and middle of each row, in `order`, from the top of the list.
+    /// Start and middle of each tab along the list's axis, in `order`.
     private func lineSpans(_ order: [UUID]) -> [(start: CGFloat, mid: CGFloat)] {
         var spans: [(CGFloat, CGFloat)] = []
         var position = lineStart
@@ -109,7 +116,8 @@ final class TabReorder {
 
     /// Unmeasured tabs (rows of a lazy list scrolled out of view) are taken to be the dragged one's size.
     private func extent(of id: UUID) -> CGFloat {
-        (snapshot[id] ?? startSlot).height
+        let frame = snapshot[id] ?? startSlot
+        return layout == .horizontal ? frame.width : frame.height
     }
 }
 
@@ -138,6 +146,10 @@ private struct TabReorderable: ViewModifier {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(reorder.coordinateSpace)) } action: {
                 reorder.record($0, for: tab.id)
             }
+            #if DEBUG
+            // Where the tab is in its window, for the self-test's mouse events.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { TabReorder.windowFrames[tab.id] = $0 }
+            #endif
             .onHover { TabDragWindowLock.pointer(isOver: tab.id, $0) }
             // A tab closed with its own cross goes while the pointer is still on it.
             .onDisappear { TabDragWindowLock.pointer(isOver: tab.id, false) }
@@ -157,6 +169,8 @@ private struct TabReorderable: ViewModifier {
 enum TabDragWindowLock {
     private static var hovered: Set<UUID> = []
     private static weak var locked: NSWindow?
+    /// Whether the window was movable before the press (the top bar keeps it unmovable).
+    private static var wasMovable = true
     private static var observers: [Any] = []
 
     static func pointer(isOver id: UUID, _ inside: Bool) {
@@ -169,6 +183,7 @@ enum TabDragWindowLock {
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp], handler: { event in
             MainActor.assumeIsolated {
                 if event.type == .leftMouseDown, !hovered.isEmpty, let window = event.window {
+                    wasMovable = window.isMovable
                     window.isMovable = false
                     locked = window
                 } else if event.type == .leftMouseUp {
@@ -184,7 +199,7 @@ enum TabDragWindowLock {
     }
 
     private static func unlock() {
-        locked?.isMovable = true
+        locked?.isMovable = wasMovable
         locked = nil
     }
 }

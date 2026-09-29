@@ -40,6 +40,7 @@ final class BrowserWindows {
     private func windowBecameKey(_ window: NSWindow?) {
         guard let window, let model = all.first(where: { $0.window === window }) else { return }
         if active !== model { active = model }
+        ExtensionEvents.windowFocused(model)
         if !model.isPrivate { lastNormal = model }
     }
 
@@ -47,15 +48,17 @@ final class BrowserWindows {
 
     /// ⌘N. Reopens the main window if it was closed, otherwise opens another normal window
     /// showing the same spaces (same storage, so the same logins).
-    func openNormalWindow() {
+    @discardableResult
+    func openNormalWindow() -> BrowserModel {
         let main = BrowserModel.shared
         if main.window?.isVisible != true, let open = main.openWindowAction {
             open(WindowID.main)
             main.window?.makeKeyAndOrderFront(nil)
-            return
+            return main
         }
         let model = BrowserModel(kind: .secondary, mirroring: normalTarget)
         show(model)
+        return model
     }
 
     /// ⌘⇧N. Every tab of the window is private and shares one in-memory store.
@@ -71,6 +74,7 @@ final class BrowserWindows {
         let reference = NSApp.keyWindow.flatMap { key in all.contains { $0.window === key } ? key : nil } ?? active.window
         let controller = BrowserWindowController(browser: model, cascadingFrom: reference)
         controllers.append(controller)
+        ExtensionEvents.windowOpened(model)
         controller.present()
         active = model
         if !model.isPrivate { lastNormal = model }
@@ -78,6 +82,7 @@ final class BrowserWindows {
 
     func windowWillClose(_ controller: BrowserWindowController) {
         let model = controller.browser
+        ExtensionEvents.windowClosing(model)
         model.tearDown()
         controllers.removeAll { $0 === controller }
         if active === model {

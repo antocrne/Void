@@ -4,6 +4,9 @@ import SwiftUI
 struct TopBarView: View {
     @Environment(BrowserModel.self) private var browser
     @Namespace private var selection
+    @State private var reorder = TabReorder(layout: .horizontal, spacing: 4)
+    @State private var pinnedReorder = TabReorder(layout: .horizontal, spacing: 4)
+    @State private var creatingSpace = false
 
     var body: some View {
         let space = browser.currentSpace
@@ -12,11 +15,15 @@ struct TopBarView: View {
 
             if browser.isPrivate {
                 PrivateBadge()
-            } else if browser.spaces.count > 1 {
-                // Only worth showing when there is a choice to make.
+            } else if browser.spaces.count > 1 || browser.managesSpaces {
+                // The spaces, as the sidebar's bottom bar has them: switch, or create one.
                 Menu {
                     ForEach(browser.spaces) { s in
                         Button { browser.switchSpace(to: s) } label: { Label(s.name, systemImage: s.icon) }
+                    }
+                    if browser.managesSpaces {
+                        Divider()
+                        Button { creatingSpace = true } label: { Label("Nouvel espace…", systemImage: "plus") }
                     }
                 } label: {
                     Label(space.name, systemImage: space.icon)
@@ -30,6 +37,7 @@ struct TopBarView: View {
                 .fixedSize()
                 .padding(.horizontal, 4)
                 .help("Espace : \(space.name) (⌃⌘← / ⌃⌘→)")
+                .popover(isPresented: $creatingSpace, arrowEdge: .bottom) { NewSpaceForm { creatingSpace = false } }
             }
 
             ChromeButton(symbol: "chevron.left", help: "Précédent (⌘[)", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
@@ -51,6 +59,13 @@ struct TopBarView: View {
             }
             ChromeButton(symbol: "plus", help: "Nouvel onglet (⌘T)") { browser.showCommandBar(.newTab) }
             Spacer(minLength: 0)
+            // The sidebar's tools, on the right.
+            ExtensionsButton()
+            if browser.isPrivate {
+                ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }
+            } else {
+                ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
+            }
             DownloadsButton()
         }
         .padding(.horizontal, 8)
@@ -62,6 +77,7 @@ struct TopBarView: View {
             ForEach(space.pinned) { tab in
                 PinnedTile(tab: tab, selected: space.selectedTabID == tab.id, height: 30)
                     .frame(width: 36)
+                    .tabReorderable(tab, with: pinnedReorder)
             }
             if !space.pinned.isEmpty {
                 Divider().frame(height: 16).padding(.horizontal, 2)
@@ -71,11 +87,15 @@ struct TopBarView: View {
             }
             ForEach(space.tabs) { tab in
                 TopTabPill(tab: tab, selected: space.selectedTabID == tab.id, namespace: selection)
+                    .tabReorderable(tab, with: reorder)
                     .id(tab.id)
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 2)
+        // Inside the scroll view when there is one: positions move with the scrolled row.
+        .coordinateSpace(.named(reorder.coordinateSpace))
+        .coordinateSpace(.named(pinnedReorder.coordinateSpace))
         .id(space.id)
         .transition(.push(from: browser.spaceTransitionEdge))
     }

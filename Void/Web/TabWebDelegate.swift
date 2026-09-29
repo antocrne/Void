@@ -11,7 +11,8 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     init(tab: Tab) { self.tab = tab }
 
-    private static let internalSchemes: Set<String> = ["http", "https", "about", "data", "blob", "file", "javascript", "view-source"]
+    /// webkit-extension: extensions' own pages (WebKit decides which pages may open them).
+    private static let internalSchemes: Set<String> = ["http", "https", "about", "data", "blob", "file", "javascript", "view-source", "webkit-extension"]
 
     // MARK: - Navigation policy
 

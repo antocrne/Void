@@ -5,7 +5,7 @@ import WebKit
 /// from `message.webView` (popups inherit the opener's controller).
 final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
     static let shared = ScriptMessageRouter()
-    static let names = ["voidMedia", "voidAutofill", "voidHider", "voidContext", "voidActivity"]
+    static let names = ["voidMedia", "voidAutofill", "voidHider", "voidContext", "voidActivity", "voidStore"]
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         MainActor.assumeIsolated {
@@ -27,6 +27,10 @@ final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
                     tab.hasUserInput = true
                 default:
                     break
+                }
+            case "voidStore":
+                if #available(macOS 15.4, *), message.frameInfo.isMainFrame {
+                    WebStoreBridge.handle(body["action"] as? String, tab: tab)
                 }
             case "voidContext":
                 webView.contextLinkURL = (body["href"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
