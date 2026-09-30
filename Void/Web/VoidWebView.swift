@@ -7,11 +7,46 @@ final class VoidWebView: WKWebView {
     /// Link / image under the last right-click, reported by core.js just before the menu opens.
     var contextLinkURL: URL?
     var contextImageURL: URL?
+    /// Last key-down given to WebKit: the same event coming back is WebKit re-sending one the
+    /// page didn't handle (see keyDown).
+    private weak var lastKeyDown: NSEvent?
+
+    /// A key the page leaves unhandled (an arrow in a video player that doesn't block it, on a
+    /// page that can't scroll, or in fullscreen) is re-sent by WebKit up the responder chain,
+    /// where nothing takes it and macOS plays the "impossible action" sound. Menu shortcuts
+    /// are matched before this point, so the re-sent event is simply dropped; ⌘ combinations
+    /// that nothing handles keep the system's answer.
+    override func keyDown(with event: NSEvent) {
+        if event === lastKeyDown, !event.modifierFlags.contains(.command) {
+            #if DEBUG
+            droppedKeyDowns += 1
+            #endif
+            return
+        }
+        lastKeyDown = event
+        super.keyDown(with: event)
+    }
+
+    #if DEBUG
+    /// Unhandled key-downs dropped instead of beeping (self-test).
+    var droppedKeyDowns = 0
+    #endif
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         MainActor.assumeIsolated { customize(menu) }
+        #if DEBUG
+        if let hook = Self.menuTestHook {
+            Self.menuTestHook = nil
+            hook(menu)
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// Self-test: receives the next context menu as it opens (to pick an item and close it).
+    static var menuTestHook: ((NSMenu) -> Void)?
+    #endif
 
     /// A page that swallows the next right-click before core.js sees it must not get this link
     /// offered again.

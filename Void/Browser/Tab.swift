@@ -41,6 +41,9 @@ final class Tab: Identifiable {
     }
     var isInPiP = false
     var isInFloatingPlayer = false
+    /// A video (or any element) of the page is fullscreen: WebKit has moved the web view into its
+    /// own window and left a placeholder in ours; nothing may move either until it's back.
+    var isInElementFullscreen = false
     @ObservationIgnored var autoPiPEngaged = false
     @ObservationIgnored var mediaFrames: [String: MediaFrameState] = [:]
 
@@ -147,6 +150,15 @@ final class Tab: Identifiable {
     /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP, unless `force`
     /// (the tab is being closed, or its page is gone): PiP must then already have been exited.
     func sleep(force: Bool = false) {
+        // Fullscreen first: WebKit must put the web view back in the window before it's released,
+        // or its fullscreen window would stay behind, black.
+        if isInElementFullscreen, let webView {
+            webView.closeAllMediaPresentations { [weak self] in
+                self?.isInElementFullscreen = false
+                self?.sleep(force: force)
+            }
+            return
+        }
         if force { isInPiP = false; isInFloatingPlayer = false; autoPiPEngaged = false }
         guard let webView, !isInPiP, !isInFloatingPlayer else { return }
         observations.forEach { $0.invalidate() }
@@ -219,7 +231,7 @@ final class Tab: Identifiable {
     func canAutoSleep(idleFor interval: TimeInterval, now: Date = Date()) -> Bool {
         guard let webView, !isPinned, !openedByPage, reader == nil else { return false }
         guard now.timeIntervalSince(lastAccess) >= interval else { return false }
-        if isAudible || isPlayingVideo || isInPiP || isInFloatingPlayer || hasUserInput { return false }
+        if isAudible || isPlayingVideo || isInPiP || isInFloatingPlayer || isInElementFullscreen || hasUserInput { return false }
         if webView.cameraCaptureState != WKMediaCaptureState.none || webView.microphoneCaptureState != WKMediaCaptureState.none { return false }
         return true
     }
@@ -251,6 +263,12 @@ final class Tab: Identifiable {
             },
             wv.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.hasOnlySecureContent = wv.hasOnlySecureContent }
+            },
+            wv.observe(\.fullscreenState, options: [.new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated {
+                    let fullscreen = wv.fullscreenState != .notInFullscreen
+                    if self?.isInElementFullscreen != fullscreen { self?.isInElementFullscreen = fullscreen }
+                }
             },
             wv.observe(\.isLoading, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated {

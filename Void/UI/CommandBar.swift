@@ -90,6 +90,8 @@ enum SuggestionEngine {
 /// Floating command bar (⌘L / ⌘T): one field for URLs and searches.
 struct CommandBarOverlay: View {
     let request: CommandBarRequest
+    /// Width of the docked sidebar: the bar is centered on the page, not on the whole window.
+    var leadingInset: CGFloat = 0
     @Environment(BrowserModel.self) private var browser
     @State private var text = ""
     @State private var selection = 0
@@ -99,6 +101,17 @@ struct CommandBarOverlay: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        GeometryReader { geo in
+            content(width: min(640, max(320, geo.size.width - leadingInset - 32)))
+        }
+        .onAppear {
+            text = request.text
+            suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
+            DispatchQueue.main.async { focused = true }
+        }
+    }
+
+    private func content(width: CGFloat) -> some View {
         ZStack(alignment: .top) {
             Theme.scrim
                 .contentShape(Rectangle())
@@ -142,17 +155,13 @@ struct CommandBarOverlay: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(width: 640)
+            .frame(width: width)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.elevated))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(focused ? Theme.accent.opacity(0.7) : Theme.stroke, lineWidth: focused ? 1.5 : 1))
             .shadow(color: Theme.shadow.opacity(0.35), radius: 30, y: 12)
             .padding(.top, 110)
-        }
-        .onAppear {
-            text = request.text
-            suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
-            DispatchQueue.main.async { focused = true }
+            .padding(.leading, leadingInset)
         }
     }
 

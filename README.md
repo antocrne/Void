@@ -74,7 +74,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ✅ **Couleur d'accent** (violet, bleu, vert, orange, rose), centralisée dans `Theme.swift`, contraste vérifié en thème clair et sombre.
 - ✅ **Onglets épinglés** (favicon ou lettre), conservés après fermeture ; **⌘W met un onglet épinglé en veille** (vue web libérée), un clic le réveille.
 - ✅ **Espaces** avec icône et **stockage séparé** (`WKWebsiteDataStore(forIdentifier:)`) — isolation des cookies vérifiée.
-- ✅ **Barre d'adresse unique** : URL ou recherche, suggestions de l'historique, des favoris, des onglets ouverts et des téléchargements.
+- ✅ **Barre d'adresse unique** : URL ou recherche, suggestions de l'historique, des favoris, des onglets ouverts et des téléchargements ; centrée sur la page (et non sur la fenêtre entière, barre latérale comprise), elle se rétrécit dans une fenêtre étroite.
 - ✅ **Ouvrir dans un nouvel onglet** : ⌘-clic, liens `target=_blank`, menu contextuel (« Ouvrir le lien dans un nouvel onglet », « …en arrière-plan », « …dans une fenêtre privée »).
 - ✅ **Mode lecture** : extraction de l'article et de ses images (y compris images chargées tardivement), affichage épuré sans JavaScript, taille du texte réglable.
 - ✅ **Bloqueur de publicités** en `WKContentRuleList` (≈ 150 règles, blocage avant chargement, sans script), désactivable par site.
@@ -97,6 +97,11 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
   - ⌘W sur un épinglé en PiP puis retour immédiat : la page reste ; un espace supprimé qui était le seul d'une fenêtre ⌘N y est remplacé ; formulaire de connexion oublié au changement de page.
   - ☑️ Vérifié à la relecture seulement : quitter avec des téléchargements en cours demande confirmation ; extensions : plus d'onglet fantôme après fermeture, désactivation respectée pendant leur chargement, autorisations demandées en feuille (plus de fenêtre modale bloquante) ; favicons limités à 512 Ko et téléchargés hors du fil principal ; menu contextuel sans lien d'un clic droit précédent.
 - ✅ **Picture in Picture** manuel, automatique et plan B — voir [le compte rendu](docs/PIP_TEST_REPORT.md).
+- ✅ **Lecteurs vidéo** (branche `lecteurs-video`, sections `plein-ecran` et `lecteurs` de l'auto-test ; vidéos générées sur place, sans réseau) :
+  - **plein écran d'une vidéo sans écran noir** : WebKit place la vue web dans sa propre fenêtre ; Void n'y touche plus tant que dure le plein écran (un changement de lecture la ramenait dans la fenêtre de Void : écran noir, puis page blanche à la sortie) ; fermer l'onglet en plein écran ferme aussi cette fenêtre ;
+  - **touches sans bip** : une touche que la page ne traite pas (flèche dans un lecteur, page qui ne défile pas, plein écran) n'aboutit plus au son « action impossible » de macOS ; les touches traitées par la page et les raccourcis ⌘ fonctionnent comme avant ;
+  - **état de lecture juste** : suivi par document et non plus par adresse (un site qui passe à la vidéo suivante sans recharger, comme YouTube, laissait l'onglet « en lecture » : pas de mise en veille, PiP automatique sur une vidéo en pause) ; lecteurs dans un *shadow DOM* (Reddit, composants web) suivis ;
+  - **clic droit → « Télécharger le fichier lié / l'image / la vidéo »** : le téléchargement démarre (WebKit le confiait à une méthode que Void n'avait pas : il ne se passait rien).
 - ✅ **Extensions Chrome** (macOS 15.4+, `WKWebExtension`, même interface WebExtensions que Chrome : `chrome.*`, Manifest V3 et V2, service worker) :
   - installation depuis le **Chrome Web Store** : sur la page d'une extension, le bouton « Ajouter à Chrome » (inactif hors de Chrome) est remplacé par **« Ajouter à Void »** / « Retirer de Void » ; ou un lien/identifiant dans Réglages → Extensions (« Ouvrir le Store »), depuis un fichier **.crx**, .zip ou un dossier, ou **importées de Chrome, Brave, Edge ou Arc** ; Void garde sa propre copie (`Extensions/`), une réinstallation met à jour en gardant les données ;
   - onglets et fenêtres de Void exposés aux extensions (`chrome.tabs`, `chrome.windows` : requêtes, création, activation, déplacement, épinglage, son, mode lecture, événements) ; scripts de contenu, `declarativeNetRequest`, stockage, page d'options dans un onglet, menus contextuels (`chrome.contextMenus`) ;
@@ -139,6 +144,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 12. Un site en authentification HTTP (routeur, NAS) → la feuille « Connexion à … » → identifiants → la page s'ouvre.
 13. Lancer un gros téléchargement, ⌘Q → « Un téléchargement est en cours » → « Continuer les téléchargements » : Void reste ouvert.
 14. Vidéo YouTube en cours, fermer la fenêtre principale (bouton rouge) → le son s'arrête ; ⌘N → la fenêtre revient, onglet et historique intacts.
+15. Vidéo YouTube en plein écran (bouton du lecteur) → pause, lecture, flèches ← → : pas d'écran noir ni de bip ; Échap → la page revient. Clic droit sur une image → « Télécharger l'image » → elle apparaît dans les téléchargements.
 
 ## Architecture
 
@@ -172,9 +178,9 @@ Choix notables :
 Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite, favoris, éléments masqués, extensions et leurs copies dans `Extensions/`). Les mots de passe sont uniquement dans le trousseau macOS. Les données des sites sont gérées par WebKit, un magasin par espace.
 
 ## Auto-tests (build Debug)
-Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé ; ce n'est pas une régression.
+Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé, et parfois l'agrandissement du popup d'extension à la poignée (le test déplace le vrai pointeur) ; ce n'est pas une régression. Le cas « Repli natif WebKit seul » du test PiP échoue toujours : ce niveau n'est pas disponible sur ce WebKit (voir le compte rendu PiP).
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions`.
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs`.
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

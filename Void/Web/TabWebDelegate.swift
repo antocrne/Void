@@ -66,6 +66,14 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         closeIfEmpty(webView)
     }
 
+    /// "Download Linked File / Image / Video" from the context menu: WebKit starts the download
+    /// itself and hands it over here (WKUIDelegatePrivate). Without this method the download
+    /// gets no delegate and nothing happens.
+    @objc(_webView:contextMenuDidCreateDownload:)
+    func webView(_ webView: WKWebView, contextMenuDidCreate download: WKDownload) {
+        DownloadManager.shared.adopt(download, from: download.originalRequest?.url, in: browser)
+    }
+
     /// A link opened in a new tab that turned out to be a download leaves an empty tab behind.
     func closeIfEmpty(_ webView: WKWebView) {
         // Never a pinned tab: it is kept on purpose, even if its address now serves a file.

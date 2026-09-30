@@ -3,10 +3,29 @@
 (() => {
   if (window.__voidMedia) return;
 
+  // One id per document: the app keys its media state by it. A frame's URL isn't stable
+  // (sites change it without reloading, e.g. from one video to the next), and an entry
+  // stored under an old URL would stay "playing" forever.
+  const frameId = Math.random().toString(36).slice(2);
   const post = (msg) => {
-    try { window.webkit.messageHandlers.voidMedia.postMessage(msg); } catch (_) {}
+    try { window.webkit.messageHandlers.voidMedia.postMessage(Object.assign({ frame: frameId }, msg)); } catch (_) {}
   };
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const EVENTS = ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'volumechange',
+                  'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged'];
+
+  // Media events don't leave a shadow root: players built as web components (Reddit…) are
+  // listened to directly, as they are found.
+  const bound = new WeakSet();
+  const bind = (list) => {
+    for (const v of list) {
+      if (bound.has(v) || v.getRootNode() === document) continue;
+      bound.add(v);
+      EVENTS.forEach((name) => v.addEventListener(name, () => report(name)));
+    }
+    return list;
+  };
 
   // <video> elements, including those in open shadow roots (searched only if needed).
   const collect = (root, out, depth) => {
@@ -18,7 +37,7 @@
   };
   const videos = () => {
     const light = collect(document, [], 0);
-    return light.length ? light : collect(document, [], 3);
+    return light.length ? light : bind(collect(document, [], 3));
   };
 
   const isPlaying = (v) => !v.paused && !v.ended && v.readyState > 2;
@@ -54,16 +73,19 @@
   // "playing" (never put to sleep, kept attached to the window) until the next page load.
   let timer = 0;
   let watchdog = 0;
-  let last = '';
+  const signature = (s) => [s.hasVideo, s.playing, s.audible, s.inPiP].join();
+  const NOTHING = signature({ hasVideo: false, playing: false, audible: false, inPiP: false });
+  let last = NOTHING;
+  let reported = false;
   const send = (type) => {
+    reported = true;
     const current = state();
-    last = [current.hasVideo, current.playing, current.audible, current.inPiP].join();
+    last = signature(current);
     post(Object.assign({ type }, current));
     const active = current.playing || current.audible || current.inPiP;
     if (active && !watchdog) {
       watchdog = setInterval(() => {
-        const s = state();
-        if ([s.hasVideo, s.playing, s.audible, s.inPiP].join() !== last) send('watchdog');
+        if (signature(state()) !== last) send('watchdog');
       }, 3000);
     } else if (!active && watchdog) {
       clearInterval(watchdog);
@@ -75,17 +97,28 @@
     const immediate = /picture|presentation/.test(type);
     timer = setTimeout(() => send(type), immediate ? 0 : 120);
   };
-  ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'volumechange',
-   'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']
-    .forEach((name) => document.addEventListener(name, () => report(name), true));
-  // An embedded frame going away (iframe removed, navigated): its entry is dropped in the app.
-  // The main frame's entries are reset when the next page commits.
-  if (window !== window.top) {
-    addEventListener('pagehide', () => {
-      clearTimeout(timer);
-      post({ type: 'gone', hasVideo: false, playing: false, audible: false, inPiP: false });
-    });
-  }
+  EVENTS.forEach((name) => document.addEventListener(name, () => report(name), true));
+
+  // After a click or a key, look again: a player created in a shadow root since the last look
+  // (feeds) gets its listeners, and a change nobody reported is sent.
+  let rescan = 0;
+  const onInteraction = () => {
+    clearTimeout(rescan);
+    rescan = setTimeout(() => { if (signature(state()) !== last) send('interaction'); }, 600);
+  };
+  ['pointerup', 'keyup'].forEach((name) => document.addEventListener(name, onInteraction, true));
+
+  // The page goes away (navigation, iframe removed, back/forward cache): its entry is dropped
+  // in the app, and nothing more is sent until it's shown again.
+  addEventListener('pagehide', () => {
+    clearTimeout(timer);
+    clearTimeout(rescan);
+    clearInterval(watchdog);
+    watchdog = 0;
+    last = NOTHING;
+    if (reported) post({ type: 'gone', hasVideo: false, playing: false, audible: false, inPiP: false });
+  });
+  addEventListener('pageshow', (event) => { if (event.persisted && reported) report('pageshow'); });
 
   async function enterPiP() {
     const v = best();
