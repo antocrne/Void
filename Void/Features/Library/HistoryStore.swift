@@ -22,10 +22,22 @@ final class HistoryStore {
                                             visits INTEGER NOT NULL DEFAULT 1, last REAL NOT NULL)
         """)
         db?.execute("CREATE INDEX IF NOT EXISTS history_last ON history(last DESC)")
+        prune()
+    }
+
+    private var lastPrune = Date.distantPast
+
+    /// Removes the pages not visited for longer than the period chosen in Settings → Confidentialité
+    /// (a year by default). Runs at launch, then at most once a day as pages are visited.
+    func prune() {
+        lastPrune = Date()
+        let cutoff = Date().addingTimeInterval(-Double(AppSettings.shared.historyRetention.rawValue) * 86_400)
+        db?.execute("DELETE FROM history WHERE last < ?", [cutoff.timeIntervalSince1970])
     }
 
     func record(url: URL, title: String) {
         guard let scheme = url.scheme, scheme == "http" || scheme == "https" else { return }
+        if Date().timeIntervalSince(lastPrune) > 86_400 { prune() }
         db?.execute("""
         INSERT INTO history(url, title, visits, last) VALUES(?, ?, 1, ?)
         ON CONFLICT(url) DO UPDATE SET visits = visits + 1, last = excluded.last,
@@ -90,6 +102,7 @@ final class HistoryStore {
             }
             return true   // an entry that fails is skipped, the others are kept
         }
+        prune()
     }
 
     private func fetch(_ sql: String, _ args: [Any?]) -> [HistoryEntry] {

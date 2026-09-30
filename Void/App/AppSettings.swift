@@ -27,6 +27,20 @@ enum PasswordManagerChoice: String, CaseIterable, Identifiable {
     }
 }
 
+/// How long a page stays in the history after its last visit.
+enum HistoryRetention: Int, CaseIterable, Identifiable {
+    case year = 365, sixMonths = 182, ninetyDays = 90, thirtyDays = 30
+    var id: Int { rawValue }
+    var label: String {
+        switch self {
+        case .year: "Une fois par an"
+        case .sixMonths: "Une fois tous les 6 mois"
+        case .ninetyDays: "Tous les 90 jours"
+        case .thirtyDays: "Tous les 30 jours"
+        }
+    }
+}
+
 enum ThemeChoice: String, CaseIterable, Identifiable {
     case dark, light, system
     var id: String { rawValue }
@@ -95,6 +109,9 @@ final class AppSettings {
         }
     }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
+    var historyRetention: HistoryRetention {
+        didSet { defaults.set(historyRetention.rawValue, forKey: "historyRetention"); HistoryStore.shared.prune() }
+    }
     var formAutofillEnabled: Bool { didSet { defaults.set(formAutofillEnabled, forKey: "formAutofillEnabled") } }
     var passwordManager: PasswordManagerChoice { didSet { defaults.set(passwordManager.rawValue, forKey: "passwordManager") } }
     var extensionsInPrivate: Bool {
@@ -135,6 +152,7 @@ final class AppSettings {
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
+        historyRetention = HistoryRetention(rawValue: d.integer(forKey: "historyRetention")) ?? .year
         formAutofillEnabled = d.object(forKey: "formAutofillEnabled") as? Bool ?? true
         passwordManager = PasswordManagerChoice(rawValue: d.string(forKey: "passwordManager") ?? "") ?? .automatic
         extensionsInPrivate = d.object(forKey: "extensionsInPrivate") as? Bool ?? false
