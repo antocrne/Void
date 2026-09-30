@@ -4,7 +4,7 @@ import Foundation
 /// already installed in another Chromium browser (Chrome, Brave, Edge, Arc).
 enum ChromeExtensions {
     enum Failure: LocalizedError {
-        case notAnExtensionLink, notACRX, download(String), unzip
+        case notAnExtensionLink, notACRX, download(String), unzip, symbolicLink
 
         var errorDescription: String? {
             switch self {
@@ -12,6 +12,7 @@ enum ChromeExtensions {
             case .notACRX: "Ce fichier n'est pas une extension Chrome (.crx) lisible."
             case .download(let reason): "Téléchargement depuis le Chrome Web Store impossible : \(reason)"
             case .unzip: "L'archive de l'extension n'a pas pu être décompressée."
+            case .symbolicLink: "L'extension contient des liens symboliques : elle n'est pas chargée."
             }
         }
     }
@@ -81,6 +82,16 @@ enum ChromeExtensions {
         let zip = data.subdata(in: data.startIndex + start ..< data.endIndex)
         guard zip.starts(with: [0x50, 0x4B, 0x03, 0x04]) else { throw Failure.notACRX }
         return zip
+    }
+
+    /// An extension's folder must hold only its own files: a symbolic link (kept by ditto and by
+    /// copies) could make a file Void writes there, or one WebKit serves, point anywhere on the Mac.
+    static func rejectSymbolicLinks(in folder: URL) throws {
+        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey]
+        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys))
+        while let url = enumerator?.nextObject() as? URL {
+            if (try? url.resourceValues(forKeys: keys))?.isSymbolicLink == true { throw Failure.symbolicLink }
+        }
     }
 
     /// Unpacks a zip into `folder` (created), with the system's ditto.

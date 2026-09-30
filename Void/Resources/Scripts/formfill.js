@@ -8,7 +8,11 @@
   };
   const TYPES = new Set(['', 'text', 'email', 'tel', 'url']);
   const SKIP_AUTOCOMPLETE = /^(off|username|.*password.*|one-time-code|cc-.*)$/;
-  const SKIP_KEY = /otp|captcha|token|search|query|^q$|code|pin|cvv|card/;
+  // Secrets and payment details, wherever they appear in the name; searches and one-time codes
+  // as whole words only, so that "postal-code" or "shipping_city" are kept.
+  const SECRET_KEY = /otp|captcha|token|card|cvv|cvc|iban|ssn|passw|secret|^cc[-_]/;
+  const SKIP_KEY = /(^|[-_.\s])(search|query|q|code|pin)([-_.\s]|$)/;
+  const ADDRESS_KEY = /^(postal[-_ ]?code|post[-_ ]?code|zip|zip[-_ ]?code)$/;
 
   // Sign-in forms belong to the password manager (Void's or an extension such as Proton Pass).
   const inLoginForm = (el) => !!(el.form ? el.form : document).querySelector('input[type=password]');
@@ -18,7 +22,7 @@
     const auto = (el.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).filter((t) => t !== 'section-' && !t.startsWith('section-') && t !== 'shipping' && t !== 'billing').pop() || '';
     if (SKIP_AUTOCOMPLETE.test(auto)) return null;
     const key = (auto && auto !== 'on' ? auto : (el.name || el.id || '')).toLowerCase().trim();
-    if (key.length < 2 || key.length > 60 || SKIP_KEY.test(key)) return null;
+    if (key.length < 2 || key.length > 60 || SECRET_KEY.test(key) || (SKIP_KEY.test(key) && !ADDRESS_KEY.test(key))) return null;
     return key;
   };
 

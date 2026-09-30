@@ -102,41 +102,59 @@ struct ImportResult {
     }
 }
 
-/// Imports bookmarks, history and passwords from other browsers' profile files.
+/// Imports bookmarks, history and passwords from other browsers' profile files. Reading the files,
+/// decrypting and writing passwords to the keychain run off the main thread; only the merge into
+/// Void's bookmarks and history happens on it.
 @MainActor
 enum BrowserImporter {
-    static func run(from browser: SourceBrowser, bookmarks: Bool, history: Bool, passwords: Bool) -> ImportResult {
-        // The copies hold the other browser's history and (encrypted) passwords: never leave them behind.
-        defer { removeTemporaryCopies() }
-        var result = ImportResult()
-        guard let profile = browser.profileFolder else {
-            result.notes.append("\(browser.name) introuvable")
-            return result
-        }
-        if bookmarks {
-            let items = browser.isChromium ? chromiumBookmarks(profile, browser: browser) : firefoxBookmarks(profile)
-            result.bookmarks = BookmarkStore.shared.importBookmarks(items)
-        }
+    static func run(from browser: SourceBrowser, bookmarks: Bool, history: Bool, passwords: Bool) async -> ImportResult {
+        let loaded = await Task.detached(priority: .userInitiated) {
+            load(from: browser, bookmarks: bookmarks, history: history, passwords: passwords)
+        }.value
+        var result = loaded.result
+        if bookmarks { result.bookmarks = BookmarkStore.shared.importBookmarks(loaded.bookmarks) }
         if history {
-            let entries = browser.isChromium ? chromiumHistory(profile) : firefoxHistory(profile)
-            HistoryStore.shared.importEntries(entries)
-            result.history = entries.count
-        }
-        if passwords {
-            if browser.isChromium {
-                let (count, note) = chromiumPasswords(profile, browser: browser)
-                result.passwords = count
-                if let note { result.notes.append(note) }
-            } else {
-                result.notes.append("Firefox chiffre ses mots de passe avec NSS : exportez-les en CSV (about:logins → ⋯ → Exporter) puis utilisez « Importer un CSV »")
-            }
+            HistoryStore.shared.importEntries(loaded.history)
+            result.history = loaded.history.count
         }
         return result
     }
 
+    private struct Loaded {
+        var result = ImportResult()
+        var bookmarks: [Bookmark] = []
+        var history: [HistoryEntry] = []
+    }
+
+    nonisolated private static func load(from browser: SourceBrowser, bookmarks: Bool, history: Bool, passwords: Bool) -> Loaded {
+        // The copies hold the other browser's history and (encrypted) passwords: never leave them behind.
+        defer { removeTemporaryCopies() }
+        var loaded = Loaded()
+        guard let profile = browser.profileFolder else {
+            loaded.result.notes.append("\(browser.name) introuvable")
+            return loaded
+        }
+        if bookmarks {
+            loaded.bookmarks = browser.isChromium ? chromiumBookmarks(profile, browser: browser) : firefoxBookmarks(profile)
+        }
+        if history {
+            loaded.history = browser.isChromium ? chromiumHistory(profile) : firefoxHistory(profile)
+        }
+        if passwords {
+            if browser.isChromium {
+                let (count, note) = chromiumPasswords(profile, browser: browser)
+                loaded.result.passwords = count
+                if let note { loaded.result.notes.append(note) }
+            } else {
+                loaded.result.notes.append("Firefox chiffre ses mots de passe avec NSS : exportez-les en CSV (about:logins → ⋯ → Exporter) puis utilisez « Importer un CSV »")
+            }
+        }
+        return loaded
+    }
+
     // MARK: - Chromium
 
-    private static func chromiumBookmarks(_ profile: URL, browser: SourceBrowser) -> [Bookmark] {
+    nonisolated private static func chromiumBookmarks(_ profile: URL, browser: SourceBrowser) -> [Bookmark] {
         var out: [Bookmark] = []
         if let data = try? Data(contentsOf: profile.appendingPathComponent("Bookmarks")),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -149,7 +167,13 @@ enum BrowserImporter {
                     walk(child, folder: node["type"] as? String == "folder" ? (node["name"] as? String) : folder)
                 }
             }
-            for case let root as [String: Any] in roots.values { walk(root, folder: nil) }
+            // The roots are Chrome's own places, not folders the user made: the bookmarks bar's
+            // content stays at the top level, the others keep the root's name.
+            for (key, value) in roots {
+                guard let root = value as? [String: Any] else { continue }
+                let folder = key == "bookmark_bar" ? nil : root["name"] as? String
+                for child in root["children"] as? [[String: Any]] ?? [] { walk(child, folder: folder) }
+            }
         }
         if browser == .arc {
             // Arc keeps its sidebar (pinned/favorites) outside of the Chromium profile.
@@ -171,7 +195,7 @@ enum BrowserImporter {
         return out
     }
 
-    private static func chromiumHistory(_ profile: URL) -> [HistoryEntry] {
+    nonisolated private static func chromiumHistory(_ profile: URL) -> [HistoryEntry] {
         guard let db = openCopy(profile.appendingPathComponent("History")) else { return [] }
         var out: [HistoryEntry] = []
         db.query("SELECT url, title, visit_count, last_visit_time FROM urls WHERE hidden = 0 ORDER BY last_visit_time DESC LIMIT 5000") { row in
@@ -183,7 +207,7 @@ enum BrowserImporter {
         return out
     }
 
-    private static func chromiumPasswords(_ profile: URL, browser: SourceBrowser) -> (Int, String?) {
+    nonisolated private static func chromiumPasswords(_ profile: URL, browser: SourceBrowser) -> (Int, String?) {
         guard let service = browser.safeStorageService else { return (0, nil) }
         guard let key = ChromiumCrypto.key(service: service) else {
             return (0, "Accès refusé à « \(service) » dans le trousseau")
@@ -201,7 +225,7 @@ enum BrowserImporter {
 
     // MARK: - Firefox
 
-    private static func firefoxBookmarks(_ profile: URL) -> [Bookmark] {
+    nonisolated private static func firefoxBookmarks(_ profile: URL) -> [Bookmark] {
         guard let db = openCopy(profile.appendingPathComponent("places.sqlite")) else { return [] }
         var out: [Bookmark] = []
         db.query("""
@@ -209,13 +233,15 @@ enum BrowserImporter {
         LEFT JOIN moz_bookmarks parent ON b.parent = parent.id WHERE b.type = 1 AND p.url LIKE 'http%'
         """) { row in
             guard let url = URL(string: row.string(1)) else { return }
-            let folder = row.string(2)
+            // Firefox's own roots have internal names: the toolbar is the top level.
+            let roots = ["toolbar": "", "menu": "Menu des marque-pages", "unfiled": "Autres marque-pages", "mobile": "Marque-pages mobiles"]
+            let folder = roots[row.string(2)] ?? row.string(2)
             out.append(Bookmark(title: row.string(0).isEmpty ? row.string(1) : row.string(0), url: url, folder: folder.isEmpty ? nil : folder))
         }
         return out
     }
 
-    private static func firefoxHistory(_ profile: URL) -> [HistoryEntry] {
+    nonisolated private static func firefoxHistory(_ profile: URL) -> [HistoryEntry] {
         guard let db = openCopy(profile.appendingPathComponent("places.sqlite")) else { return [] }
         var out: [HistoryEntry] = []
         db.query("""
@@ -231,8 +257,10 @@ enum BrowserImporter {
 
     // MARK: - CSV (any browser: Chrome, Firefox, Safari, Bitwarden… exports)
 
-    static func importPasswordCSV(_ file: URL) -> Int {
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return 0 }
+    nonisolated static func importPasswordCSV(_ file: URL) -> Int {
+        guard var text = try? String(contentsOf: file, encoding: .utf8) else { return 0 }
+        // Spreadsheet apps start their UTF-8 exports with a BOM, which would hide the first column's name.
+        if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
         let rows = CSV.parse(text)
         guard let header = rows.first?.map({ $0.lowercased() }) else { return 0 }
         func column(_ names: [String]) -> Int? { header.firstIndex { names.contains($0) } }
@@ -252,7 +280,7 @@ enum BrowserImporter {
 
     /// Deletes the copies made by `openCopy` (their databases are closed by then: each one is
     /// released when the function that opened it returns).
-    static func removeTemporaryCopies() {
+    nonisolated static func removeTemporaryCopies() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
         for name in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where name.hasPrefix("void-import-") {
@@ -261,7 +289,7 @@ enum BrowserImporter {
     }
 
     /// Browsers keep their databases locked while running: work on a temporary copy.
-    private static func openCopy(_ file: URL) -> SQLiteDB? {
+    nonisolated private static func openCopy(_ file: URL) -> SQLiteDB? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: file.path) else { return nil }
         let dir = fm.temporaryDirectory.appendingPathComponent("void-import-\(UUID().uuidString)")

@@ -55,8 +55,14 @@ extension BrowserModel {
         withAnimation(Theme.quick) { findBarVisible.toggle() }
     }
 
+    /// ⌘G / ⌘⇧G: the last search of this window, even with the find bar closed (as in Safari).
+    func findNext(backwards: Bool) {
+        if lastFindText.isEmpty { toggleFind() } else { find(lastFindText, backwards: backwards) }
+    }
+
     func find(_ text: String, backwards: Bool = false) {
         guard let webView, !text.isEmpty else { return }
+        lastFindText = text
         let config = WKFindConfiguration()
         config.backwards = backwards
         config.caseSensitive = false
@@ -85,7 +91,14 @@ extension BrowserModel {
         AppSettings.shared.toggleAdBlock(for: host)
         let active = AppSettings.shared.isAdBlockActive(on: host)
         showToast(active ? "shield.lefthalf.filled" : "shield.slash", active ? "Bloqueur activé sur \(host.voidNormalizedHost)" : "Bloqueur désactivé sur \(host.voidNormalizedHost)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.reload() }
+        // The page comes back once the new rules are in, and it's this page even if another tab
+        // was selected meanwhile.
+        let tab = selectedTab
+        Task {
+            await ContentRules.shared.reloadNow()
+            tab?.loadError = nil
+            tab?.webView?.reload()
+        }
     }
 
     func showLibrary(_ section: LibrarySection) {

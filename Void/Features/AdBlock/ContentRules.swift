@@ -28,6 +28,7 @@ final class ContentRules {
             await installAdBlock()
             await installHidden()
             markReady()
+            await removeUnusedLists()
         }
         // Never hold the first page load for more than half a second.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.markReady() }
@@ -46,6 +47,12 @@ final class ContentRules {
 
     func reload() {
         Task { await installAdBlock() }
+    }
+
+    /// The blocker's list as it is now (allowlist and on/off), installed before returning: a page
+    /// reloaded afterwards gets the new rules.
+    func reloadNow() async {
+        await installAdBlock()
     }
 
     func reloadHidden() {
@@ -91,12 +98,36 @@ final class ContentRules {
     private func replace(_ current: inout WKContentRuleList?, with new: WKContentRuleList?) {
         let ucc = WebViewFactory.contentController
         if let new, new.identifier != current?.identifier { ucc.add(new) }
-        if let old = current, old.identifier != new?.identifier { ucc.remove(old) }
+        if let old = current, old.identifier != new?.identifier {
+            ucc.remove(old)
+            // Each allowlist, each set of hidden elements is its own compiled list: the old one
+            // would stay on disk for good. The list toggled back later is simply compiled again.
+            let identifier = old.identifier
+            Task { try? await store.removeContentRuleList(forIdentifier: identifier) }
+        }
         #if DEBUG
         if let old = current { installedIdentifiers.remove(old.identifier) }
         if let new { installedIdentifiers.insert(new.identifier) }
         #endif
         current = new
+    }
+
+    /// Whether WebKit's content blocker compiles a css-display-none rule with this selector.
+    func accepts(selector: String) async -> Bool {
+        let rule: [[String: Any]] = [["trigger": ["url-filter": ".*"], "action": ["type": "css-display-none", "selector": selector]]]
+        guard let data = try? JSONSerialization.data(withJSONObject: rule) else { return false }
+        let identifier = "void-check-\(UUID().uuidString)"
+        defer { Task { try? await store.removeContentRuleList(forIdentifier: identifier) } }
+        return (try? await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: String(decoding: data, as: UTF8.self))) != nil
+    }
+
+    /// At launch: compiled lists left by earlier allowlists or hidden elements.
+    private func removeUnusedLists() async {
+        let current = Set([adBlockList?.identifier, hiddenList?.identifier].compactMap { $0 })
+        let identifiers = await store.availableIdentifiers() ?? []
+        for identifier in identifiers where identifier.hasPrefix("void-") && !current.contains(identifier) {
+            try? await store.removeContentRuleList(forIdentifier: identifier)
+        }
     }
 
     private func lookupOrCompile(identifier: String, json: String) async -> WKContentRuleList? {

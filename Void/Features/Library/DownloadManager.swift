@@ -149,6 +149,57 @@ final class DownloadManager {
     }
 }
 
+/// Which sites may save files (asked once per site, as Safari does): without it any page could
+/// fill the download folder, even with no click (a download link clicked by a script, in a loop).
+/// Downloads asked from the context menu ("Télécharger le fichier lié…") never ask.
+@MainActor
+enum DownloadPermission {
+    private static let key = "downloadAllowedHosts"
+    /// Sites being asked about: another download of theirs meanwhile is refused.
+    private static var asking: Set<String> = []
+
+    static func isAllowed(_ host: String, in browser: BrowserModel) -> Bool {
+        if browser.isPrivate { return browser.allowedDownloadHosts.contains(host) }
+        return (UserDefaults.standard.stringArray(forKey: key) ?? []).contains(host)
+    }
+
+    /// A private window's answers are forgotten with it.
+    static func allow(_ host: String, in browser: BrowserModel) {
+        if browser.isPrivate { browser.allowedDownloadHosts.insert(host); return }
+        var hosts = UserDefaults.standard.stringArray(forKey: key) ?? []
+        if !hosts.contains(host) { hosts.append(host) }
+        UserDefaults.standard.set(hosts, forKey: key)
+    }
+
+    static var allowedHosts: [String] { (UserDefaults.standard.stringArray(forKey: key) ?? []).sorted() }
+
+    static func revoke(_ host: String) {
+        UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: key) ?? []).filter { $0 != host }, forKey: key)
+    }
+
+    /// `host`: the site of the page asking (normalized). `file`: what it wants to save, if known.
+    static func request(_ host: String, file: String?, in browser: BrowserModel, window: NSWindow?) async -> Bool {
+        #if DEBUG
+        if SelfTestRunner.isRequested { return true }
+        #endif
+        if host.isEmpty || isAllowed(host, in: browser) { return true }
+        guard let window, asking.insert(host).inserted else { return false }
+        defer { asking.remove(host) }
+        let alert = NSAlert()
+        alert.messageText = "Autoriser les téléchargements depuis « \(host) » ?"
+        alert.informativeText = (file.map { "Ce site veut enregistrer « \($0) » dans votre dossier de téléchargements." }
+            ?? "Ce site veut enregistrer un fichier dans votre dossier de téléchargements.")
+            + (browser.isPrivate ? " (Jusqu'à la fermeture de cette fenêtre privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
+        alert.addButton(withTitle: "Autoriser")
+        alert.addButton(withTitle: "Refuser")
+        let allowed = await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+        }
+        if allowed { allow(host, in: browser) }
+        return allowed
+    }
+}
+
 private final class DownloadDelegate: NSObject, WKDownloadDelegate {
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
         await MainActor.run {

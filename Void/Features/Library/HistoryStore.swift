@@ -67,11 +67,14 @@ final class HistoryStore {
     func search(_ text: String, limit: Int = 8) -> [HistoryEntry] {
         let q = text.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return recent(limit: limit) }
-        let like = "%" + q.replacingOccurrences(of: "%", with: "") + "%"
+        // Typed text is matched as is: % and _ aren't wildcards here.
+        let escaped = q.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
+        let like = "%" + escaped + "%"
         return fetch("""
-        SELECT url, title, visits, last FROM history WHERE url LIKE ? OR title LIKE ?
-        ORDER BY (CASE WHEN url LIKE ? THEN 0 ELSE 1 END), visits DESC, last DESC LIMIT ?
-        """, [like, like, "%://" + q + "%", limit])
+        SELECT url, title, visits, last FROM history WHERE url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
+        ORDER BY (CASE WHEN url LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END), visits DESC, last DESC LIMIT ?
+        """, [like, like, "%://" + escaped + "%", limit])
     }
 
     func recent(limit: Int = 200) -> [HistoryEntry] {

@@ -8,6 +8,8 @@ struct SavedState: Codable {
     var version = 1
     var currentSpaceID: UUID
     var spaces: [SavedSpace]
+    /// Each icon once (tabs of the same site share it), by `SavedTab.faviconKey`.
+    var favicons: [String: Data]? = nil
 }
 
 struct SavedSpace: Codable {
@@ -23,7 +25,9 @@ struct SavedTab: Codable {
     var id: UUID
     var url: URL?
     var title: String
+    /// Sessions written before `favicons`: the icon inline.
     var favicon: Data?
+    var faviconKey: String? = nil
 }
 
 /// Decodes one element of an array, or nothing if that element is damaged.
@@ -45,6 +49,19 @@ extension SavedState {
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1
         spaces = c.lossyArray(SavedSpace.self, forKey: .spaces)
         currentSpaceID = ((try? c.decodeIfPresent(UUID.self, forKey: .currentSpaceID)) ?? nil) ?? spaces.first?.id ?? UUID()
+        favicons = (try? c.decodeIfPresent([String: Data].self, forKey: .favicons)) ?? nil
+    }
+
+    /// A tab's icon, wherever this session keeps it.
+    func favicon(of tab: SavedTab) -> Data? {
+        tab.favicon ?? tab.faviconKey.flatMap { favicons?[$0] }
+    }
+
+    /// Key of an icon in `favicons` (FNV-1a of its bytes).
+    static func faviconKey(_ data: Data) -> String {
+        var h: UInt64 = 1469598103934665603
+        for byte in data { h = (h ^ UInt64(byte)) &* 1099511628211 }
+        return String(h, radix: 36)
     }
 }
 
@@ -68,6 +85,7 @@ extension SavedTab {
         url = (try? c.decodeIfPresent(URL.self, forKey: .url)) ?? nil
         title = ((try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil) ?? ""
         favicon = (try? c.decodeIfPresent(Data.self, forKey: .favicon)) ?? nil
+        faviconKey = (try? c.decodeIfPresent(String.self, forKey: .faviconKey)) ?? nil
     }
 }
 

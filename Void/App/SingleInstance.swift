@@ -6,20 +6,36 @@ import AppKit
 /// duplicate shows nothing, passes its links to the running Void and quits without saving.
 @MainActor
 enum SingleInstance {
-    /// The Void that was already running when this one launched, if any.
-    static let existing: NSRunningApplication? = {
+    /// An exclusive lock on a file of Void's folder, held for the whole life of the Void that got
+    /// it (the system releases it when the process ends, crash included). Two copies started at
+    /// the same instant can't both take it, where looking at the running apps, each would see the
+    /// other and both would quit.
+    private static let holdsLock: Bool = {
         #if DEBUG
-        if SelfTestRunner.isRequested { return nil }
+        if SelfTestRunner.isRequested { return true }
         #endif
+        let path = StateStore.directory.appendingPathComponent("instance.lock").path
+        let descriptor = open(path, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else { return true }   // can't tell: behave as the only one
+        // The descriptor stays open on purpose: closing it would release the lock.
+        return flock(descriptor, LOCK_EX | LOCK_NB) == 0
+    }()
+
+    static var isDuplicate: Bool { !holdsLock }
+
+    /// The Void holding the lock (it may still be registering when this one starts).
+    private static func runningCopy() -> NSRunningApplication? {
         guard let id = Bundle.main.bundleIdentifier else { return nil }
         let me = NSRunningApplication.current.processIdentifier
         return NSRunningApplication.runningApplications(withBundleIdentifier: id)
             .first { $0.processIdentifier != me && !$0.isTerminated }
-    }()
-
-    static var isDuplicate: Bool { existing != nil }
+    }
 
     private static var forwarding = false
+    /// Links received so far, all passed on together.
+    private static var pending: [URL] = []
+    private static var lookups = 0
+    private static var lookupScheduled = false
 
     /// Launch of a duplicate: no Dock icon, no window, and it leaves if no link arrives.
     static func startDuplicate() {
@@ -34,15 +50,28 @@ enum SingleInstance {
     /// Hands `urls` to the running Void, which comes to the front, then quits. `exit` skips
     /// `applicationWillTerminate`: this instance must not save its (empty) session.
     static func forward(_ urls: [URL]) {
-        guard let existing, !forwarding else { return }
+        pending += urls
+        guard !forwarding else { return }
+        guard let existing = runningCopy() else {
+            // The other copy is still starting: look again for a few seconds, then give up.
+            guard !lookupScheduled else { return }
+            guard lookups < 15 else { exit(0) }
+            lookups += 1
+            lookupScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                lookupScheduled = false
+                forward([])
+            }
+            return
+        }
         forwarding = true
-        guard !urls.isEmpty, let app = existing.bundleURL else {
+        guard !pending.isEmpty, let app = existing.bundleURL else {
             existing.activate()
             exit(0)
         }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: configuration) { _, error in
+        NSWorkspace.shared.open(pending, withApplicationAt: app, configuration: configuration) { _, error in
             if let error { NSLog("[Void] liens non transmis à l'instance ouverte : %@", error.localizedDescription) }
             DispatchQueue.main.async { exit(0) }
         }

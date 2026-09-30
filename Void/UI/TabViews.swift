@@ -65,7 +65,7 @@ struct TabContextMenu: View {
             }
         }
         Divider()
-        Button(tab.isPinned ? "Fermer (désépingler)" : "Fermer l'onglet") { browser.close(tab, force: true) }
+        Button(tab.isPinned ? "Fermer (désépingler)" : "Fermer l'onglet") { browser.requestClose(tab, force: true) }
     }
 
     private func move(_ tab: Tab, to space: Space) {
@@ -106,7 +106,7 @@ struct SidebarTabRow: View {
                 .help(tab.isInPiP ? "Quitter Picture in Picture" : "Picture in Picture")
             }
             if hovering {
-                Button { browser.close(tab, force: true) } label: {
+                Button { browser.requestClose(tab, force: true) } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9.5, weight: .bold))
                         .foregroundStyle(Theme.secondaryText)
@@ -219,7 +219,7 @@ struct TopTabPill: View {
                     .foregroundStyle(tab.isInPiP ? Theme.accent : Theme.secondaryText)
             }
             if hovering || selected {
-                Button { browser.close(tab, force: true) } label: {
+                Button { browser.requestClose(tab, force: true) } label: {
                     Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.secondaryText)
                         .frame(width: 16, height: 16)
                         .contentShape(Rectangle())

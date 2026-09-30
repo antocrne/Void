@@ -20,6 +20,17 @@ enum KeychainStore {
         set { UserDefaults.standard.set(newValue, forKey: "keychainDataProtection") }
     }
 
+    /// The accounts (no secrets), read once: every login form a page shows asks for them.
+    /// Dropped at each change. Imports write from a background thread, hence the lock.
+    private static let cacheLock = NSLock()
+    private static var cachedLogins: [SavedLogin]?
+
+    private static func invalidateCache() {
+        cacheLock.lock()
+        cachedLogins = nil
+        cacheLock.unlock()
+    }
+
     private static func base() -> [String: Any] {
         var q: [String: Any] = [kSecClass as String: kSecClassInternetPassword,
                                 kSecAttrCreator as String: creator]
@@ -46,11 +57,24 @@ enum KeychainStore {
             useDataProtection = false
             return save(host: host, account: account, password: password)
         }
+        if status == errSecSuccess { invalidateCache() }
         return status == errSecSuccess
     }
 
     /// Accounts only — no secret is read, so no prompt.
     static func logins() -> [SavedLogin] {
+        cacheLock.lock()
+        let cached = cachedLogins
+        cacheLock.unlock()
+        if let cached { return cached }
+        let fresh = readLogins()
+        cacheLock.lock()
+        cachedLogins = fresh
+        cacheLock.unlock()
+        return fresh
+    }
+
+    private static func readLogins() -> [SavedLogin] {
         var query = base()
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         query[kSecReturnAttributes as String] = true
@@ -58,7 +82,7 @@ enum KeychainStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecMissingEntitlement && useDataProtection {
             useDataProtection = false
-            return logins()
+            return readLogins()
         }
         guard status == errSecSuccess, let items = result as? [[String: Any]] else { return [] }
         return items.compactMap { item in
@@ -95,5 +119,6 @@ enum KeychainStore {
         query[kSecAttrServer as String] = login.host
         query[kSecAttrAccount as String] = login.account
         SecItemDelete(query as CFDictionary)
+        invalidateCache()
     }
 }

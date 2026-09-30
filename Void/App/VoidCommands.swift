@@ -42,9 +42,9 @@ struct VoidCommands: Commands {
             Divider()
             Button("Rechercher dans la page…") { browser.toggleFind() }
                 .keyboardShortcut("f")
-            Button("Occurrence suivante") { NotificationCenter.default.post(name: .voidFindNext, object: false) }
+            Button("Occurrence suivante") { browser.findNext(backwards: false) }
                 .keyboardShortcut("g")
-            Button("Occurrence précédente") { NotificationCenter.default.post(name: .voidFindNext, object: true) }
+            Button("Occurrence précédente") { browser.findNext(backwards: true) }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             Button("Copier l'adresse de la page") { browser.copyURL() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])

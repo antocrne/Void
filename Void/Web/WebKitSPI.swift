@@ -37,6 +37,18 @@ enum WebKitSPI {
         if inspector.responds(to: action) { inspector.perform(action) }
     }
 
+    // MARK: Closing
+
+    /// Asks the page to close, running its beforeunload handlers: WebKit then calls
+    /// `webViewDidClose` if it may go. Returns true when it is closed at once (no web process),
+    /// nil when WebKit has no such method.
+    static func tryClose(_ webView: WKWebView) -> Bool? {
+        let sel = NSSelectorFromString("_tryClose")
+        guard webView.responds(to: sel) else { return nil }
+        typealias Call = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(webView.method(for: sel), to: Call.self)(webView, sel)
+    }
+
     // MARK: Muting (chrome.tabs.update({muted}))
 
     /// `_WKMediaAudioMuted`, the first bit of WebKit's muted state.

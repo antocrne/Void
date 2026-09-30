@@ -60,6 +60,7 @@ final class FeatureSelfTest {
         "mots-de-passe": { t, space in await t.testPasswords(in: space) },
         "historique": { t, _ in t.testHistoryRetention() },
         "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
+        "corrections": { t, space in await t.testReportFixes(in: space) },
     ]
 
     func run() async {
@@ -358,12 +359,121 @@ final class FeatureSelfTest {
         // A Chrome extension (.crx) installed and run: content script, chrome.tabs
         await testExtensions(in: space)
 
+        // Fixes of docs/RAPPORT_BUGS.md
+        await testReportFixes(in: space)
+
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
         settings.sidebarVisible = savedSidebar
         browser.deleteSpace(other)
         browser.deleteSpace(space)   // also removes its on-disk data store
         write()
+    }
+
+    // MARK: - Fixes of docs/RAPPORT_BUGS.md
+
+    private func testReportFixes(in space: Space) async {
+        browser.switchSpace(to: space)
+
+        // 1. A space deleted while another is shown: the user stays there, and none of its tabs
+        // is selected (hence woken up) on the way out.
+        let doomed = browser.addSpace(name: "Self-test à supprimer", icon: "trash")
+        let asleep = (0..<3).map { i -> Tab in
+            let tab = browser.openTab(url: nil, in: doomed, background: true)
+            tab.url = URL(string: "https://void-doomed-\(i).example/")
+            return tab
+        }
+        doomed.selectedTabID = asleep[0].id
+        browser.switchSpace(to: space)
+        let accessed = asleep.map(\.lastAccess)
+        browser.deleteSpace(doomed)
+        check("Suppression d'un espace en arrière-plan : on reste sur l'espace affiché", browser.currentSpaceID == space.id,
+              browser.currentSpace.name)
+        check("Suppression d'un espace : aucun de ses onglets n'est réveillé", asleep.map(\.lastAccess) == accessed)
+
+        // 1 bis. The selected tab of a background space closed (an extension, the page): no switch.
+        let background = browser.addSpace(name: "Self-test arrière-plan", icon: "leaf")
+        let first = browser.openTab(url: nil, in: background)
+        let second = browser.openTab(url: nil, in: background, background: true)
+        second.url = URL(string: "https://void-bg.example/")
+        browser.switchSpace(to: space)
+        browser.close(first, force: true)
+        check("Onglet actif d'un autre espace fermé : pas de changement d'espace, l'espace retient son voisin",
+              browser.currentSpaceID == space.id && background.selectedTabID == second.id && second.isAsleep)
+        browser.deleteSpace(background)
+
+        // 9. A closed tab is never selected again (a stale suggestion).
+        let closed = browser.openTab(url: nil, in: space)
+        browser.close(closed, force: true)
+        browser.select(closed)
+        check("Onglet fermé : jamais resélectionné ni réveillé", browser.selectedTab !== closed && closed.isAsleep)
+
+        // 13. ⌘W on a pinned tab: an ordinary tab takes its place.
+        let ordinary = browser.openTab(url: nil, in: space)
+        let pinned = browser.openTab(url: nil, in: space)
+        browser.togglePin(pinned)
+        browser.select(pinned)
+        browser.close(pinned)
+        check("⌘W sur un onglet épinglé : un onglet ordinaire est sélectionné",
+              browser.selectedTab != nil && browser.selectedTab?.isPinned == false && pinned.isAsleep,
+              browser.selectedTab?.displayTitle ?? "aucun")
+        browser.close(pinned, force: true)
+        browser.close(ordinary, force: true)
+
+        // 10. Closing asks the page first (beforeunload): one with nothing to say goes at once,
+        // through WebKit's answer, not the fallback delay.
+        let leaving = await htmlTab("<!doctype html><body>fermer</body>", in: space, base: "https://void-close.example/")
+        let asked = Date()
+        browser.requestClose(leaving)
+        for _ in 0..<40 where !leaving.isClosed { await sleep(0.05) }
+        let delay = Date().timeIntervalSince(asked)
+        check("Fermeture : la page est consultée, puis l'onglet se ferme aussitôt", leaving.isClosed && delay < 1,
+              String(format: "%.2f s", delay))
+
+        // 17. An e-mail address is looked up.
+        check("Adresse : « jean@exemple.fr » → recherche", URLResolver.url(from: "jean@exemple.fr") == nil)
+        check("Adresse : « localhost.fr » → https", URLResolver.url(from: "localhost.fr")?.absoluteString == "https://localhost.fr")
+
+        // 21. ⌘N windows follow the main window's spaces.
+        let secondary = BrowserWindows.shared.openNormalWindow()
+        if secondary !== browser {
+            let name = space.name
+            space.name = "Self-test renommé"
+            browser.setNeedsSave()
+            check("Fenêtre ⌘N : un espace renommé l'est aussi", secondary.spaces.first { $0.id == space.id }?.name == "Self-test renommé")
+            space.name = name
+            browser.setNeedsSave()
+            secondary.window?.close()
+            browser.window?.makeKeyAndOrderFront(nil)
+        }
+
+        // 16. The session keeps each icon once, and still reads the icons of older sessions.
+        let icon = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+        let key = SavedState.faviconKey(icon)
+        let tabs = [SavedTab(id: UUID(), url: nil, title: "a", favicon: nil, faviconKey: key),
+                    SavedTab(id: UUID(), url: nil, title: "b", favicon: nil, faviconKey: key),
+                    SavedTab(id: UUID(), url: nil, title: "ancien", favicon: icon)]
+        var state = SavedState(currentSpaceID: space.id, spaces: [SavedSpace(id: space.id, name: "s", icon: "circle", pinned: [], tabs: tabs, selectedTabID: nil)])
+        state.favicons = [key: icon]
+        let decoded = (try? JSONEncoder().encode(state)).flatMap { try? JSONDecoder().decode(SavedState.self, from: $0) }
+        check("Session : icônes rangées une fois, anciennes sessions lues",
+              decoded.map { d in d.spaces[0].tabs.allSatisfy { d.favicon(of: $0) == icon } } ?? false)
+
+        // 4. An extension folder holding a symbolic link is refused.
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("void-symlink-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: folder.appendingPathComponent("void-shim.js"), withDestinationURL: fm.temporaryDirectory.appendingPathComponent("void-target"))
+        let refused = (try? ChromeExtensions.rejectSymbolicLinks(in: folder)) == nil
+        try? fm.removeItem(at: folder)
+        check("Extensions : un dossier contenant un lien symbolique est refusé", refused)
+
+        // 5. Automatic password manager: Void steps aside only for an extension.
+        let savedChoice = AppSettings.shared.passwordManager
+        AppSettings.shared.passwordManager = .automatic
+        check("Mots de passe : une app seule sur le Mac ne coupe pas Void",
+              PasswordManager.shared.isActive == (PasswordManager.shared.managerExtensionName == nil))
+        AppSettings.shared.passwordManager = savedChoice
     }
 
     /// Native mouse click (optionally with a move first) at the centre of an element.
@@ -870,8 +980,10 @@ final class FeatureSelfTest {
             secondary.currentSpaceID = extra.id
             secondary.openTab(url: nil)
             browser.deleteSpace(extra)
+            // Then it shows the main window's spaces again (they are kept in sync).
             check("Espace supprimé, seul espace d'une fenêtre ⌘N : la fenêtre passe à un autre espace",
-                  secondary.spaces.count == 1 && secondary.spaces[0].id != extra.id && secondary.currentSpaceID == secondary.spaces[0].id,
+                  !secondary.spaces.contains { $0.id == extra.id } && secondary.spaces.map(\.id) == browser.spaces.map(\.id)
+                    && secondary.currentSpaceID != extra.id && secondary.spaces.contains { $0.id == secondary.currentSpaceID },
                   secondary.spaces.map(\.name).joined(separator: ", "))
             secondary.window?.close()
         } else {
@@ -1214,8 +1326,10 @@ final class FeatureSelfTest {
         let other = PasswordManager.shared.otherManagerName
         NSLog("[Void features] gestionnaire : extension=%@ app=%@", PasswordManager.shared.managerExtensionName ?? "aucune",
               PasswordManager.shared.installedApp?.name ?? "aucune")
-        check("Mots de passe : mode automatique, Void s'efface devant une extension de mots de passe", PasswordManager.shared.isActive == (other == nil),
-              "détecté : \(other ?? "aucun")")
+        let managerExtension = PasswordManager.shared.managerExtensionName
+        check("Mots de passe : mode automatique, Void s'efface devant une extension de mots de passe (pas devant une app seule)",
+              PasswordManager.shared.isActive == (managerExtension == nil),
+              "détecté : \(other ?? "aucun"), extension : \(managerExtension ?? "aucune")")
     }
 
     /// A password manager extension (Proton Pass) draws its icon in the login field and, on focus,

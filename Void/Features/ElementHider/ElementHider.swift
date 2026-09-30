@@ -22,27 +22,32 @@ final class ElementHider {
 
     func startPicking(in tab: Tab) {
         guard let webView = tab.webView else { return }
-        let browser = tab.browser
-        browser?.isPickingElement = true
         webView.window?.makeFirstResponder(webView)
         Task {
-            let result = await webView.voidCall("return (\n\(Scripts.hider)\n);", arguments: ["voidAccent": Theme.accentCSS.light]) as? String
-            if result == nil { browser?.isPickingElement = false }
+            _ = await webView.voidCall("return (\n\(Scripts.hider)\n);", arguments: ["voidAccent": Theme.accentCSS.light])
         }
     }
 
     func handlePick(_ body: [String: Any], tab: Tab) {
-        tab.browser?.isPickingElement = false
         guard body["cancelled"] == nil,
               let selector = body["selector"] as? String, !selector.isEmpty,
               let host = body["host"] as? String, !host.isEmpty else { return }
         let key = host.voidNormalizedHost
-        var list = rules[key] ?? []
-        guard !list.contains(selector) else { return }
-        list.append(selector)
-        rules[key] = list
-        save()
-        tab.browser?.showToast("eye.slash", "Élément masqué sur \(key)")
+        guard !(rules[key] ?? []).contains(selector) else { return }
+        Task {
+            // All hidden elements share one compiled list: a selector WebKit's content blocker
+            // refuses would cost every one of them. It is tried on its own first.
+            guard await ContentRules.shared.accepts(selector: selector) else {
+                tab.browser?.showToast("exclamationmark.triangle", "Cet élément ne peut pas être masqué durablement")
+                return
+            }
+            var list = rules[key] ?? []
+            guard !list.contains(selector) else { return }
+            list.append(selector)
+            rules[key] = list
+            save()
+            tab.browser?.showToast("eye.slash", "Élément masqué sur \(key)")
+        }
     }
 
     func reset(host: String) {
