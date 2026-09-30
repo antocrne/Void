@@ -20,7 +20,7 @@ final class FormAutofill {
     }
 
     /// Off when a password manager extension is running: it draws its own suggestions on the fields.
-    var isEnabled: Bool { AppSettings.shared.formAutofillEnabled && PasswordManager.shared.otherManagerName == nil }
+    var isEnabled: Bool { AppSettings.shared.formAutofillEnabled && PasswordManager.shared.managerExtensionName == nil }
 
     func clear() {
         entries = [:]

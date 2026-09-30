@@ -58,6 +58,7 @@ final class FeatureSelfTest {
         "barre-commande": { t, space in await t.snapshotCommandBar(in: space) },
         "lecteurs": { t, space in await t.testPlayers(in: space) },
         "mots-de-passe": { t, space in await t.testPasswords(in: space) },
+        "historique": { t, _ in t.testHistoryRetention() },
         "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
     ]
 
@@ -245,6 +246,7 @@ final class FeatureSelfTest {
         let probe = URL(string: "https://void-title.example/\(UUID().uuidString)")!   // no such row: nothing is modified
         for _ in 0..<10 { history.updateTitle(url: probe, title: "(3) Messages") }
         check("Historique : un titre inchangé n'est écrit qu'une fois", history.titleWrites - writes == 1, "\(history.titleWrites - writes) écriture(s)")
+        testHistoryRetention()
         let ids1 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
         let ids2 = SuggestionEngine.suggestions(for: "exa", browser: browser).map(\.id)
         check("Barre de commande : suggestions stables d'un calcul à l'autre", !ids1.isEmpty && ids1 == ids2 && Set(ids1).count == ids1.count)
@@ -1166,6 +1168,22 @@ final class FeatureSelfTest {
         AppSettings.shared.tabLayout = savedLayout
     }
 
+    /// Pages older than the chosen period leave the history. The setting is left as it is:
+    /// a shorter one would prune the real history.
+    private func testHistoryRetention() {
+        let days = Double(AppSettings.shared.historyRetention.rawValue)
+        let recentProbe = URL(string: "https://void-recent.example/\(UUID().uuidString)")!
+        let oldProbe = URL(string: "https://void-old.example/\(UUID().uuidString)")!
+        HistoryStore.shared.importEntries([
+            HistoryEntry(url: recentProbe, title: "", visits: 1, lastVisit: Date().addingTimeInterval(-(days - 2) * 86_400)),
+            HistoryEntry(url: oldProbe, title: "", visits: 1, lastVisit: Date().addingTimeInterval(-(days + 2) * 86_400)),
+        ])
+        let kept = HistoryStore.shared.search(recentProbe.absoluteString, limit: 1).contains { $0.url == recentProbe }
+        let pruned = !HistoryStore.shared.search(oldProbe.absoluteString, limit: 1).contains { $0.url == oldProbe }
+        if let entry = HistoryStore.shared.search(recentProbe.absoluteString, limit: 1).first { HistoryStore.shared.delete(entry) }
+        check("Historique : effacé au-delà de « \(AppSettings.shared.historyRetention.label) », gardé en deçà", kept && pruned, "gardée=\(kept) effacée=\(pruned)")
+    }
+
     /// 7a. Autofill stays on the origin the credentials belong to (no Touch ID here: the
     /// injection step is called directly, with a throw-away password).
     private func testPasswords(in space: Space) async {
@@ -1194,6 +1212,8 @@ final class FeatureSelfTest {
         check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
         settings.passwordManager = .automatic
         let other = PasswordManager.shared.otherManagerName
+        NSLog("[Void features] gestionnaire : extension=%@ app=%@", PasswordManager.shared.managerExtensionName ?? "aucune",
+              PasswordManager.shared.installedApp?.name ?? "aucune")
         check("Mots de passe : mode automatique, Void s'efface devant une extension de mots de passe", PasswordManager.shared.isActive == (other == nil),
               "détecté : \(other ?? "aucun")")
     }

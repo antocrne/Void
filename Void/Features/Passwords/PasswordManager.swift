@@ -37,8 +37,11 @@ final class PasswordManager {
         }
     }
 
+    /// Another password manager, as an extension in Void or an app on this Mac.
+    var otherManagerName: String? { managerExtensionName ?? installedApp?.name }
+
     /// An installed, running password manager extension (Proton Pass, Bitwarden, 1Password…).
-    var otherManagerName: String? {
+    var managerExtensionName: String? {
         guard AppSettings.shared.extensionsEnabled, #available(macOS 15.4, *) else { return nil }
         return ExtensionManager.shared.contexts.lazy.compactMap { context -> String? in
             let ext = context.webExtension
@@ -55,6 +58,48 @@ final class PasswordManager {
         "oboonakemofpalcgghocfoadofidjkkk",   // KeePassXC-Browser
         "kmcfomidfpdkfieipokbalgegidffkal",   // Enpass
     ]
+
+    /// A password manager app on this Mac. Looked up by bundle ID (Launch Services finds the app
+    /// wherever it is), then by name in the Applications folders.
+    struct ManagerApp: Equatable {
+        let name: String
+        let bundleIDs: [String]
+        /// Its Chrome Web Store extension, which fills passwords in Void.
+        var extensionID: String?
+    }
+
+    static let knownApps: [ManagerApp] = [
+        ManagerApp(name: "Proton Pass", bundleIDs: ["me.proton.pass.electron", "me.proton.pass"], extensionID: "ghmbeldphafepmbegfdlkpapadhbakde"),
+        ManagerApp(name: "1Password", bundleIDs: ["com.1password.1password", "com.agilebits.onepassword7", "com.agilebits.onepassword-osx"], extensionID: "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
+        ManagerApp(name: "Bitwarden", bundleIDs: ["com.bitwarden.desktop"], extensionID: "nngceckbapebfimnlniiiahkandclblb"),
+        ManagerApp(name: "Dashlane", bundleIDs: ["com.dashlane.dashlanephonefinal", "com.dashlane.Dashlane"], extensionID: "fdjamakpfbbddfjaooikfcpapjohcfmg"),
+        ManagerApp(name: "NordPass", bundleIDs: ["com.nordpass.macos.NordPass"]),
+        ManagerApp(name: "KeePassXC", bundleIDs: ["org.keepassxc.keepassxc"], extensionID: "oboonakemofpalcgghocfoadofidjkkk"),
+        ManagerApp(name: "Enpass", bundleIDs: ["in.sinew.Enpass-Desktop", "in.sinew.Enpass-Desktop.App"], extensionID: "kmcfomidfpdkfieipokbalgegidffkal"),
+        ManagerApp(name: "Keeper Password Manager", bundleIDs: ["com.keepersecurity.passwordmanager"]),
+        ManagerApp(name: "RoboForm", bundleIDs: ["com.siber.roboform"]),
+        ManagerApp(name: "Strongbox", bundleIDs: ["com.markmcguill.strongbox.mac", "com.markmcguill.strongbox.mac.pro"]),
+        ManagerApp(name: "MacPass", bundleIDs: ["com.hicknhacksoftware.MacPass"]),
+        ManagerApp(name: "LastPass", bundleIDs: ["com.lastpass.lastpassmacdesktop", "com.lastpass.LastPass"]),
+    ]
+
+    /// Looked up once per launch: an app installed meanwhile shows up at the next one.
+    private(set) lazy var installedApp: ManagerApp? = Self.knownApps.first(where: Self.isInstalled)
+
+    private static func isInstalled(_ app: ManagerApp) -> Bool {
+        if app.bundleIDs.contains(where: { !NSWorkspace.shared.urlsForApplications(withBundleIdentifier: $0).isEmpty }) { return true }
+        let folders = [URL(fileURLWithPath: "/Applications"),
+                       FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")]
+        return folders.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent(app.name + ".app").path) }
+    }
+
+    /// The app's extension, when it has one and it isn't in Void yet.
+    var missingExtensionID: String? {
+        guard managerExtensionName == nil, let id = installedApp?.extensionID else { return nil }
+        if AppSettings.shared.extensionsEnabled, #available(macOS 15.4, *),
+           ExtensionManager.shared.isInstalled(chromeID: id) { return nil }
+        return id
+    }
 
     func handle(_ body: [String: Any], frame: WKFrameInfo, tab: Tab) {
         guard isActive else { return }

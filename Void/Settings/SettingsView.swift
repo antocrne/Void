@@ -340,6 +340,11 @@ private struct PrivacySettings: View {
                 }
             }
             Section("Données de navigation") {
+                Picker("Effacer l'historique", selection: $settings.historyRetention) {
+                    ForEach(HistoryRetention.allCases) { Text($0.label).tag($0) }
+                }
+                Text("Les pages non visitées depuis plus longtemps sont retirées de l'historique.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button(cleared ? "Données effacées" : "Effacer cookies, caches et historique…") {
                     HistoryStore.shared.clear()
                     for space in BrowserModel.shared.spaces {
@@ -373,6 +378,10 @@ private struct PasswordsSettings: View {
                 }
                 Text(managerCaption).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if settings.passwordManager != .void, let app = PasswordManager.shared.installedApp,
+                   let id = PasswordManager.shared.missingExtensionID {
+                    addExtensionButton(app, id: id)
+                }
             }
             HStack {
                 Toggle("Remplissage automatique des formulaires", isOn: $settings.formAutofillEnabled)
@@ -430,12 +439,37 @@ private struct PasswordsSettings: View {
         .frame(minHeight: 360)
     }
 
+    /// The app is on the Mac but only its extension fills passwords in Void.
+    @ViewBuilder
+    private func addExtensionButton(_ app: PasswordManager.ManagerApp, id: String) -> some View {
+        if #available(macOS 15.4, *) {
+            // Not created while extensions are off: the button turns them on.
+            let extensions = settings.extensionsEnabled ? ExtensionManager.shared : nil
+            let installing = extensions?.installing != nil
+            HStack {
+                Button(installing ? "Ajout de l'extension…" : "Ajouter l'extension \(app.name)") {
+                    settings.extensionsEnabled = true
+                    Task { await ExtensionManager.shared.installFromWebStore(id) }
+                }
+                .disabled(installing)
+                if let error = extensions?.lastError {
+                    Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
+                }
+            }
+        }
+    }
+
     private var managerCaption: String {
-        let other = PasswordManager.shared.otherManagerName
+        let manager = PasswordManager.shared
+        let other = manager.otherManagerName
+        let appOnly = manager.managerExtensionName == nil && manager.installedApp != nil
         switch settings.passwordManager {
         case .automatic:
+            if let other, appOnly {
+                return "\(other) est installé sur ce Mac : Void le laisse gérer vos mots de passe. Ajoutez son extension pour qu'il les remplisse dans Void."
+            }
             return other.map { "\($0) est installé : Void le laisse enregistrer et remplir vos mots de passe." }
-                ?? "Void enregistre et remplit vos mots de passe, sauf si une extension de gestion de mots de passe est installée."
+                ?? "Void enregistre et remplit vos mots de passe, sauf si un autre gestionnaire (app ou extension) est installé."
         case .void:
             return "Void propose d'enregistrer vos mots de passe dans le trousseau macOS et les remplit."
         case .other:
