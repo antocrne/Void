@@ -1,9 +1,9 @@
-import Foundation
+import AppKit
 import CommonCrypto
 import Security
 
 enum SourceBrowser: String, CaseIterable, Identifiable {
-    case chrome, arc, brave, edge, firefox
+    case chrome, arc, brave, edge, vivaldi, chromium, firefox
     var id: String { rawValue }
 
     var name: String {
@@ -12,7 +12,21 @@ enum SourceBrowser: String, CaseIterable, Identifiable {
         case .arc: "Arc"
         case .brave: "Brave"
         case .edge: "Microsoft Edge"
+        case .vivaldi: "Vivaldi"
+        case .chromium: "Chromium"
         case .firefox: "Firefox"
+        }
+    }
+
+    var bundleIdentifier: String {
+        switch self {
+        case .chrome: "com.google.Chrome"
+        case .arc: "company.thebrowser.Browser"
+        case .brave: "com.brave.Browser"
+        case .edge: "com.microsoft.edgemac"
+        case .vivaldi: "com.vivaldi.Vivaldi"
+        case .chromium: "org.chromium.Chromium"
+        case .firefox: "org.mozilla.firefox"
         }
     }
 
@@ -25,6 +39,8 @@ enum SourceBrowser: String, CaseIterable, Identifiable {
         case .arc: return base.appendingPathComponent("Arc/User Data")
         case .brave: return base.appendingPathComponent("BraveSoftware/Brave-Browser")
         case .edge: return base.appendingPathComponent("Microsoft Edge")
+        case .vivaldi: return base.appendingPathComponent("Vivaldi")
+        case .chromium: return base.appendingPathComponent("Chromium")
         case .firefox: return base.appendingPathComponent("Firefox/Profiles")
         }
     }
@@ -36,6 +52,8 @@ enum SourceBrowser: String, CaseIterable, Identifiable {
         case .arc: "Arc Safe Storage"
         case .brave: "Brave Safe Storage"
         case .edge: "Microsoft Edge Safe Storage"
+        case .vivaldi: "Vivaldi Safe Storage"
+        case .chromium: "Chromium Safe Storage"
         case .firefox: nil
         }
     }
@@ -55,6 +73,20 @@ enum SourceBrowser: String, CaseIterable, Identifiable {
     }
 
     var isInstalled: Bool { profileFolder != nil }
+
+    /// The browser is on the Mac but macOS doesn't let Void read its data (Full Disk Access).
+    var isBlocked: Bool {
+        guard !isInstalled, NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil else { return false }
+        return (try? FileManager.default.contentsOfDirectory(atPath: supportFolder.path)) == nil
+            && FileManager.default.fileExists(atPath: supportFolder.path)
+    }
+
+    /// Settings → Privacy & Security → Full Disk Access.
+    static func openFullDiskAccessSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 }
 
 struct ImportResult {

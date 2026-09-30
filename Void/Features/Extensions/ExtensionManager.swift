@@ -40,6 +40,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     @ObservationIgnored private let listURL = StateStore.directory.appendingPathComponent("extensions.json")
     /// Void's copies of the installed extensions, one folder per install.
     @ObservationIgnored static let folder = StateStore.directory.appendingPathComponent("Extensions", isDirectory: true)
+    /// The popup shown last (self-test).
+    @ObservationIgnored private(set) weak var shownPopover: NSPopover?
+    @ObservationIgnored private(set) weak var shownPopupWebView: WKWebView?
     /// Per window: the toolbar button popups hang from.
     @ObservationIgnored private var anchors: [ObjectIdentifier: WeakView] = [:]
 
@@ -250,6 +253,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// before the extension's own.
     private static let shimFile = "void-shim.js"
     private static let backgroundWrapperFile = "void-background.js"
+    /// An empty page of the extension's own, to act as the extension (reviveBackground).
+    private static let blankPageFile = "void-blank.html"
 
     /// Void's copy of an extension gets extension-shim.js, run first in each of its contexts: the
     /// background script, its pages (popup, options…) and its content scripts. Never another
@@ -264,6 +269,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
               // Always rewritten: a new Void may bring a new version.
               (try? Data(Scripts.extensionShim.utf8).write(to: folder.appendingPathComponent(shimFile))) != nil
         else { return }
+        try? Data("<!doctype html><meta charset=utf-8><title>Void</title>".utf8).write(to: folder.appendingPathComponent(blankPageFile))
         var changed = false
 
         if var background = manifest["background"] as? [String: Any] {
@@ -334,6 +340,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
         let context = WKWebExtensionContext(for: ext)
         context.uniqueIdentifier = identifier
+        // The same origin at every launch, as Chrome's chrome-extension://<id>: WebKit picks a new
+        // one otherwise, and the extension's pages lose their localStorage and IndexedDB.
+        if let base = URL(string: "webkit-extension://\(identifier.lowercased())/") { context.baseURL = base }
         context.isInspectable = true
         // Private windows: off unless allowed in Settings → Extensions.
         context.hasAccessToPrivateData = AppSettings.shared.extensionsInPrivate
@@ -346,6 +355,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
         try controller.load(context)
         contexts.append(context)
+        watchBackground(context)
         return context
     }
 
@@ -359,9 +369,65 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         context.action(for: browser.selectedTab.map(bridge.tab))
     }
 
-    /// Toolbar click on an extension: its popup, or its `action.onClicked`.
+    /// Toolbar click on an extension: its popup, or its `action.onClicked`. Its background is
+    /// checked first (see watchBackground): a popup that finds no one to talk to closes itself.
     func performAction(_ context: WKWebExtensionContext, in browser: BrowserModel) {
-        context.performAction(for: browser.selectedTab.map(bridge.tab))
+        let tab = browser.selectedTab.map(bridge.tab)
+        Task {
+            if await backgroundWorkerIsLost(context) {
+                await reviveBackground(context)
+                for _ in 0..<20 where await backgroundWorkerIsLost(context) { try? await Task.sleep(for: .milliseconds(150)) }
+            }
+            context.performAction(for: tab)
+        }
+    }
+
+    // MARK: - Background service worker
+
+    /// WebKit loses the service worker of an extension loaded at launch a few seconds after
+    /// starting it (it turns redundant), while still taking the background for loaded: messages
+    /// from the extension's popup and content scripts then reach no one — Proton Pass's popup opens
+    /// empty, finds its worker dead, reloads the extension and closes. The extension's own
+    /// `runtime.reload()` brings the worker back for good: Void calls it when the worker is lost.
+    private func watchBackground(_ context: WKWebExtensionContext) {
+        guard Self.hasServiceWorker(context) else { return }
+        Task {
+            // The worker is lost about 5 s after it starts: watched for a while after that.
+            for _ in 0..<12 {
+                try? await Task.sleep(for: .seconds(2))
+                guard contexts.contains(where: { $0 === context }) else { return }
+                if await backgroundWorkerIsLost(context) { return await reviveBackground(context) }
+            }
+        }
+    }
+
+    private static func hasServiceWorker(_ context: WKWebExtensionContext) -> Bool {
+        (context.webExtension.manifest["background"] as? [String: Any])?["service_worker"] is String
+    }
+
+    /// The background page WebKit keeps for a service worker, without any worker registered.
+    private func backgroundWorkerIsLost(_ context: WKWebExtensionContext) async -> Bool {
+        guard Self.hasServiceWorker(context), let page = WebKitSPI.backgroundWebView(context), !page.isLoading,
+              let count = try? await page.callAsyncJavaScript(
+                "return (await navigator.serviceWorker.getRegistrations()).length", contentWorld: .page) as? Int
+        else { return false }
+        return count == 0
+    }
+
+    @ObservationIgnored private var reviving: Set<ObjectIdentifier> = []
+
+    /// `runtime.reload()` from one of the extension's pages (a blank one of Void's, see addShims),
+    /// as the extension would do itself.
+    private func reviveBackground(_ context: WKWebExtensionContext) async {
+        guard let configuration = context.webViewConfiguration,
+              reviving.insert(ObjectIdentifier(context)).inserted else { return }
+        defer { reviving.remove(ObjectIdentifier(context)) }
+        NSLog("[Void] extension « %@ » : service worker perdu, rechargement", context.webExtension.displayName ?? context.uniqueIdentifier)
+        let page = WKWebView(frame: .zero, configuration: configuration)
+        page.load(URLRequest(url: context.baseURL.appendingPathComponent(Self.blankPageFile)))
+        for _ in 0..<30 where page.isLoading || page.url == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        _ = try? await page.evaluateJavaScript("browser.runtime.reload(); true")
+        try? await Task.sleep(for: .seconds(1))
     }
 
     func openOptions(_ context: WKWebExtensionContext) {
@@ -497,6 +563,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
         let browser = ExtensionBridge.tab(action.associatedTab)?.browser ?? BrowserWindows.shared.active
         guard let popover = action.popupPopover else { return completionHandler(nil) }
+        shownPopover = popover
+        shownPopupWebView = action.popupWebView
         let anchor = anchors[ObjectIdentifier(browser)]?.view
         // Under the button in the top bar, above it at the bottom of the sidebar.
         let above = anchor?.window.map { anchor!.convert(anchor!.bounds, to: nil).midY < $0.contentLayoutRect.midY } ?? false

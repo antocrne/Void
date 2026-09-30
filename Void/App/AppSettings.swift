@@ -13,6 +13,20 @@ enum TabIconStyle: String, CaseIterable, Identifiable {
     var label: String { self == .letters ? "Lettres" : "Icônes de sites" }
 }
 
+/// Who offers to save and fill passwords: Void (macOS keychain) or another password manager.
+enum PasswordManagerChoice: String, CaseIterable, Identifiable {
+    /// Void, unless a password manager extension is installed.
+    case automatic, void, other
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .automatic: "Automatique"
+        case .void: "Void (trousseau macOS)"
+        case .other: "Un autre gestionnaire"
+        }
+    }
+}
+
 enum ThemeChoice: String, CaseIterable, Identifiable {
     case dark, light, system
     var id: String { rawValue }
@@ -81,6 +95,7 @@ final class AppSettings {
         }
     }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
+    var passwordManager: PasswordManagerChoice { didSet { defaults.set(passwordManager.rawValue, forKey: "passwordManager") } }
     var extensionsInPrivate: Bool {
         didSet {
             defaults.set(extensionsInPrivate, forKey: "extensionsInPrivate")
@@ -119,6 +134,7 @@ final class AppSettings {
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
+        passwordManager = PasswordManagerChoice(rawValue: d.string(forKey: "passwordManager") ?? "") ?? .automatic
         extensionsInPrivate = d.object(forKey: "extensionsInPrivate") as? Bool ?? false
         sidebarAutoHide = d.object(forKey: "sidebarAutoHide") as? Bool ?? false
         sidebarWidth = d.object(forKey: "sidebarWidth") as? Double ?? Self.defaultSidebarWidth

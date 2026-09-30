@@ -54,6 +54,17 @@ enum WebKitSPI {
         unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, muted ? 1 : 0)
     }
 
+    // MARK: Extensions
+
+    /// The page WebKit hosts an extension's background in (for a service worker, the page that
+    /// registers it).
+    @available(macOS 15.4, *)
+    static func backgroundWebView(_ context: WKWebExtensionContext) -> WKWebView? {
+        let sel = NSSelectorFromString("_backgroundWebView")
+        guard context.responds(to: sel) else { return nil }
+        return context.perform(sel)?.takeUnretainedValue() as? WKWebView
+    }
+
     // MARK: Extension popups
 
     /// A popup's web view is laid out at its content's own size (up to 800 × 600): off, it is laid

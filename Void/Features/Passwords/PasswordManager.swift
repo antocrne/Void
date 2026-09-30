@@ -27,7 +27,37 @@ enum BiometricGate {
 final class PasswordManager {
     static let shared = PasswordManager()
 
+    /// Void offers to save and fill passwords, or leaves it to another password manager
+    /// (Settings → Mots de passe): then it neither asks to save nor offers its keychain's logins.
+    var isActive: Bool {
+        switch AppSettings.shared.passwordManager {
+        case .void: true
+        case .other: false
+        case .automatic: otherManagerName == nil
+        }
+    }
+
+    /// An installed, running password manager extension (Proton Pass, Bitwarden, 1Password…).
+    var otherManagerName: String? {
+        guard AppSettings.shared.extensionsEnabled, #available(macOS 15.4, *) else { return nil }
+        return ExtensionManager.shared.contexts.lazy.compactMap { context -> String? in
+            let ext = context.webExtension
+            let name = ext.displayName ?? ""
+            let text = name + " " + (ext.displayShortName ?? "") + " " + (ext.displayDescription ?? "")
+            let isPasswordManager = Self.passwordManagerIDs.contains(ExtensionManager.shared.record(for: context)?.chromeID ?? "")
+                || ["password", "mot de passe", "mots de passe"].contains { text.localizedCaseInsensitiveContains($0) }
+            return isPasswordManager ? name : nil
+        }.first
+    }
+
+    /// Chrome Web Store IDs of password managers whose name doesn't say so.
+    private static let passwordManagerIDs: Set<String> = [
+        "oboonakemofpalcgghocfoadofidjkkk",   // KeePassXC-Browser
+        "kmcfomidfpdkfieipokbalgegidffkal",   // Enpass
+    ]
+
     func handle(_ body: [String: Any], frame: WKFrameInfo, tab: Tab) {
+        guard isActive else { return }
         // The frame's security origin, not what the script reports: it is what WebKit enforces.
         let originHost = frame.securityOrigin.host.voidNormalizedHost
         guard let type = body["type"] as? String, !originHost.isEmpty else { return }

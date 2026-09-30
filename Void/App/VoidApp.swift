@@ -13,9 +13,14 @@ struct VoidApp: App {
 
     var body: some Scene {
         Window("Void", id: WindowID.main) {
-            BrowserWindowView()
-                .environment(browser)
-                .environment(settings)
+            if SingleInstance.isDuplicate {
+                // This instance only passes links on to the running Void (see SingleInstance).
+                Color.clear.background(WindowAccessor { $0.orderOut(nil) })
+            } else {
+                BrowserWindowView()
+                    .environment(browser)
+                    .environment(settings)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1280, height: 820)
