@@ -146,7 +146,9 @@ struct BrowserWindowView: View {
         window.tabbingMode = .disallowed
         window.backgroundColor = browser.isPrivate ? Theme.privateChromeNS : Theme.chromeNS
         switch browser.kind {
-        case .main: window.setFrameAutosaveName("VoidMainWindow")
+        case .main:
+            window.setFrameAutosaveName("VoidMainWindow")
+            ExternalLinks.shared.takeOver()
         case .secondary: window.title = "Void"
         case .privateWindow: window.title = "Void — Navigation privée"
         }

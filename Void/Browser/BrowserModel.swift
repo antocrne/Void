@@ -109,6 +109,13 @@ final class BrowserModel {
         }
         let fallback = Space(name: "Personnel", icon: "circle")
         currentSpaceID = fallback.id
+        if SingleInstance.isDuplicate {
+            // Quits as soon as its links are passed on: never reads or writes the session.
+            isEphemeralSession = true
+            spaces = [fallback]
+            fallback.browser = self
+            return
+        }
         #if DEBUG
         if SelfTestRunner.isRequested {
             // The self-test never reads or writes the user's session.

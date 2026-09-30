@@ -362,8 +362,26 @@ private struct PasswordsSettings: View {
     @State private var revealed: [String: String] = [:]
     @State private var query = ""
 
+    @Environment(AppSettings.self) private var settings
+
     var body: some View {
+        @Bindable var settings = settings
         VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Gestionnaire de mots de passe", selection: $settings.passwordManager) {
+                    ForEach(PasswordManagerChoice.allCases) { Text($0.label).tag($0) }
+                }
+                Text(managerCaption).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Toggle("Remplissage automatique des formulaires", isOn: $settings.formAutofillEnabled)
+                Spacer()
+                Button("Effacer les données") { FormAutofill.shared.clear() }
+            }
+            Text("Propose les noms, adresses, e-mails… déjà saisis dans des champs de même nom. Rien n'est retenu en navigation privée.")
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
             if !unlocked {
                 Spacer()
                 Image(systemName: "touchid").font(.system(size: 40, weight: .light)).foregroundStyle(Theme.accent)
@@ -410,6 +428,19 @@ private struct PasswordsSettings: View {
         }
         .padding()
         .frame(minHeight: 360)
+    }
+
+    private var managerCaption: String {
+        let other = PasswordManager.shared.otherManagerName
+        switch settings.passwordManager {
+        case .automatic:
+            return other.map { "\($0) est installé : Void le laisse enregistrer et remplir vos mots de passe." }
+                ?? "Void enregistre et remplit vos mots de passe, sauf si une extension de gestion de mots de passe est installée."
+        case .void:
+            return "Void propose d'enregistrer vos mots de passe dans le trousseau macOS et les remplit."
+        case .other:
+            return "Void ne propose plus d'enregistrer ni de remplir : votre gestionnaire (extension ou app) s'en charge."
+        }
     }
 
     private var filtered: [SavedLogin] {
@@ -583,7 +614,13 @@ private struct ExtensionInstall: View {
                     Task { await manager.install(from: url) }
                 }
                 Menu("Importer depuis…") {
-                    ForEach(SourceBrowser.allCases.filter { $0.isChromium && $0.isInstalled }) { browser in
+                    let chromium = SourceBrowser.allCases.filter(\.isChromium)
+                    let readable = chromium.filter(\.isInstalled)
+                    let blocked = chromium.filter(\.isBlocked)
+                    if readable.isEmpty && blocked.isEmpty {
+                        Text("Aucun navigateur Chrome, Brave, Edge, Arc ou Vivaldi trouvé")
+                    }
+                    ForEach(readable) { browser in
                         let found = ChromeExtensions.installed(in: browser)
                         Menu(browser.name) {
                             if found.isEmpty { Text("Aucune extension") }
@@ -599,6 +636,17 @@ private struct ExtensionInstall: View {
                                 }
                             }
                         }
+                    }
+                    ForEach(blocked) { browser in
+                        Button("\(browser.name) : accès refusé par macOS…") { SourceBrowser.openFullDiskAccessSettings() }
+                    }
+                    if !blocked.isEmpty {
+                        Text("Autorisez Void dans Accès complet au disque, puis rouvrez ce menu.")
+                    }
+                    if SourceBrowser.firefox.isInstalled {
+                        Divider()
+                        // Firefox extensions aren't Chrome ones: most are on the Chrome Web Store too.
+                        Button("Firefox : retrouver ses extensions dans le Chrome Web Store") { manager.openWebStore() }
                     }
                 }
                 .fixedSize()

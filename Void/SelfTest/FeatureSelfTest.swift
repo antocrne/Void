@@ -52,10 +52,13 @@ final class FeatureSelfTest {
         "disposition": { t, space in await t.testLayoutSwitch(in: space) },
         "extensions": { t, space in await t.testExtensions(in: space) },
         "lancement-extensions": { t, _ in await t.testInstalledExtensionsLoad() },
+        "popups-installes": { t, space in await t.testInstalledPopups(in: space) },
         "store": { t, space in await t.testWebStorePage(in: space) },
         "plein-ecran": { t, space in await t.testElementFullscreen(in: space) },
         "barre-commande": { t, space in await t.snapshotCommandBar(in: space) },
         "lecteurs": { t, space in await t.testPlayers(in: space) },
+        "mots-de-passe": { t, space in await t.testPasswords(in: space) },
+        "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
     ]
 
     func run() async {
@@ -218,21 +221,7 @@ final class FeatureSelfTest {
         check("Masquer un élément : toujours masqué au chargement suivant (règle compilée)", display == "none", "display=\(display ?? "nil")")
         ElementHider.shared.reset(host: "void-hider.example")
 
-        // 7a. Autofill stays on the origin the credentials belong to (no Touch ID here: the
-        // injection step is called directly, with a throw-away password).
-        let login = await htmlTab("""
-            <!doctype html><body><form><input id="u" type="email"><input id="p" type="password"><button>Connexion</button></form></body>
-            """, in: space, base: "https://void-login-a.example/")
-        await sleep(0.8)
-        check("Mots de passe : formulaire rattaché à l'origine du cadre", login.loginHost == "void-login-a.example", login.loginHost ?? "nil")
-        let filled = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-1", into: login)
-        let values = await js(login, "return document.getElementById('u').value + '|' + document.getElementById('p').value;") as? String
-        check("Mots de passe : remplissage sur la bonne origine", filled == "ok" && values == "moi@void.test|selftest-1", "\(filled ?? "nil") \(values ?? "nil")")
-        _ = await js(login, "document.getElementById('u').value = ''; document.getElementById('p').value = ''; return 1;")
-        login.loginHost = "void-login-b.example"   // credentials of another site, e.g. a frame that navigated away
-        let refused = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-2", into: login)
-        let after = await js(login, "return document.getElementById('p').value;") as? String
-        check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
+        await testPasswords(in: space)
 
         // 7a'. Session file: tolerant decoding, damaged file set aside, backup used.
         testSessionStore()
@@ -1175,6 +1164,107 @@ final class FeatureSelfTest {
             await snapshotWindow("installees-\(layout.rawValue)")
         }
         AppSettings.shared.tabLayout = savedLayout
+    }
+
+    /// 7a. Autofill stays on the origin the credentials belong to (no Touch ID here: the
+    /// injection step is called directly, with a throw-away password).
+    private func testPasswords(in space: Space) async {
+        let settings = AppSettings.shared
+        let savedManager = settings.passwordManager
+        defer { settings.passwordManager = savedManager }
+        settings.passwordManager = .other
+        let otherManager = await htmlTab("""
+            <!doctype html><body><form><input type="email"><input type="password"></form></body>
+            """, in: space, base: "https://void-login-c.example/")
+        await sleep(0.8)
+        check("Mots de passe : laissés à un autre gestionnaire, Void ignore le formulaire", otherManager.loginHost == nil, otherManager.loginHost ?? "nil")
+        settings.passwordManager = .void
+        let login = await htmlTab("""
+            <!doctype html><body><form><input id="u" type="email"><input id="p" type="password"><button>Connexion</button></form></body>
+            """, in: space, base: "https://void-login-a.example/")
+        await sleep(0.8)
+        check("Mots de passe : formulaire rattaché à l'origine du cadre", login.loginHost == "void-login-a.example", login.loginHost ?? "nil")
+        let filled = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-1", into: login)
+        let values = await js(login, "return document.getElementById('u').value + '|' + document.getElementById('p').value;") as? String
+        check("Mots de passe : remplissage sur la bonne origine", filled == "ok" && values == "moi@void.test|selftest-1", "\(filled ?? "nil") \(values ?? "nil")")
+        _ = await js(login, "document.getElementById('u').value = ''; document.getElementById('p').value = ''; return 1;")
+        login.loginHost = "void-login-b.example"   // credentials of another site, e.g. a frame that navigated away
+        let refused = await PasswordManager.shared.inject(account: "moi@void.test", password: "selftest-2", into: login)
+        let after = await js(login, "return document.getElementById('p').value;") as? String
+        check("Mots de passe : jamais écrits dans une autre origine", refused == "origin" && after == "", "\(refused ?? "nil") p=\"\(after ?? "nil")\"")
+        settings.passwordManager = .automatic
+        let other = PasswordManager.shared.otherManagerName
+        check("Mots de passe : mode automatique, Void s'efface devant une extension de mots de passe", PasswordManager.shared.isActive == (other == nil),
+              "détecté : \(other ?? "aucun")")
+    }
+
+    /// A password manager extension (Proton Pass) draws its icon in the login field and, on focus,
+    /// its dropdown (an iframe of its own page). Meant for a copy of a real profile.
+    private func testExtensionInlineAutofill(in space: Space) async {
+        guard #available(macOS 15.4, *) else { return }
+        let manager = ExtensionManager.shared
+        for _ in 0..<40 where manager.contexts.count < manager.installedRecords.count { await sleep(0.25) }
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let tab = await htmlTab("""
+            <!doctype html><title>Connexion</title><body style="font:16px system-ui;padding:40px">
+            <header><a href="/">Accueil</a> <nav><a href="/a">Statut</a> <a href="/b">Créer</a> <a href="/c">Gérer</a> <a href="/d">Aide</a></nav>
+            <input type="search" name="q" placeholder="Rechercher"></header>
+            <main><h1>Mon compte</h1><h2>J'ai déjà un compte</h2><p>Me connecter avec mon compte</p>
+            <form method="post" action="/login"><label>Courriel<br><input id="u" name="username" type="text" autocomplete="username" style="width:400px;height:36px"></label><br><br>
+            <label>Mot de passe<br><input id="p" name="password" type="password" style="width:400px;height:36px"></label><br><br>
+            <button type="submit">Me connecter</button></form><p><a href="/oubli">Mot de passe oublié ?</a></p>
+            <p>FranceConnect est la solution proposée par l'État.</p><ul><li><a href="/1">Un</a></li><li><a href="/2">Deux</a></li><li><a href="/3">Trois</a></li></ul></main>
+            <footer><p>Pied de page</p><a href="/m">Mentions</a> <a href="/c">Contact</a> <a href="/p">Plan</a></footer></body>
+            """, in: space, base: "https://login.urssaf.fr/")
+        browser.select(tab)
+        let probe = """
+            const all = [...document.querySelectorAll('*')];
+            const custom = all.filter(e => e.tagName.includes('-')).map(e => e.tagName.toLowerCase() + (e.shadowRoot ? '(shadow)' : ''));
+            const frames = [...document.querySelectorAll('iframe')].map(f => f.src || '(sans src)');
+            const deep = [];
+            for (const e of all) if (e.shadowRoot) for (const f of e.shadowRoot.querySelectorAll('iframe')) deep.push(f.src);
+            return JSON.stringify({ custom, frames, deep, active: document.activeElement && document.activeElement.id,
+                                    uAttrs: [...document.getElementById('u').attributes].map(a => a.name).join(',') });
+            """
+        await sleep(6)
+        NSLog("[Void features] proton avant focus : %@", (await js(tab, probe) as? String) ?? "nil")
+        await click(tab, selector: "#u", modifiers: [], move: true)
+        await sleep(4)
+        let after = (await js(tab, probe) as? String) ?? "nil"
+        NSLog("[Void features] proton après focus : %@", after)
+        await snapshotWindow("proton-champ", tab: tab)
+        // Proton Pass: its icon is a protonpass-control-… element; the field gets data-protonpass-base-css.
+        check("Extension de mots de passe : icône dans le champ de connexion",
+              after.contains("protonpass-control") && after.contains("data-protonpass-base-css"), after)
+    }
+
+    /// The popup of each installed extension, over a web page, opened twice: shown and not empty.
+    /// Meant for a copy of a real profile (Proton Pass: WebKit loses its service worker a few seconds
+    /// after launch, see ExtensionManager.watchBackground; the popup then opened empty and closed).
+    private func testInstalledPopups(in space: Space) async {
+        guard #available(macOS 15.4, *) else { return }
+        let manager = ExtensionManager.shared
+        let records = manager.installedRecords
+        for _ in 0..<40 where manager.contexts.count < records.count { await sleep(0.25) }
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        _ = await htmlTab("<!doctype html><title>Sous le popup</title><body>Page</body>", in: space, base: "https://example.com/")
+        await sleep(10)   // past the moment WebKit loses service workers
+        for context in manager.contexts {
+            let name = context.webExtension.displayName ?? context.uniqueIdentifier
+            for round in 1...2 {
+                manager.performAction(context, in: browser)
+                await sleep(4)
+                let popover = manager.shownPopover
+                let text = try? await manager.shownPopupWebView?.evaluateJavaScript("document.body ? document.body.innerText.length : -1")
+                check("Popup « \(name) » (ouverture \(round)) : affiché, non vide",
+                      popover?.isShown == true && ((text as? Int) ?? 0) > 0,
+                      "affiché=\(popover?.isShown ?? false) taille=\(NSStringFromSize(popover?.contentSize ?? .zero)) texte=\(text.map { "\($0)" } ?? "nil")")
+                popover?.performClose(nil)
+                await sleep(1.5)
+            }
+        }
     }
 
     /// A Manifest V3 extension written like a Chrome one (`chrome.*`, service worker), packed as a

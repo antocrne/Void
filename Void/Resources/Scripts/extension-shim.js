@@ -9,6 +9,16 @@
   const native = globalThis.browser || globalThis.chrome;
   if (!native || !native.runtime) return;
 
+  // requestIdleCallback: in Chrome and Firefox, not in WebKit. Proton Pass detects login forms
+  // from it: without it, no icon or dropdown in the fields.
+  if (typeof globalThis.requestIdleCallback !== "function") {
+    globalThis.requestIdleCallback = (callback) => {
+      const start = Date.now();
+      return setTimeout(() => callback({ didTimeout: false, timeRemaining: () => Math.max(0, 50 - (Date.now() - start)) }), 1);
+    };
+    globalThis.cancelIdleCallback = (id) => clearTimeout(id);
+  }
+
   // WebKit finds the context to send an event to (a message, a port, onStartup…) through its
   // `browser` / `chrome` globals. Some extensions replace them once started, to hide the API from
   // other scripts (Proton Pass puts a Proxy that answers nothing in their place): in Chrome that

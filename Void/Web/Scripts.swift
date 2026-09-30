@@ -5,6 +5,7 @@ enum Scripts {
     static let core = load("core")
     static let media = load("media")
     static let autofill = load("autofill")
+    static let formfill = load("formfill")
     static let reader = load("reader")
     static let hider = load("hider")
     static let activity = load("activity")
