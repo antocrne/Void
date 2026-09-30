@@ -58,6 +58,7 @@ final class FeatureSelfTest {
         "barre-commande": { t, space in await t.snapshotCommandBar(in: space) },
         "lecteurs": { t, space in await t.testPlayers(in: space) },
         "mots-de-passe": { t, space in await t.testPasswords(in: space) },
+        "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
     ]
 
     func run() async {
@@ -1195,6 +1196,48 @@ final class FeatureSelfTest {
         let other = PasswordManager.shared.otherManagerName
         check("Mots de passe : mode automatique, Void s'efface devant une extension de mots de passe", PasswordManager.shared.isActive == (other == nil),
               "détecté : \(other ?? "aucun")")
+    }
+
+    /// A password manager extension (Proton Pass) draws its icon in the login field and, on focus,
+    /// its dropdown (an iframe of its own page). Meant for a copy of a real profile.
+    private func testExtensionInlineAutofill(in space: Space) async {
+        guard #available(macOS 15.4, *) else { return }
+        let manager = ExtensionManager.shared
+        for _ in 0..<40 where manager.contexts.count < manager.installedRecords.count { await sleep(0.25) }
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let tab = await htmlTab("""
+            <!doctype html><title>Connexion</title><body style="font:16px system-ui;padding:40px">
+            <header><a href="/">Accueil</a> <nav><a href="/a">Statut</a> <a href="/b">Créer</a> <a href="/c">Gérer</a> <a href="/d">Aide</a></nav>
+            <input type="search" name="q" placeholder="Rechercher"></header>
+            <main><h1>Mon compte</h1><h2>J'ai déjà un compte</h2><p>Me connecter avec mon compte</p>
+            <form method="post" action="/login"><label>Courriel<br><input id="u" name="username" type="text" autocomplete="username" style="width:400px;height:36px"></label><br><br>
+            <label>Mot de passe<br><input id="p" name="password" type="password" style="width:400px;height:36px"></label><br><br>
+            <button type="submit">Me connecter</button></form><p><a href="/oubli">Mot de passe oublié ?</a></p>
+            <p>FranceConnect est la solution proposée par l'État.</p><ul><li><a href="/1">Un</a></li><li><a href="/2">Deux</a></li><li><a href="/3">Trois</a></li></ul></main>
+            <footer><p>Pied de page</p><a href="/m">Mentions</a> <a href="/c">Contact</a> <a href="/p">Plan</a></footer></body>
+            """, in: space, base: "https://login.urssaf.fr/")
+        browser.select(tab)
+        let probe = """
+            const all = [...document.querySelectorAll('*')];
+            const custom = all.filter(e => e.tagName.includes('-')).map(e => e.tagName.toLowerCase() + (e.shadowRoot ? '(shadow)' : ''));
+            const frames = [...document.querySelectorAll('iframe')].map(f => f.src || '(sans src)');
+            const deep = [];
+            for (const e of all) if (e.shadowRoot) for (const f of e.shadowRoot.querySelectorAll('iframe')) deep.push(f.src);
+            return JSON.stringify({ custom, frames, deep, active: document.activeElement && document.activeElement.id,
+                                    uAttrs: [...document.getElementById('u').attributes].map(a => a.name).join(',') });
+            """
+        await sleep(6)
+        NSLog("[Void features] proton avant focus : %@", (await js(tab, probe) as? String) ?? "nil")
+        await click(tab, selector: "#u", modifiers: [], move: true)
+        await sleep(4)
+        let after = (await js(tab, probe) as? String) ?? "nil"
+        NSLog("[Void features] proton après focus : %@", after)
+        await snapshotWindow("proton-champ", tab: tab)
+        // Proton Pass: its icon is a protonpass-control-… element; the field gets data-protonpass-base-css.
+        check("Extension de mots de passe : icône dans le champ de connexion",
+              after.contains("protonpass-control") && after.contains("data-protonpass-base-css"), after)
     }
 
     /// The popup of each installed extension, over a web page, opened twice: shown and not empty.

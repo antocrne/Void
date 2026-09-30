@@ -95,6 +95,7 @@ final class AppSettings {
         }
     }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
+    var formAutofillEnabled: Bool { didSet { defaults.set(formAutofillEnabled, forKey: "formAutofillEnabled") } }
     var passwordManager: PasswordManagerChoice { didSet { defaults.set(passwordManager.rawValue, forKey: "passwordManager") } }
     var extensionsInPrivate: Bool {
         didSet {
@@ -134,6 +135,7 @@ final class AppSettings {
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
+        formAutofillEnabled = d.object(forKey: "formAutofillEnabled") as? Bool ?? true
         passwordManager = PasswordManagerChoice(rawValue: d.string(forKey: "passwordManager") ?? "") ?? .automatic
         extensionsInPrivate = d.object(forKey: "extensionsInPrivate") as? Bool ?? false
         sidebarAutoHide = d.object(forKey: "sidebarAutoHide") as? Bool ?? false

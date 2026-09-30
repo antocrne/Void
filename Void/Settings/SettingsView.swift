@@ -374,6 +374,13 @@ private struct PasswordsSettings: View {
                 Text(managerCaption).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            HStack {
+                Toggle("Remplissage automatique des formulaires", isOn: $settings.formAutofillEnabled)
+                Spacer()
+                Button("Effacer les données") { FormAutofill.shared.clear() }
+            }
+            Text("Propose les noms, adresses, e-mails… déjà saisis dans des champs de même nom. Rien n'est retenu en navigation privée.")
+                .font(.caption).foregroundStyle(.secondary)
             Divider()
             if !unlocked {
                 Spacer()

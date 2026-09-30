@@ -192,6 +192,7 @@ struct TopTabPill: View {
     @State private var hovering = false
 
     static let activeWidth: CGFloat = 360
+    static let minWidth: CGFloat = 38
 
     var body: some View {
         HStack(spacing: 7) {
@@ -230,7 +231,11 @@ struct TopTabPill: View {
         .padding(.leading, 10)
         .padding(.trailing, selected ? 5 : 8)
         // The tab row proposes a shared width: the active tab must not accept less than its own.
-        .frame(minWidth: selected ? Self.activeWidth : 110, maxWidth: selected ? Self.activeWidth : 200)
+        // Inactive tabs shrink with the room left (down to a favicon) instead of pushing the row into a scroll.
+        .frame(minWidth: selected ? Self.activeWidth : Self.minWidth,
+               idealWidth: selected ? Self.activeWidth : Self.minWidth,
+               maxWidth: selected ? Self.activeWidth : 200)
+        .clipped()
         .frame(height: 30)
         .background {
             if selected {

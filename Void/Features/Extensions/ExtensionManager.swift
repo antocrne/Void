@@ -258,8 +258,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     /// Void's copy of an extension gets extension-shim.js, run first in each of its contexts: the
     /// background script, its pages (popup, options…) and its content scripts. Never another
-    /// folder (an older Void may point at the user's own). Content scripts injected by the
-    /// extension itself (chrome.scripting) go without.
+    /// folder (an older Void may point at the user's own). Script files the extension injects
+    /// itself (chrome.scripting) get it at their top (prependShim).
     static func addShims(to folder: URL) {
         let fm = FileManager.default
         let manifestURL = folder.appendingPathComponent("manifest.json")
@@ -309,6 +309,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             try? patched.write(to: manifestURL, options: .atomic)
         }
 
+        // Scripts the extension injects itself (chrome.scripting.executeScript({ files: [...] })):
+        // no manifest entry to add the shim to, so it goes at the top of the file. Proton Pass
+        // injects its in-field icon and dropdown (client.js) this way.
+        prependShim(toScriptsInjectedBy: folder, manifest: manifest)
+
         // Pages: the shim as their first script.
         let tag = "<script src=\"/\(shimFile)\"></script>"
         let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil)
@@ -327,6 +332,47 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             var patched = page
             patched.insert(contentsOf: tag, at: insertion)
             try? patched.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private static let inlineShimStart = "/*void-shim:start*/"
+    private static let inlineShimEnd = "/*void-shim:end*/\n"
+
+    /// Finds the file lists passed to scripting.executeScript (`files: [...]`, or `js: [...]` when
+    /// wrapped) in the extension's code and puts the shim first in each of those scripts, replacing
+    /// the copy an older Void put there. The shim guards itself: running twice, or in a page's own
+    /// world (no extension API there), does nothing.
+    private static func prependShim(toScriptsInjectedBy folder: URL, manifest: [String: Any]) {
+        let fm = FileManager.default
+        let skip: Set<String> = [shimFile, backgroundWrapperFile]
+        let listPattern = try? NSRegularExpression(pattern: #"(?:files|js)\s*:\s*\[([^\]]*)\]"#)
+        let namePattern = try? NSRegularExpression(pattern: #"["'`]/?([^"'`]+\.js)["'`]"#)
+        guard let listPattern, let namePattern else { return }
+
+        var injected = Set<String>()
+        let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url.lastPathComponent == "_metadata" { enumerator?.skipDescendants(); continue }
+            guard url.pathExtension == "js", let source = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let whole = NSRange(source.startIndex..., in: source)
+            for list in listPattern.matches(in: source, range: whole) {
+                guard let listRange = Range(list.range(at: 1), in: source) else { continue }
+                let items = String(source[listRange])
+                for name in namePattern.matches(in: items, range: NSRange(items.startIndex..., in: items)) {
+                    if let r = Range(name.range(at: 1), in: items) { injected.insert(String(items[r])) }
+                }
+            }
+        }
+
+        let shim = inlineShimStart + Scripts.extensionShim + "\n" + inlineShimEnd
+        for path in injected where !skip.contains(path) {
+            let url = folder.appendingPathComponent(path).standardizedFileURL
+            guard url.path.hasPrefix(folder.standardizedFileURL.path + "/"),
+                  var source = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if source.hasPrefix(inlineShimStart), let end = source.range(of: inlineShimEnd) {
+                source.removeSubrange(source.startIndex..<end.upperBound)
+            }
+            try? (shim + source).write(to: url, atomically: true, encoding: .utf8)
         }
     }
 

@@ -5,7 +5,7 @@ import WebKit
 /// from `message.webView` (popups inherit the opener's controller).
 final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
     static let shared = ScriptMessageRouter()
-    static let names = ["voidMedia", "voidAutofill", "voidHider", "voidContext", "voidActivity", "voidStore"]
+    static let names = ["voidMedia", "voidAutofill", "voidForm", "voidHider", "voidContext", "voidActivity", "voidStore"]
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         MainActor.assumeIsolated {
@@ -16,6 +16,8 @@ final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
                 PiPController.shared.handleReport(body, frame: message.frameInfo, tab: tab)
             case "voidAutofill":
                 PasswordManager.shared.handle(body, frame: message.frameInfo, tab: tab)
+            case "voidForm":
+                FormAutofill.shared.handle(body, frame: message.frameInfo, tab: tab)
             case "voidHider":
                 ElementHider.shared.handlePick(body, tab: tab)
             case "voidActivity":
