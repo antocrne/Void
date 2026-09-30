@@ -7,6 +7,8 @@ enum FaviconLoader {
     nonisolated private static let session = URLSession(configuration: .ephemeral)
     private static var cache: [String: (NSImage, Data)] = [:]
 
+    static func clearCache() { cache = [:] }
+
     static func load(for tab: Tab) {
         guard let webView = tab.webView, let pageURL = webView.url, let host = pageURL.host() else { return }
         if let cached = cache[host] {
@@ -32,6 +34,8 @@ enum FaviconLoader {
                     if cache.count >= 300 { cache.removeAll() }
                     cache[host] = (resized, png)
                 }
+                // The tab may have gone to another site while this one's icon was downloading.
+                guard tab.webView?.url?.host() == host else { return }
                 tab.setFavicon(resized, data: png)
                 return
             }

@@ -10,11 +10,13 @@ enum URLResolver {
         for scheme in ["http://", "https://", "file://", "about:", "data:", "view-source:"] where lower.hasPrefix(scheme) {
             return URL(string: input)
         }
-        if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+        for local in ["localhost", "127.0.0.1", "[::1]"] where lower == local || lower.hasPrefix(local + ":") || lower.hasPrefix(local + "/") {
             return URL(string: "http://" + input)
         }
         // host[:port][/path] with a plausible TLD or an IPv4 address
         let hostPart = lower.split(whereSeparator: { $0 == "/" || $0 == "?" || $0 == "#" }).first.map(String.init) ?? lower
+        // "jean@exemple.fr" is an e-mail address, looked up — not exemple.fr signed in as "jean".
+        if hostPart.contains("@") { return nil }
         let host = hostPart.split(separator: ":").first.map(String.init) ?? hostPart
         let labels = host.split(separator: ".")
         let isIPv4 = labels.count == 4 && labels.allSatisfy { UInt8($0) != nil }

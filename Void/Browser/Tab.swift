@@ -70,8 +70,16 @@ final class Tab: Identifiable {
     @ObservationIgnored var loginHost: String?
     @ObservationIgnored var loginFrame: WKFrameInfo?
 
+    /// Last address written to the history (a page load, or a web app changing its address).
+    @ObservationIgnored var lastRecordedURL: URL?
+    @ObservationIgnored private var historyWork: DispatchWorkItem?
+
     /// Closed for good (not asleep): late changes are no longer reported to extensions.
     @ObservationIgnored var isClosed = false
+    /// The user asked to close the tab and its page is being asked (BrowserModel.requestClose).
+    @ObservationIgnored var closeRequested = false
+    /// The page's "Quitter cette page ?" sheet is up.
+    @ObservationIgnored var isAskingToStay = false
     @ObservationIgnored weak var space: Space?
     /// The window model owning this tab.
     var browser: BrowserModel? { space?.browser }
@@ -179,6 +187,14 @@ final class Tab: Identifiable {
         loginAccounts = []
         readingProgress = 0
         hasUserInput = false
+        // What described the released page: the next web view reports its own.
+        canGoBack = false
+        canGoForward = false
+        hasOnlySecureContent = true
+        isInElementFullscreen = false
+        closeRequested = false
+        isAskingToStay = false
+        historyWork?.cancel()
     }
 
     /// Automatic sleep: remembers the scroll position, then releases the web view (unless the
@@ -211,6 +227,22 @@ final class Tab: Identifiable {
         self.url = url
         ExtensionEvents.tabChanged(self, .url)
         browser?.setNeedsSave()
+    }
+
+    /// A web app changing its address without loading a page (pushState): no didFinish, so the
+    /// visit is written here — once the address has stayed a moment, and unless the page load
+    /// under way writes it anyway.
+    private func recordInHistoryIfStill(_ url: URL) {
+        guard !isPrivate, browser?.isEphemeralSession != true else { return }
+        historyWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let webView = self.webView, !webView.isLoading, webView.url == url,
+                  self.lastRecordedURL != url else { return }
+            HistoryStore.shared.record(url: url, title: webView.title ?? self.title)
+            self.lastRecordedURL = url
+        }
+        historyWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
     /// After waking up: puts the page back where it was if WebKit didn't.
@@ -259,9 +291,10 @@ final class Tab: Identifiable {
                     self.url = u
                     ExtensionEvents.tabChanged(self, .url)
                     self.browser?.setNeedsSave()
+                    self.recordInHistoryIfStill(u)
                 }
             },
-            wv.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] wv, _ in
+            wv.observe(\.hasOnlySecureContent, options: [.initial, .new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.hasOnlySecureContent = wv.hasOnlySecureContent }
             },
             wv.observe(\.fullscreenState, options: [.new]) { [weak self] wv, _ in
@@ -280,10 +313,10 @@ final class Tab: Identifiable {
             wv.observe(\.estimatedProgress, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }
             },
-            wv.observe(\.canGoBack, options: [.new]) { [weak self] wv, _ in
+            wv.observe(\.canGoBack, options: [.initial, .new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.canGoBack = wv.canGoBack }
             },
-            wv.observe(\.canGoForward, options: [.new]) { [weak self] wv, _ in
+            wv.observe(\.canGoForward, options: [.initial, .new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.canGoForward = wv.canGoForward }
             },
         ]

@@ -49,6 +49,49 @@ final class Space: Identifiable {
         persistentStores[id] = nil
     }
 
+    /// Deleted spaces whose store folder is still on disk.
+    nonisolated private static let pendingRemovalsKey = "pendingDataStoreRemovals"
+
+    /// Removes a deleted space's store folder. WebKit refuses while the store is in use (its web
+    /// views are released a little later, and the store object may still be held): the space is
+    /// then remembered and its folder removed at the next launch, before any store is created.
+    static func removeStoreFromDisk(_ id: UUID) {
+        var pending = Set(UserDefaults.standard.stringArray(forKey: pendingRemovalsKey) ?? [])
+        pending.insert(id.uuidString)
+        UserDefaults.standard.set(pending.sorted(), forKey: pendingRemovalsKey)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { attemptRemoval(id) }
+    }
+
+    /// At launch: the folders of spaces deleted earlier that WebKit couldn't remove then.
+    /// `live`: the spaces of the restored session, never touched.
+    static func removePendingStores(keeping live: Set<UUID>) {
+        let pending = UserDefaults.standard.stringArray(forKey: pendingRemovalsKey) ?? []
+        guard !pending.isEmpty else { return }
+        // remove(forIdentifier:) answers through WebKit's main run loop, which only exists once a
+        // WebKit object has been made: called first thing at launch, it crashed on a null run loop.
+        _ = WKWebsiteDataStore.default()
+        for id in pending.compactMap(UUID.init(uuidString:)) {
+            if live.contains(id) { forgetPendingRemoval(id) } else { attemptRemoval(id) }
+        }
+    }
+
+    private static func attemptRemoval(_ id: UUID) {
+        WKWebsiteDataStore.remove(forIdentifier: id) { error in
+            if let error {
+                NSLog("[Void] stockage de l'espace %@ pas encore supprimé (nouvel essai au prochain lancement) : %@",
+                      id.uuidString, error.localizedDescription)
+            } else {
+                forgetPendingRemoval(id)
+            }
+        }
+    }
+
+    nonisolated private static func forgetPendingRemoval(_ id: UUID) {
+        var pending = UserDefaults.standard.stringArray(forKey: pendingRemovalsKey) ?? []
+        pending.removeAll { $0 == id.uuidString }
+        UserDefaults.standard.set(pending, forKey: pendingRemovalsKey)
+    }
+
     var allTabs: [Tab] { pinned + tabs }
     var selectedTab: Tab? { allTabs.first { $0.id == selectedTabID } }
 

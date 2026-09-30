@@ -22,13 +22,20 @@
   }, true);
 
   // 2. Embedded players (YouTube, Vimeo… in iframes) often lack allow="picture-in-picture".
-  //    Add it (and fullscreen) as soon as an iframe is inserted, before its document is created.
+  //    Add it as soon as an iframe is inserted, before its document is created. Fullscreen only
+  //    for known video players: any other frame (an ad…) keeps what the site decided.
+  const PLAYERS = /(^|\.)(youtube\.com|youtube-nocookie\.com|vimeo\.com|dailymotion\.com|twitch\.tv|streamable\.com|wistia\.(com|net)|jwplayer\.com|brightcove\.net|arte\.tv|francetv\.fr|ina\.fr|peertube\.[a-z.]+)$/i;
+  const isPlayer = (frame) => {
+    try { return PLAYERS.test(new URL(frame.getAttribute('src') || '', location.href).hostname); } catch (_) { return false; }
+  };
   const patch = (frame) => {
-    const allow = frame.getAttribute('allow') || '';
-    if (!/picture-in-picture/.test(allow)) {
-      frame.setAttribute('allow', (allow ? allow.replace(/;?\s*$/, '; ') : '') + 'picture-in-picture; fullscreen');
-    }
-    if (!frame.hasAttribute('allowfullscreen')) frame.setAttribute('allowfullscreen', '');
+    const player = isPlayer(frame);
+    let allow = frame.getAttribute('allow') || '';
+    const add = [];
+    if (!/picture-in-picture/.test(allow)) add.push('picture-in-picture');
+    if (player && !/fullscreen/.test(allow)) add.push('fullscreen');
+    if (add.length) frame.setAttribute('allow', (allow ? allow.replace(/;?\s*$/, '; ') : '') + add.join('; '));
+    if (player && !frame.hasAttribute('allowfullscreen')) frame.setAttribute('allowfullscreen', '');
   };
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {

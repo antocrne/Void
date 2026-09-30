@@ -10,7 +10,41 @@ struct InstalledExtension: Codable, Identifiable, Hashable {
     var path: String        // unpacked folder (Void's own copy; older installs may point elsewhere)
     /// Chrome Web Store ID, when it came from the store or from another Chromium browser.
     var chromeID: String?
+    /// What the user agreed to when installing it (permissions' raw values, match patterns).
+    /// nil for installs made before Void asked: everything the manifest requests.
+    var grantedPermissions: [String]?
+    var grantedSites: [String]?
+
+    @available(macOS 15.4, *)
+    var grant: ExtensionGrant? {
+        guard let grantedPermissions, let grantedSites else { return nil }
+        return ExtensionGrant(permissions: Set(grantedPermissions), sites: Set(grantedSites))
+    }
 }
+
+/// Permissions and sites an extension may use, as the user approved them.
+struct ExtensionGrant: Equatable {
+    var permissions: Set<String>
+    var sites: Set<String>
+
+    @available(macOS 15.4, *)
+    init(requestedBy ext: WKWebExtension) {
+        permissions = Set(ext.requestedPermissions.map(\.rawValue))
+        sites = Set(ext.allRequestedMatchPatterns.map(\.description))
+    }
+
+    init(permissions: Set<String>, sites: Set<String>) {
+        self.permissions = permissions
+        self.sites = sites
+    }
+
+    func covers(_ other: ExtensionGrant) -> Bool {
+        other.permissions.isSubset(of: permissions) && other.sites.isSubset(of: sites)
+    }
+}
+
+/// The user declined an extension's permissions: not an error to show.
+struct ExtensionInstallDeclined: Error {}
 
 /// Web extensions through WKWebExtension (macOS 15.4+), optional (Settings → Extensions):
 /// the same WebExtensions API as Chrome's (`chrome.*` and `browser.*`), so Chrome extensions
@@ -39,7 +73,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     @ObservationIgnored private let listURL = StateStore.directory.appendingPathComponent("extensions.json")
     /// Void's copies of the installed extensions, one folder per install.
-    @ObservationIgnored static let folder = StateStore.directory.appendingPathComponent("Extensions", isDirectory: true)
+    @ObservationIgnored nonisolated static let folder = StateStore.directory.appendingPathComponent("Extensions", isDirectory: true)
     /// The popup shown last (self-test).
     @ObservationIgnored private(set) weak var shownPopover: NSPopover?
     @ObservationIgnored private(set) weak var shownPopupWebView: WKWebView?
@@ -86,7 +120,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         migrateIdentifiers()
         for item in installed where !contexts.contains(where: { $0.uniqueIdentifier == item.id }) {
             Task {
-                do { try await load(URL(fileURLWithPath: item.path), identifier: item.id, generation: generation) } catch is CancellationError {
+                do {
+                    try await load(URL(fileURLWithPath: item.path), identifier: item.id, generation: generation, granted: item.grant)
+                } catch is CancellationError {
                     // Switched off (or back on) while it was loading.
                 } catch {
                     lastError = "\(URL(fileURLWithPath: item.path).lastPathComponent) : \(error.localizedDescription)"
@@ -188,35 +224,81 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             lastError = nil
             let title = context.webExtension.displayName ?? name
             BrowserWindows.shared.active.showToast("puzzlepiece.extension", "« \(title) » ajoutée")
+        } catch is ExtensionInstallDeclined {
+            lastError = nil
         } catch {
             lastError = error.localizedDescription
         }
     }
 
     /// Loads the unpacked extension in `folder`; on failure the folder goes. A new version of an
-    /// extension already installed from Chrome replaces it (and keeps its data).
+    /// extension already installed from Chrome replaces it (and keeps its data). What it asks for is
+    /// shown first, unless an earlier version was already allowed as much.
     private func add(_ folder: URL, chromeID: String?) async throws -> WKWebExtensionContext {
         let previous = chromeID.flatMap { id in installed.first { $0.chromeID == id } }
+        let grant: ExtensionGrant
+        do {
+            // An archive's symbolic links would let the files Void writes into its copy land elsewhere.
+            try ChromeExtensions.rejectSymbolicLinks(in: folder)
+            let candidate = try await WKWebExtension(resourceBaseURL: folder)
+            grant = ExtensionGrant(requestedBy: candidate)
+            if !(previous?.grant?.covers(grant) ?? false) {
+                guard await confirmInstall(candidate, grant: grant, isUpdate: previous != nil) else { throw ExtensionInstallDeclined() }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
         if let previous, let old = contexts.first(where: { $0.uniqueIdentifier == previous.id }) {
             try? controller.unload(old)
             contexts.removeAll { $0 === old }
         }
         let id = previous?.id ?? chromeID.flatMap { id in installed.contains { $0.id == id } ? nil : id } ?? UUID().uuidString
         do {
-            let context = try await load(folder, identifier: id)
+            let context = try await load(folder, identifier: id, granted: grant)
             if let previous {
                 installed.removeAll { $0.id == previous.id }
                 removeCopy(previous.path)
             }
-            installed.append(InstalledExtension(id: id, path: folder.path, chromeID: chromeID))
+            installed.append(InstalledExtension(id: id, path: folder.path, chromeID: chromeID,
+                                                grantedPermissions: grant.permissions.sorted(), grantedSites: grant.sites.sorted()))
             // Installing switches extensions on (they would do nothing otherwise); only now, so
             // that starting doesn't load the version being replaced.
             if !AppSettings.shared.extensionsEnabled { AppSettings.shared.extensionsEnabled = true }
             return context
         } catch {
             try? FileManager.default.removeItem(at: folder)
-            if let previous { _ = try? await load(URL(fileURLWithPath: previous.path), identifier: previous.id) }
+            if let previous { _ = try? await load(URL(fileURLWithPath: previous.path), identifier: previous.id, granted: previous.grant) }
             throw error
+        }
+    }
+
+    /// Before installing: what the extension will be able to do, as Chrome shows it.
+    private func confirmInstall(_ ext: WKWebExtension, grant: ExtensionGrant, isUpdate: Bool) async -> Bool {
+        #if DEBUG
+        if SelfTestRunner.isRequested { return true }
+        #endif
+        let name = ext.displayName ?? "Cette extension"
+        let alert = NSAlert()
+        alert.messageText = isUpdate ? "« \(name) » demande de nouvelles autorisations" : "Ajouter « \(name) » à Void ?"
+        var lines: [String] = []
+        let everywhere = grant.sites.contains { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }
+        if everywhere {
+            lines.append("• Lire et modifier vos données sur tous les sites")
+        } else if !grant.sites.isEmpty {
+            let hosts = grant.sites.sorted()
+            lines.append("• Lire et modifier vos données sur : " + hosts.prefix(6).joined(separator: ", ") + (hosts.count > 6 ? "…" : ""))
+        }
+        let permissions = grant.permissions.sorted()
+        if !permissions.isEmpty { lines.append("• Autorisations : " + permissions.joined(separator: ", ")) }
+        alert.informativeText = lines.isEmpty ? "Elle ne demande aucune autorisation particulière." : "Elle pourra :\n" + lines.joined(separator: "\n")
+        alert.addButton(withTitle: isUpdate ? "Autoriser" : "Ajouter")
+        alert.addButton(withTitle: "Annuler")
+        guard let window = BrowserWindows.shared.active.window, window.isVisible else {
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
         }
     }
 
@@ -251,25 +333,41 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     /// extension-shim.js in Void's copy of an extension, and the background script that loads it
     /// before the extension's own.
-    private static let shimFile = "void-shim.js"
-    private static let backgroundWrapperFile = "void-background.js"
+    nonisolated private static let shimFile = "void-shim.js"
+    nonisolated private static let backgroundWrapperFile = "void-background.js"
     /// An empty page of the extension's own, to act as the extension (reviveBackground).
-    private static let blankPageFile = "void-blank.html"
+    nonisolated private static let blankPageFile = "void-blank.html"
+    /// Written once the shims are in: the same Void (same shim) and the same version of the
+    /// extension skip the work at the next launch.
+    nonisolated private static let stampFile = "void-shim.stamp"
+    nonisolated private static let shimStamp: String = {
+        var h: UInt64 = 1469598103934665603   // FNV-1a
+        for byte in Scripts.extensionShim.utf8 { h = (h ^ UInt64(byte)) &* 1099511628211 }
+        return String(h, radix: 36)
+    }()
 
     /// Void's copy of an extension gets extension-shim.js, run first in each of its contexts: the
     /// background script, its pages (popup, options…) and its content scripts. Never another
     /// folder (an older Void may point at the user's own). Script files the extension injects
     /// itself (chrome.scripting) get it at their top (prependShim).
-    static func addShims(to folder: URL) {
+    /// Files only: runs off the main thread (a large extension has megabytes of scripts to scan).
+    /// Every write is atomic, so it replaces a file and never follows a link out of the folder.
+    nonisolated static func addShims(to folder: URL) {
         let fm = FileManager.default
         let manifestURL = folder.appendingPathComponent("manifest.json")
+        let stampURL = folder.appendingPathComponent(stampFile)
         guard folder.standardizedFileURL.path.hasPrefix(Self.folder.standardizedFileURL.path + "/"),
+              (try? ChromeExtensions.rejectSymbolicLinks(in: folder)) != nil,
               let data = try? Data(contentsOf: manifestURL),
-              var manifest = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              // Always rewritten: a new Void may bring a new version.
-              (try? Data(Scripts.extensionShim.utf8).write(to: folder.appendingPathComponent(shimFile))) != nil
+              var manifest = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return }
-        try? Data("<!doctype html><meta charset=utf-8><title>Void</title>".utf8).write(to: folder.appendingPathComponent(blankPageFile))
+        let stamp = shimStamp + "|" + (manifest["version"] as? String ?? "")
+        if (try? String(contentsOf: stampURL, encoding: .utf8)) == stamp,
+           fm.fileExists(atPath: folder.appendingPathComponent(shimFile).path) { return }
+        // Rewritten when Void brings a new version of the shim.
+        guard (try? Data(Scripts.extensionShim.utf8).write(to: folder.appendingPathComponent(shimFile), options: .atomic)) != nil else { return }
+        defer { try? Data(stamp.utf8).write(to: stampURL, options: .atomic) }
+        try? Data("<!doctype html><meta charset=utf-8><title>Void</title>".utf8).write(to: folder.appendingPathComponent(blankPageFile), options: .atomic)
         var changed = false
 
         if var background = manifest["background"] as? [String: Any] {
@@ -282,7 +380,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                 let source = background["type"] as? String == "module"
                     ? "import \(literal(shimFile));\nimport \(literal(worker));\n"
                     : "importScripts(\(literal(shimFile)), \(literal(worker)));\n"
-                if (try? Data(source.utf8).write(to: folder.appendingPathComponent(backgroundWrapperFile))) != nil {
+                if (try? Data(source.utf8).write(to: folder.appendingPathComponent(backgroundWrapperFile), options: .atomic)) != nil {
                     background["service_worker"] = backgroundWrapperFile
                     changed = true
                 }
@@ -335,14 +433,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
     }
 
-    private static let inlineShimStart = "/*void-shim:start*/"
-    private static let inlineShimEnd = "/*void-shim:end*/\n"
+    nonisolated private static let inlineShimStart = "/*void-shim:start*/"
+    nonisolated private static let inlineShimEnd = "/*void-shim:end*/\n"
 
     /// Finds the file lists passed to scripting.executeScript (`files: [...]`, or `js: [...]` when
     /// wrapped) in the extension's code and puts the shim first in each of those scripts, replacing
     /// the copy an older Void put there. The shim guards itself: running twice, or in a page's own
     /// world (no extension API there), does nothing.
-    private static func prependShim(toScriptsInjectedBy folder: URL, manifest: [String: Any]) {
+    nonisolated private static func prependShim(toScriptsInjectedBy folder: URL, manifest: [String: Any]) {
         let fm = FileManager.default
         let skip: Set<String> = [shimFile, backgroundWrapperFile]
         let listPattern = try? NSRegularExpression(pattern: #"(?:files|js)\s*:\s*\[([^\]]*)\]"#)
@@ -377,9 +475,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     }
 
     /// `generation`: the start() it belongs to; nothing is loaded if extensions were switched off since.
+    /// `granted`: what the user allowed (nil: everything the manifest asks for, installs made before
+    /// Void asked).
     @discardableResult
-    private func load(_ url: URL, identifier: String, generation: Int? = nil) async throws -> WKWebExtensionContext {
-        Self.addShims(to: url)
+    private func load(_ url: URL, identifier: String, generation: Int? = nil, granted: ExtensionGrant? = nil) async throws -> WKWebExtensionContext {
+        if url.standardizedFileURL.path.hasPrefix(Self.folder.standardizedFileURL.path + "/") {
+            try ChromeExtensions.rejectSymbolicLinks(in: url)
+        }
+        await Task.detached(priority: .userInitiated) { Self.addShims(to: url) }.value
         let ext = try await WKWebExtension(resourceBaseURL: url)
         if let generation, generation != runGeneration || contexts.contains(where: { $0.uniqueIdentifier == identifier }) {
             throw CancellationError()
@@ -392,11 +495,12 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         context.isInspectable = true
         // Private windows: off unless allowed in Settings → Extensions.
         context.hasAccessToPrivateData = AppSettings.shared.extensionsInPrivate
-        // Installing = consenting to what the manifest asks for (as Chrome does).
-        for permission in ext.requestedPermissions {
+        // What the user approved at install (confirmInstall); a permission the extension asks for
+        // later goes through chrome.permissions.request, hence the prompts below.
+        for permission in ext.requestedPermissions where granted?.permissions.contains(permission.rawValue) ?? true {
             context.setPermissionStatus(.grantedExplicitly, for: permission)
         }
-        for pattern in ext.allRequestedMatchPatterns {
+        for pattern in ext.allRequestedMatchPatterns where granted?.sites.contains(pattern.description) ?? true {
             context.setPermissionStatus(.grantedExplicitly, for: pattern)
         }
         try controller.load(context)

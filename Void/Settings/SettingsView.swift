@@ -52,7 +52,10 @@ private struct GeneralSettings: View {
                     Button("Revoir…") {
                         let browser = BrowserModel.shared
                         browser.onboardingStep = 0
+                        // Shown over the main window, which may have been closed.
+                        if browser.window?.isVisible != true { browser.openWindowAction?(WindowID.main) }
                         browser.window?.makeKeyAndOrderFront(nil)
+                        NSApp.activate(ignoringOtherApps: true)
                     }
                 }
             }
@@ -68,6 +71,9 @@ private struct GeneralSettings: View {
                 }
             }
             Section("Vidéo") {
+                Toggle("Empêcher la lecture automatique avec le son", isOn: $settings.blockAutoplayWithSound)
+                Text("Une vidéo ou un son ne démarre qu'après un clic, sauf en muet. S'applique aux onglets ouverts ensuite.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Picture in Picture automatique en quittant un onglet", isOn: $settings.autoPiP)
                 Text("Quand une vidéo joue avec le son et que vous changez d'onglet ou d'espace, elle passe en PiP ; elle revient à son retour. ⌘⇧P bascule le PiP à la main.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -181,12 +187,7 @@ private struct SpacesSection: View {
             Text("Chaque espace a ses propres onglets, ses onglets épinglés et son propre stockage : cookies et sessions ne sont pas partagés. Les fenêtres privées n'ont pas d'espaces.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .confirmationDialog("Supprimer l'espace « \(pendingDeletion?.name ?? "") » ?", isPresented: Binding(
-            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }), presenting: pendingDeletion) { space in
-            Button("Supprimer l'espace et ses données", role: .destructive) { browser.deleteSpace(space) }
-        } message: { _ in
-            Text("Ses onglets sont fermés et ses données de sites (cookies, sessions, cache) sont effacées.")
-        }
+        .spaceDeletionDialog(space: pendingDeletion, dismiss: { pendingDeletion = nil }) { browser.deleteSpace($0) }
     }
 }
 
@@ -232,6 +233,7 @@ private struct SpaceSettingsRow: View {
 private struct DownloadsSettings: View {
     @Environment(AppSettings.self) private var settings
     @Environment(BrowserModel.self) private var browser
+    @State private var allowedHosts = DownloadPermission.allowedHosts
 
     var body: some View {
         let folder = settings.downloadFolder
@@ -251,6 +253,21 @@ private struct DownloadsSettings: View {
                     }
                 }
             }
+            Section("Sites autorisés à télécharger") {
+                if allowedHosts.isEmpty {
+                    Text("Aucun site : chacun demande la première fois.").foregroundStyle(.secondary)
+                }
+                ForEach(allowedHosts, id: \.self) { host in
+                    HStack {
+                        Text(host)
+                        Spacer()
+                        Button("Retirer") {
+                            DownloadPermission.revoke(host)
+                            allowedHosts = DownloadPermission.allowedHosts
+                        }
+                    }
+                }
+            }
             Section("Historique des téléchargements") {
                 LabeledContent("Éléments listés", value: "\(DownloadManager.shared.history.count)")
                 HStack {
@@ -262,6 +279,7 @@ private struct DownloadsSettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { allowedHosts = DownloadPermission.allowedHosts }
     }
 
     private func chooseFolder() {
@@ -308,6 +326,18 @@ private struct PrivacySettings: View {
     @Environment(AppSettings.self) private var settings
     @State private var hidden = ElementHider.shared.rules
     @State private var cleared = false
+    @State private var confirmingClear = false
+
+    private func clearBrowsingData() {
+        HistoryStore.shared.clear()
+        DownloadManager.shared.clearFinished()
+        FaviconLoader.clearCache()
+        for browser in BrowserWindows.shared.all { browser.forgetClosedTabs() }
+        for space in BrowserModel.shared.spaces {
+            space.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+        }
+        cleared = true
+    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -340,19 +370,18 @@ private struct PrivacySettings: View {
                 }
             }
             Section("Données de navigation") {
-                Picker("Effacer l'historique", selection: $settings.historyRetention) {
+                Picker("Conserver l'historique", selection: $settings.historyRetention) {
                     ForEach(HistoryRetention.allCases) { Text($0.label).tag($0) }
                 }
-                Text("Les pages non visitées depuis plus longtemps sont retirées de l'historique.")
+                Text("Les pages que vous n'avez pas revisitées depuis plus longtemps sont retirées de l'historique.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button(cleared ? "Données effacées" : "Effacer cookies, caches et historique…") {
-                    HistoryStore.shared.clear()
-                    for space in BrowserModel.shared.spaces {
-                        space.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+                Button(cleared ? "Données effacées" : "Effacer cookies, caches et historique…") { confirmingClear = true }
+                    .disabled(cleared)
+                    .confirmationDialog("Effacer les données de navigation ?", isPresented: $confirmingClear) {
+                        Button("Effacer", role: .destructive) { clearBrowsingData() }
+                    } message: {
+                        Text("Historique, onglets fermés récemment, liste des téléchargements, cookies et caches de tous les espaces. Vous serez déconnecté de tous les sites. Les favoris, mots de passe et données de formulaires sont conservés.")
                     }
-                    cleared = true
-                }
-                .disabled(cleared)
                 Text("Les fenêtres privées (⌘⇧N) utilisent un stockage éphémère propre à chaque fenêtre, qui disparaît à sa fermeture.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -366,6 +395,7 @@ private struct PasswordsSettings: View {
     @State private var logins: [SavedLogin] = []
     @State private var revealed: [String: String] = [:]
     @State private var query = ""
+    @State private var pendingDeletion: SavedLogin?
 
     @Environment(AppSettings.self) private var settings
 
@@ -397,7 +427,7 @@ private struct PasswordsSettings: View {
                 Text("Les mots de passe sont stockés dans le trousseau macOS. Ils ne sont jamais enregistrés depuis une fenêtre privée.").foregroundStyle(.secondary)
                 Button("Déverrouiller avec Touch ID") {
                     Task {
-                        if await BiometricGate.authenticate(reason: "afficher vos mots de passe") {
+                        if await BiometricGate.authenticate(reason: "afficher vos mots de passe", reuseRecent: false) {
                             logins = KeychainStore.logins()
                             unlocked = true
                         }
@@ -426,17 +456,33 @@ private struct PasswordsSettings: View {
                             .help("Copier le mot de passe")
                     }
                     .contextMenu {
-                        Button("Supprimer", role: .destructive) {
-                            KeychainStore.delete(login)
-                            logins = KeychainStore.logins()
-                        }
+                        Button("Supprimer…", role: .destructive) { pendingDeletion = login }
                     }
                 }
                 .overlay { if logins.isEmpty { Text("Aucun mot de passe enregistré.").foregroundStyle(.secondary) } }
+                .confirmationDialog("Supprimer le mot de passe de « \(pendingDeletion?.host ?? "") » ?",
+                                    isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+                                    presenting: pendingDeletion) { login in
+                    Button("Supprimer", role: .destructive) {
+                        KeychainStore.delete(login)
+                        logins = KeychainStore.logins()
+                    }
+                } message: { login in
+                    Text("Le compte \(login.account.isEmpty ? "sans identifiant" : "« \(login.account) »") est retiré du trousseau.")
+                }
             }
         }
         .padding()
         .frame(minHeight: 360)
+        // Locked again when the panel goes or Void goes to the background: shown passwords don't stay on screen.
+        .onDisappear(perform: lock)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in lock() }
+    }
+
+    private func lock() {
+        unlocked = false
+        revealed = [:]
+        logins = []
     }
 
     /// The app is on the Mac but only its extension fills passwords in Void.
@@ -466,10 +512,10 @@ private struct PasswordsSettings: View {
         switch settings.passwordManager {
         case .automatic:
             if let other, appOnly {
-                return "\(other) est installé sur ce Mac : Void le laisse gérer vos mots de passe. Ajoutez son extension pour qu'il les remplisse dans Void."
+                return "\(other) est installé sur ce Mac, mais sans son extension il ne remplit rien dans Void : Void continue d'enregistrer et de remplir vos mots de passe. Ajoutez son extension pour lui laisser la main."
             }
             return other.map { "\($0) est installé : Void le laisse enregistrer et remplir vos mots de passe." }
-                ?? "Void enregistre et remplit vos mots de passe, sauf si un autre gestionnaire (app ou extension) est installé."
+                ?? "Void enregistre et remplit vos mots de passe, sauf si l’extension d’un autre gestionnaire est installée dans Void."
         case .void:
             return "Void propose d'enregistrer vos mots de passe dans le trousseau macOS et les remplit."
         case .other:
@@ -484,14 +530,14 @@ private struct PasswordsSettings: View {
     private func reveal(_ login: SavedLogin) {
         if revealed[login.id] != nil { revealed[login.id] = nil; return }
         Task {
-            guard await BiometricGate.authenticate(reason: "afficher le mot de passe de \(login.host)") else { return }
+            guard await BiometricGate.authenticate(reason: "afficher le mot de passe de \(login.host)", reuseRecent: false) else { return }
             revealed[login.id] = KeychainStore.password(host: login.host, account: login.account)
         }
     }
 
     private func copy(_ login: SavedLogin) {
         Task {
-            guard await BiometricGate.authenticate(reason: "copier le mot de passe de \(login.host)"),
+            guard await BiometricGate.authenticate(reason: "copier le mot de passe de \(login.host)", reuseRecent: false),
                   let password = KeychainStore.password(host: login.host, account: login.account) else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(password, forType: .string)
@@ -534,6 +580,7 @@ private struct ImportSection: View {
                 Text("Pour Firefox, Safari ou un gestionnaire de mots de passe : exportez un CSV puis importez-le ici. Supprimez ensuite le fichier.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Importer un CSV…") { importCSV() }
+                    .disabled(working)
             }
             if let result {
                 Section { Text(result).font(.callout) }
@@ -543,17 +590,24 @@ private struct ImportSection: View {
 
     private func runImport() {
         working = true
-        let r = BrowserImporter.run(from: source, bookmarks: bookmarks, history: history, passwords: passwords)
-        result = "Importé depuis \(source.name) : " + r.summary
-        working = false
+        let source = source
+        Task {
+            let r = await BrowserImporter.run(from: source, bookmarks: bookmarks, history: history, passwords: passwords)
+            result = "Importé depuis \(source.name) : " + r.summary
+            working = false
+        }
     }
 
     private func importCSV() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.commaSeparatedText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let count = BrowserImporter.importPasswordCSV(url)
-        result = "\(count) mots de passe importés dans le trousseau."
+        working = true
+        Task {
+            let count = await Task.detached(priority: .userInitiated) { BrowserImporter.importPasswordCSV(url) }.value
+            result = "\(count) mots de passe importés dans le trousseau."
+            working = false
+        }
     }
 }
 
@@ -703,6 +757,7 @@ private struct ExtensionInstall: View {
 @available(macOS 15.4, *)
 private struct ExtensionList: View {
     private var manager: ExtensionManager { .shared }
+    @State private var pendingRemoval: WKWebExtensionContext?
 
     var body: some View {
         Section("Installées") {
@@ -725,8 +780,15 @@ private struct ExtensionList: View {
                     if context.optionsPageURL != nil {
                         Button("Options") { manager.openOptions(context) }
                     }
-                    Button("Retirer", role: .destructive) { manager.uninstall(context) }
+                    Button("Retirer…", role: .destructive) { pendingRemoval = context }
                 }
+            }
+            .confirmationDialog("Retirer « \(pendingRemoval?.webExtension.displayName ?? "cette extension") » de Void ?",
+                                isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
+                                presenting: pendingRemoval) { context in
+                Button("Retirer", role: .destructive) { manager.uninstall(context) }
+            } message: { _ in
+                Text("Ses réglages et ses données sont supprimés.")
             }
             if manager.contexts.isEmpty {
                 Text("Aucune extension.").foregroundStyle(.secondary)

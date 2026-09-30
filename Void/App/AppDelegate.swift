@@ -3,7 +3,16 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
-            if SingleInstance.isDuplicate { SingleInstance.startDuplicate() }
+            if SingleInstance.isDuplicate {
+                SingleInstance.startDuplicate()
+            } else {
+                var selfTest = false
+                #if DEBUG
+                selfTest = SelfTestRunner.isRequested   // its session isn't the user's: left alone
+                #endif
+                // Before any web view creates its store: folders of spaces deleted earlier.
+                if !selfTest { Space.removePendingStores(keeping: Set(BrowserModel.shared.spaces.map(\.id))) }
+            }
         }
     }
 
@@ -41,20 +50,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// Quitting stops downloads for good (WebKit keeps no partial file to resume from): ask first.
+    /// Quitting stops downloads for good (WebKit keeps no partial file to resume from), and only the
+    /// main window's tabs come back at the next launch: ask first.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
-            let running = DownloadManager.shared.activeCount
             #if DEBUG
             if SelfTestRunner.isRequested { return .terminateNow }
             #endif
-            guard running > 0 else { return .terminateNow }
+            let running = DownloadManager.shared.activeCount
+            guard running > 0 else { return keepTabsOfOtherWindows() ? .terminateNow : .terminateCancel }
             let alert = NSAlert()
             alert.messageText = running == 1 ? "Un téléchargement est en cours" : "\(running) téléchargements sont en cours"
             alert.informativeText = "Si vous quittez Void maintenant, \(running == 1 ? "il sera interrompu" : "ils seront interrompus")."
             alert.addButton(withTitle: "Continuer les téléchargements")
             alert.addButton(withTitle: "Quitter")
-            return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+            return keepTabsOfOtherWindows() ? .terminateNow : .terminateCancel
+        }
+    }
+
+    /// ⌘N windows aren't saved: their tabs would be lost without a word. Returns false to cancel.
+    @MainActor
+    private func keepTabsOfOtherWindows() -> Bool {
+        let main = BrowserModel.shared
+        let others = BrowserWindows.shared.all.filter { $0.kind == .secondary }
+        let tabs = others.flatMap(\.allTabs).filter { $0.url != nil }
+        guard !tabs.isEmpty, AppSettings.shared.restoreTabs else { return true }
+        let alert = NSAlert()
+        alert.messageText = tabs.count == 1 ? "Un onglet d'une autre fenêtre ne sera pas rouvert"
+                                            : "\(tabs.count) onglets d'autres fenêtres ne seront pas rouverts"
+        alert.informativeText = "Au prochain lancement, Void ne rouvre que les onglets de la fenêtre principale."
+        alert.addButton(withTitle: "Les garder dans la fenêtre principale")
+        alert.addButton(withTitle: "Quitter sans eux")
+        alert.addButton(withTitle: "Annuler")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            main.adoptForNextLaunch(tabs)
+            return true
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
         }
     }
 

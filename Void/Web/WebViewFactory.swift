@@ -48,7 +48,7 @@ enum WebViewFactory {
         }
         config.applicationNameForUserAgent = userAgentSuffix
         config.allowsAirPlayForMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+        config.mediaTypesRequiringUserActionForPlayback = AppSettings.shared.blockAutoplayWithSound ? .audio : []
         config.defaultWebpagePreferences.preferredContentMode = .desktop
 
         let prefs = config.preferences

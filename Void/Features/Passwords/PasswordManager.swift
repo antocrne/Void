@@ -7,8 +7,10 @@ import WebKit
 enum BiometricGate {
     private static var lastSuccess: Date?
 
-    static func authenticate(reason: String) async -> Bool {
-        if let lastSuccess, Date().timeIntervalSince(lastSuccess) < 60 { return true }
+    /// `reuseRecent`: a success less than a minute old is enough (filling a form again). Showing
+    /// or copying a password always asks: someone else at the Mac must not get them for free.
+    static func authenticate(reason: String, reuseRecent: Bool = true) async -> Bool {
+        if reuseRecent, let lastSuccess, Date().timeIntervalSince(lastSuccess) < 60 { return true }
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
@@ -29,11 +31,13 @@ final class PasswordManager {
 
     /// Void offers to save and fill passwords, or leaves it to another password manager
     /// (Settings → Mots de passe): then it neither asks to save nor offers its keychain's logins.
+    /// Automatic: Void steps aside only for an extension that fills in Void. An app alone on the
+    /// Mac (maybe unused) fills nothing here; Settings then offers to add its extension.
     var isActive: Bool {
         switch AppSettings.shared.passwordManager {
         case .void: true
         case .other: false
-        case .automatic: otherManagerName == nil
+        case .automatic: managerExtensionName == nil
         }
     }
 
@@ -46,18 +50,26 @@ final class PasswordManager {
         return ExtensionManager.shared.contexts.lazy.compactMap { context -> String? in
             let ext = context.webExtension
             let name = ext.displayName ?? ""
-            let text = name + " " + (ext.displayShortName ?? "") + " " + (ext.displayDescription ?? "")
+            // Known IDs, else the name: a description mentioning passwords (a generator, a leak
+            // checker) doesn't make a password manager.
             let isPasswordManager = Self.passwordManagerIDs.contains(ExtensionManager.shared.record(for: context)?.chromeID ?? "")
-                || ["password", "mot de passe", "mots de passe"].contains { text.localizedCaseInsensitiveContains($0) }
+                || Self.managerNames.contains { name.localizedCaseInsensitiveContains($0) }
             return isPasswordManager ? name : nil
         }.first
     }
 
-    /// Chrome Web Store IDs of password managers whose name doesn't say so.
-    private static let passwordManagerIDs: Set<String> = [
+    /// Chrome Web Store IDs of password managers (their names don't always say so).
+    private static let passwordManagerIDs: Set<String> = Set(knownApps.compactMap(\.extensionID)).union([
         "oboonakemofpalcgghocfoadofidjkkk",   // KeePassXC-Browser
         "kmcfomidfpdkfieipokbalgegidffkal",   // Enpass
-    ]
+        "hdokiejnpimakedhajhdlcegeplioahd",   // LastPass
+        "fooolghllnmhmmndgjiamiiodkpenpbb",   // NordPass
+        "bfogiafebfohielmmehodmfbbebbbpei",   // Keeper
+    ])
+
+    /// Names of password manager extensions (for those installed from a file, without an ID).
+    private static let managerNames = ["password manager", "gestionnaire de mots de passe", "Proton Pass", "1Password",
+                                       "Bitwarden", "Dashlane", "NordPass", "KeePassXC", "Enpass", "Keeper", "RoboForm", "LastPass"]
 
     /// A password manager app on this Mac. Looked up by bundle ID (Launch Services finds the app
     /// wherever it is), then by name in the Applications folders.

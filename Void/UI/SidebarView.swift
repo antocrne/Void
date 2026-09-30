@@ -136,6 +136,7 @@ struct SpaceIconButton: View {
     let selected: Bool
     @Environment(BrowserModel.self) private var browser
     @State private var renaming = false
+    @State private var confirmingDeletion = false
 
     var body: some View {
         ChromeButton(symbol: space.icon, help: space.name, active: selected) {
@@ -148,6 +149,9 @@ struct SpaceIconButton: View {
         .popover(isPresented: $renaming) {
             RenameSpaceForm(space: space) { renaming = false }
         }
+        .spaceDeletionDialog(space: confirmingDeletion ? space : nil, dismiss: { confirmingDeletion = false }) {
+            browser.deleteSpace($0)
+        }
     }
 
     @ViewBuilder private var spaceMenu: some View {
@@ -158,8 +162,22 @@ struct SpaceIconButton: View {
             }
         }
         Divider()
-        Button("Supprimer l'espace", role: .destructive) { browser.deleteSpace(space) }
+        Button("Supprimer l'espace…", role: .destructive) { confirmingDeletion = true }
             .disabled(browser.spaces.count < 2)
+    }
+}
+
+extension View {
+    /// "Supprimer l'espace … ?": its tabs close and its website data goes, so it is always asked
+    /// (the sidebar's menu and Settings alike). Shown while `space` isn't nil.
+    func spaceDeletionDialog(space: Space?, dismiss: @escaping () -> Void, delete: @escaping (Space) -> Void) -> some View {
+        confirmationDialog("Supprimer l'espace « \(space?.name ?? "") » ?",
+                           isPresented: Binding(get: { space != nil }, set: { if !$0 { dismiss() } }),
+                           presenting: space) { space in
+            Button("Supprimer l'espace et ses données", role: .destructive) { delete(space) }
+        } message: { _ in
+            Text("Ses onglets sont fermés et ses données de sites (cookies, sessions, cache) sont effacées.")
+        }
     }
 }
 

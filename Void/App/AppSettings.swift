@@ -33,10 +33,10 @@ enum HistoryRetention: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var label: String {
         switch self {
-        case .year: "Une fois par an"
-        case .sixMonths: "Une fois tous les 6 mois"
-        case .ninetyDays: "Tous les 90 jours"
-        case .thirtyDays: "Tous les 30 jours"
+        case .year: "1 an"
+        case .sixMonths: "6 mois"
+        case .ninetyDays: "90 jours"
+        case .thirtyDays: "30 jours"
         }
     }
 }
@@ -113,6 +113,8 @@ final class AppSettings {
         didSet { defaults.set(historyRetention.rawValue, forKey: "historyRetention"); HistoryStore.shared.prune() }
     }
     var formAutofillEnabled: Bool { didSet { defaults.set(formAutofillEnabled, forKey: "formAutofillEnabled") } }
+    /// Pages may start playing only without sound (applies to tabs opened afterwards).
+    var blockAutoplayWithSound: Bool { didSet { defaults.set(blockAutoplayWithSound, forKey: "blockAutoplayWithSound") } }
     var passwordManager: PasswordManagerChoice { didSet { defaults.set(passwordManager.rawValue, forKey: "passwordManager") } }
     var extensionsInPrivate: Bool {
         didSet {
@@ -154,6 +156,7 @@ final class AppSettings {
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
         historyRetention = HistoryRetention(rawValue: d.integer(forKey: "historyRetention")) ?? .year
         formAutofillEnabled = d.object(forKey: "formAutofillEnabled") as? Bool ?? true
+        blockAutoplayWithSound = d.object(forKey: "blockAutoplayWithSound") as? Bool ?? false
         passwordManager = PasswordManagerChoice(rawValue: d.string(forKey: "passwordManager") ?? "") ?? .automatic
         extensionsInPrivate = d.object(forKey: "extensionsInPrivate") as? Bool ?? false
         sidebarAutoHide = d.object(forKey: "sidebarAutoHide") as? Bool ?? false

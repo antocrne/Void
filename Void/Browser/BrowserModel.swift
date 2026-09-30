@@ -65,10 +65,11 @@ final class BrowserModel {
 
     var commandBar: CommandBarRequest?
     var findBarVisible = false
+    /// What the find bar looked for last (⌘G repeats it).
+    @ObservationIgnored var lastFindText = ""
     var toast: Toast?
     var passwordPrompt: PasswordSavePrompt?
     var librarySection: LibrarySection = .history
-    var isPickingElement = false
     /// First-launch personalization step shown over the main window (nil = hidden).
     var onboardingStep: Int?
 
@@ -76,6 +77,8 @@ final class BrowserModel {
     @ObservationIgnored var openWindowAction: ((String) -> Void)?
     @ObservationIgnored var openSettingsAction: (() -> Void)?
     @ObservationIgnored private var closedTabs: [(url: URL, spaceID: UUID)] = []
+    /// Private windows: sites allowed to download, forgotten with the window (DownloadPermission).
+    @ObservationIgnored var allowedDownloadHosts: Set<String> = []
     @ObservationIgnored private var saveWork: DispatchWorkItem?
     @ObservationIgnored private var toastWork: DispatchWorkItem?
     /// Disables persistence and history (used by the self-test).
@@ -179,7 +182,9 @@ final class BrowserModel {
     }
 
     func select(_ tab: Tab) {
-        guard let space = tab.space else { return }
+        // A tab closed meanwhile (a stale suggestion, a late callback) is never brought back: its
+        // web view would load and play with no row to show or close it.
+        guard !tab.isClosed, let space = tab.space, space.allTabs.contains(where: { $0 === tab }) else { return }
         let previous = selectedTab
         if space.id != currentSpaceID { currentSpaceID = space.id }
         withAnimation(Theme.spring) { space.selectedTabID = tab.id }
@@ -193,8 +198,11 @@ final class BrowserModel {
         setNeedsSave()
     }
 
-    func close(_ tab: Tab, force: Bool = false) {
-        guard let space = tab.space else { return }
+    /// `reselect`: false when the whole space is going (deleteSpace): no neighbour is selected,
+    /// hence none is woken up.
+    func close(_ tab: Tab, force: Bool = false, reselect: Bool = true) {
+        // Already closed: a second ⌘W answered by the page after the first one, a late callback.
+        guard !tab.isClosed, let space = tab.space else { return }
         if tab.isPinned && !force {
             // ⌘W on a pinned tab puts it to sleep instead of closing it.
             let wasSelected = space.selectedTabID == tab.id
@@ -216,7 +224,7 @@ final class BrowserModel {
         if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
         if let url = tab.url { closedTabs.append((url, space.id)) }
         if closedTabs.count > 30 { closedTabs.removeFirst() }
-        if space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space) }
+        if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space) }
         withAnimation(Theme.spring) {
             space.tabs.removeAll { $0 === tab }
             space.pinned.removeAll { $0 === tab }
@@ -228,17 +236,29 @@ final class BrowserModel {
         setNeedsSave()
     }
 
-    private func selectNeighbor(of tab: Tab, in space: Space) {
+    /// The tab that takes the place of `tab` when it goes: the next ordinary tab (else the
+    /// previous one), then an awake pinned tab. A pinned tab going makes room for an ordinary one.
+    private func neighbor(of tab: Tab, in space: Space) -> Tab? {
         let list = space.tabs
         if let i = list.firstIndex(where: { $0 === tab }) {
             let candidates = list.enumerated().filter { $0.element !== tab }
-            if let next = candidates.first(where: { $0.offset > i }) ?? candidates.last {
-                select(next.element)
-                return
-            }
+            if let next = candidates.first(where: { $0.offset > i }) ?? candidates.last { return next.element }
+        } else if let first = list.first(where: { $0 !== tab }) {
+            return first
         }
-        if let pinnedAwake = space.pinned.first(where: { $0 !== tab && !$0.isAsleep }) {
-            select(pinnedAwake)
+        return space.pinned.first { $0 !== tab && !$0.isAsleep }
+    }
+
+    private func selectNeighbor(of tab: Tab, in space: Space) {
+        let next = neighbor(of: tab, in: space)
+        guard space.id == currentSpaceID else {
+            // A space in the background: only its remembered selection changes. It isn't shown,
+            // and its tab isn't woken up, until the user goes there.
+            space.selectedTabID = next?.id
+            return
+        }
+        if let next {
+            select(next)
             return
         }
         let previous = space.selectedTab
@@ -247,8 +267,31 @@ final class BrowserModel {
     }
 
     func closeCurrentTab() {
-        if let tab = selectedTab { close(tab) }
+        if let tab = selectedTab { requestClose(tab) }
     }
+
+    /// Closing asked by the user (⌘W, a tab's cross or menu). The page is asked first, as when
+    /// leaving it: one that says so (beforeunload: a message being written…) gets a "Quitter cette
+    /// page ?" sheet (TabWebDelegate), and the tab stays if the user does. A pinned tab goes to
+    /// sleep as before, unless `force`.
+    func requestClose(_ tab: Tab, force: Bool = false) {
+        if tab.isPinned && !force { close(tab); return }
+        guard let webView = tab.webView, let closedAtOnce = WebKitSPI.tryClose(webView) else {
+            close(tab, force: force)
+            return
+        }
+        if closedAtOnce { close(tab, force: force); return }
+        // The page answers through webViewDidClose (TabWebDelegate), which closes the tab. A page
+        // whose process doesn't answer doesn't keep its tab: closed anyway, unless it is asking.
+        tab.closeRequested = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak tab] in
+            guard let self, let tab, !tab.isClosed, tab.closeRequested, !tab.isAskingToStay else { return }
+            self.close(tab, force: force)
+        }
+    }
+
+    /// Settings → Confidentialité → Effacer: "reopen closed tab" no longer brings anything back.
+    func forgetClosedTabs() { closedTabs = [] }
 
     func reopenClosedTab() {
         guard let last = closedTabs.popLast() else { return }
@@ -386,15 +429,21 @@ final class BrowserModel {
                 // Its only space: the window takes another one of the main window's instead.
                 other.spaces.append(Space(id: replacement.id, name: replacement.name, icon: replacement.icon))
             }
-            for tab in mirror.allTabs { other.close(tab, force: true) }
             if mirror.id == other.currentSpaceID, let next = other.spaces.first(where: { $0.id != mirror.id }) { other.switchSpace(to: next) }
+            for tab in mirror.allTabs { other.close(tab, force: true, reselect: false) }
             other.spaces.removeAll { $0.id == mirror.id }
         }
-        for tab in space.allTabs { close(tab, force: true) }
+        // Leave the space first, then close its tabs without selecting their neighbours: none of
+        // them is woken up (with the space's cookies) just before going, and the user stays where
+        // they were unless it was this very space.
         if space.id == currentSpaceID, let other = spaces.first(where: { $0.id != space.id }) { switchSpace(to: other) }
+        for tab in space.allTabs { close(tab, force: true, reselect: false) }
         spaces.removeAll { $0.id == space.id }
+        // Its data goes now (this works while the store is still referenced)…
+        space.dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+        // …and its folder as soon as WebKit lets go of it: at the latest, at the next launch.
         Space.releaseStore(for: space.id)
-        WKWebsiteDataStore.remove(forIdentifier: space.id) { _ in }
+        Space.removeStoreFromDisk(space.id)
         setNeedsSave()
     }
 
@@ -456,6 +505,7 @@ final class BrowserModel {
             DownloadManager.shared.forget(browser: self)
         }
         closedTabs = []
+        allowedDownloadHosts = []
         commandBar = nil
         passwordPrompt = nil
         // These SwiftUI actions reference the window's view graph, which references this model.
@@ -475,31 +525,70 @@ final class BrowserModel {
     private var savesSession: Bool { kind == .main && !isEphemeralSession }
 
     func setNeedsSave() {
+        if kind == .main { syncMirroredSpaces() }
         guard savesSession else { return }
         saveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.saveNow() }
         saveWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+        // Every page load asks: one write for a burst of them (quitting saves at once anyway).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
     }
 
     func saveNow() {
         guard savesSession else { return }
         let restoreTabs = AppSettings.shared.restoreTabs
-        let saved = SavedState(currentSpaceID: currentSpaceID, spaces: spaces.map { space in
-            let persistable: (Tab) -> SavedTab = { SavedTab(id: $0.id, url: $0.url, title: $0.title, favicon: $0.faviconData) }
+        var favicons: [String: Data] = [:]
+        let persistable: (Tab) -> SavedTab = { tab in
+            // Each icon once: tabs of the same site share it.
+            let key = tab.faviconData.map { data in
+                let key = SavedState.faviconKey(data)
+                favicons[key] = data
+                return key
+            }
+            return SavedTab(id: tab.id, url: tab.url, title: tab.title, favicon: nil, faviconKey: key)
+        }
+        var saved = SavedState(currentSpaceID: currentSpaceID, spaces: spaces.map { space in
             return SavedSpace(id: space.id, name: space.name, icon: space.icon,
                               pinned: space.pinned.map(persistable),
                               tabs: restoreTabs ? space.tabs.filter { !$0.isPrivate && $0.url != nil }.map(persistable) : [],
                               selectedTabID: space.selectedTab?.isPrivate == true ? nil : space.selectedTabID)
         })
+        saved.favicons = favicons
         StateStore.save(saved)
+    }
+
+    /// ⌘N windows show copies of the main window's spaces: renaming, a new icon, a new space
+    /// or a new order there follows here.
+    private func syncMirroredSpaces() {
+        for other in BrowserWindows.shared.all where other.kind == .secondary {
+            let mirrored = spaces.map { space in
+                let mirror = other.spaces.first { $0.id == space.id } ?? Space(id: space.id, name: space.name, icon: space.icon)
+                if mirror.name != space.name { mirror.name = space.name }
+                if mirror.icon != space.icon { mirror.icon = space.icon }
+                return mirror
+            }
+            if mirrored.map(\.id) != other.spaces.map(\.id) { other.spaces = mirrored }
+        }
+    }
+
+    /// Tabs of other windows kept for the next launch (quitting with ⌘N windows open): added
+    /// asleep to the main window's spaces, then saved.
+    func adoptForNextLaunch(_ tabs: [Tab]) {
+        for tab in tabs {
+            guard let url = tab.url else { continue }
+            let space = spaces.first { $0.id == tab.space?.id } ?? currentSpace
+            let copy = Tab(url: url, title: tab.title, faviconData: tab.faviconData)
+            copy.space = space
+            space.tabs.append(copy)
+        }
+        saveNow()
     }
 
     private func restore(_ saved: SavedState) {
         spaces = saved.spaces.map { s in
             let space = Space(id: s.id, name: s.name, icon: s.icon)
-            space.pinned = s.pinned.map { Tab(id: $0.id, url: $0.url, title: $0.title, isPinned: true, faviconData: $0.favicon) }
-            space.tabs = s.tabs.map { Tab(id: $0.id, url: $0.url, title: $0.title, faviconData: $0.favicon) }
+            space.pinned = s.pinned.map { Tab(id: $0.id, url: $0.url, title: $0.title, isPinned: true, faviconData: saved.favicon(of: $0)) }
+            space.tabs = s.tabs.map { Tab(id: $0.id, url: $0.url, title: $0.title, faviconData: saved.favicon(of: $0)) }
             space.allTabs.forEach { $0.space = space }
             space.selectedTabID = s.selectedTabID
             return space

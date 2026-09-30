@@ -147,9 +147,9 @@ struct FindBar: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .strokeBorder(focused ? Theme.accent : Theme.stroke, lineWidth: focused ? 1.5 : 1))
         .shadow(color: Theme.shadow.opacity(0.2), radius: 10, y: 4)
-        .onAppear { focused = true }
-        .onReceive(NotificationCenter.default.publisher(for: .voidFindNext)) { note in
-            browser.find(text, backwards: (note.object as? Bool) ?? false)
+        .onAppear {
+            text = browser.lastFindText
+            focused = true
         }
     }
 
@@ -158,6 +158,3 @@ struct FindBar: View {
     }
 }
 
-extension Notification.Name {
-    static let voidFindNext = Notification.Name("VoidFindNext")
-}

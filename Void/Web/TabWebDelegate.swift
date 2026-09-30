@@ -17,7 +17,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     // MARK: - Navigation policy
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-        if navigationAction.shouldPerformDownload { return .download }
+        if navigationAction.shouldPerformDownload {
+            return await mayDownload(navigationAction.request.url, in: webView) ? .download : .cancel
+        }
         guard let url = navigationAction.request.url else { return .allow }
         let scheme = url.scheme?.lowercased() ?? ""
 
@@ -46,14 +48,29 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
-        if !navigationResponse.canShowMIMEType { return .download }
+        var download = !navigationResponse.canShowMIMEType
         if navigationResponse.isForMainFrame,
            let http = navigationResponse.response as? HTTPURLResponse,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
            disposition.lowercased().hasPrefix("attachment") {
-            return .download
+            download = true
         }
-        return .allow
+        guard download else { return .allow }
+        let response = navigationResponse.response
+        return await mayDownload(response.url, file: response.suggestedFilename, in: webView) ? .download : .cancel
+    }
+
+    /// Asked once per site (DownloadPermission). The site is the page's; a tab opened just for the
+    /// file has none yet, then it's the file's. A refused download leaves no empty tab behind.
+    private func mayDownload(_ url: URL?, file: String? = nil, in webView: WKWebView) async -> Bool {
+        let host = (webView.url?.host() ?? url?.host() ?? "").voidNormalizedHost
+        let file = file ?? url?.lastPathComponent
+        let allowed = await DownloadPermission.request(host, file: file, in: browser, window: webView.window)
+        if !allowed {
+            browser.showToast("arrow.down.circle", "Téléchargement refusé depuis \(host)")
+            closeIfEmpty(webView)
+        }
+        return allowed
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
@@ -103,6 +120,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard let tab else { return }
         if !tab.isPrivate, !browser.isEphemeralSession, let url = webView.url {
             HistoryStore.shared.record(url: url, title: webView.title ?? "")
+            tab.lastRecordedURL = url
         }
         FaviconLoader.load(for: tab)
         tab.restorePendingScroll()
@@ -234,6 +252,32 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Annuler")
         return await present(alert, in: webView) == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    /// "Quitter cette page ?" (beforeunload): leaving it, reloading it or closing its tab while the
+    /// page says something would be lost (WKUIDelegatePrivate; without it WebKit never asks).
+    @objc(_webView:runBeforeUnloadConfirmPanelWithMessage:initiatedByFrame:completionHandler:)
+    func webView(_ webView: WKWebView, runBeforeUnloadConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        guard let tab, let browser = tab.browser, let window = webView.window else { return completionHandler(true) }
+        if browser.selectedTab !== tab {
+            // Asked about a tab the user is closing from the list: show it while asking.
+            guard tab.closeRequested else { return completionHandler(true) }
+            browser.select(tab)
+        }
+        tab.isAskingToStay = true
+        let alert = NSAlert()
+        alert.messageText = "Quitter cette page ?"
+        let host = frame.securityOrigin.host
+        alert.informativeText = (host.isEmpty ? "Cette page" : host) + " indique que les modifications que vous avez faites pourraient ne pas être enregistrées."
+        alert.addButton(withTitle: "Quitter la page")
+        alert.addButton(withTitle: "Rester")
+        alert.beginSheetModal(for: window) { [weak tab] response in
+            let leave = response == .alertFirstButtonReturn
+            tab?.isAskingToStay = false
+            if !leave { tab?.closeRequested = false }
+            completionHandler(leave)
+        }
     }
 
     /// Recent dialogs of this tab, to stop a page that opens them in a loop.

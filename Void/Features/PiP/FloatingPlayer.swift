@@ -96,15 +96,18 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
     }
 
     private func restore() {
-        guard let tab, let webView = tab.webView else { return }
         let frame = videoFrame
-        Task {
-            _ = await webView.voidCall("return window.__voidMedia ? window.__voidMedia.float(false) : 'ok';")
-            if let frame { _ = await webView.voidCall("return window.__voidMedia ? window.__voidMedia.float(false) : 'ok';", in: frame) }
-        }
-        webView.removeFromSuperview()
-        tab.isInFloatingPlayer = false            // WebHost takes it back
+        let tab = self.tab
         self.tab = nil
         videoFrame = nil
+        // Even when the tab was put to sleep meanwhile: nothing of this player is kept.
+        if let webView = tab?.webView {
+            Task {
+                _ = await webView.voidCall("return window.__voidMedia ? window.__voidMedia.float(false) : 'ok';")
+                if let frame { _ = await webView.voidCall("return window.__voidMedia ? window.__voidMedia.float(false) : 'ok';", in: frame) }
+            }
+            webView.removeFromSuperview()
+        }
+        tab?.isInFloatingPlayer = false            // WebHost takes it back
     }
 }

@@ -43,6 +43,18 @@ final class BrowserWindows {
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             MainActor.assumeIsolated { BrowserWindows.shared.all.forEach { $0.sleepInactiveTabs() } }
         }
+        // ⌘= zooms in like ⌘+ (which needs ⇧ on most keyboards), as in Safari.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "=" else { return event }
+            let handled = MainActor.assumeIsolated {
+                let windows = BrowserWindows.shared
+                guard let key = NSApp.keyWindow, windows.all.contains(where: { $0.window === key }) else { return false }
+                windows.active.zoom(0.1)
+                return true
+            }
+            return handled ? nil : event
+        }
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         pressure.setEventHandler { [weak pressure] in
             guard let event = pressure?.data else { return }

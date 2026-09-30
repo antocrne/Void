@@ -5,6 +5,7 @@ struct LibraryView: View {
     @Environment(BrowserModel.self) private var browser
     @State private var query = ""
     @State private var history: [HistoryEntry] = []
+    @State private var confirmingClear = false
 
     var body: some View {
         @Bindable var browser = browser
@@ -40,9 +41,9 @@ struct LibraryView: View {
         history = query.isEmpty ? HistoryStore.shared.recent(limit: 500) : HistoryStore.shared.search(query, limit: 500)
     }
 
+    /// In the frontmost normal window, reopening the main one if it was closed.
     private func open(_ url: URL) {
-        browser.openTab(url: url)
-        browser.window?.makeKeyAndOrderFront(nil)
+        BrowserWindows.shared.normalTarget.openExternal(url)
     }
 
     private var historyList: some View {
@@ -66,10 +67,15 @@ struct LibraryView: View {
             HStack {
                 Text("\(history.count) pages").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Effacer l'historique…") {
-                    HistoryStore.shared.clear()
-                    reloadHistory()
-                }
+                Button("Effacer l'historique…") { confirmingClear = true }
+                    .confirmationDialog("Effacer tout l'historique ?", isPresented: $confirmingClear) {
+                        Button("Effacer l'historique", role: .destructive) {
+                            HistoryStore.shared.clear()
+                            reloadHistory()
+                        }
+                    } message: {
+                        Text("Toutes les pages visitées sont retirées de l'historique. Les cookies et les favoris sont conservés.")
+                    }
             }
             .padding(10)
         }
