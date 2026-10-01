@@ -37,6 +37,7 @@ final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
             case "voidContext":
                 webView.contextLinkURL = (body["href"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
                 webView.contextImageURL = (body["image"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
+                webView.contextSelection = body["selection"] as? String ?? ""
             default:
                 break
             }

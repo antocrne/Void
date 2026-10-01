@@ -1,5 +1,5 @@
 // Void — reader mode extraction. Evaluated on demand in the main frame (isolated world).
-// Returns { title, byline, site, published, html, words, lang, url } or null.
+// Returns { title, byline, site, published, html, text, words, lang, url } or null.
 // The returned HTML is rebuilt from an allow-list of tags/attributes in an inert document,
 // and is later displayed in a web view with JavaScript disabled.
 (() => {
@@ -132,6 +132,26 @@
 
   const words = (container.textContent || '').trim().split(/\s+/).filter(Boolean).length;
   if (words < 60) return null;
-  return { title, byline, site, published, html: container.innerHTML, words,
+
+  // 4. Plain text of the same tree (sent to Void Notes): one blank line between blocks.
+  const BLOCKS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'FIGCAPTION', 'TR',
+    'DT', 'DD', 'DIV', 'HR', 'CAPTION']);
+  let plain = '';
+  const flatten = (node, pre) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        let piece = pre ? child.textContent : child.textContent.replace(/\s+/g, ' ');
+        if (!pre && (!plain || plain.endsWith('\n'))) piece = piece.replace(/^ /, '');
+        plain += piece;
+      } else if (child.nodeType === 1) {
+        if (child.tagName === 'BR') { plain += '\n'; continue; }
+        flatten(child, pre || child.tagName === 'PRE');
+        if (BLOCKS.has(child.tagName) && plain) plain = plain.trimEnd() + '\n\n';
+      }
+    }
+  };
+  flatten(container, false);
+
+  return { title, byline, site, published, html: container.innerHTML, text: plain.trim(), words,
            lang: doc.documentElement.lang || '', url: location.href };
 })()

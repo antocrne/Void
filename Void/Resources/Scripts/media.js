@@ -40,7 +40,9 @@
     return light.length ? light : bind(collect(document, [], 3));
   };
 
-  const isPlaying = (v) => !v.paused && !v.ended && v.readyState > 2;
+  // A video that seeks or buffers has no data for a moment but is still playing: reporting it
+  // stopped would make the tab's indicators blink at every jump in the video.
+  const isPlaying = (v) => !v.paused && !v.ended && (v.readyState > 2 || v.seeking || v.currentTime > 0);
   const area = (el) => { const r = el.getBoundingClientRect(); return Math.max(0, r.width) * Math.max(0, r.height); };
   const inPiP = (v) => document.pictureInPictureElement === v || v.webkitPresentationMode === 'picture-in-picture';
   const audible = (v) => !v.muted && v.volume > 0;

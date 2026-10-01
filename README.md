@@ -54,6 +54,7 @@ L'icône est générée par script (`swift scripts/make-icon.swift`).
 | Picture in Picture | ⌘⇧P |
 | Mode lecture | ⌘⇧R |
 | Masquer un élément | ⌘⇧H |
+| Envoyer la page vers Void Notes | ⌘⇧M (une sélection : clic droit → « Envoyer vers Void Notes ») |
 | Web Inspector / console JavaScript | ⌥⌘I / ⌥⌘J |
 | Favori / favoris | ⌘D / ⌥⌘B |
 | Historique / téléchargements | ⌘Y / ⌥⌘L |
@@ -77,6 +78,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ✅ **Barre d'adresse unique** : URL ou recherche, suggestions de l'historique, des favoris, des onglets ouverts et des téléchargements ; centrée sur la page (et non sur la fenêtre entière, barre latérale comprise), elle se rétrécit dans une fenêtre étroite.
 - ✅ **Ouvrir dans un nouvel onglet** : ⌘-clic, liens `target=_blank`, menu contextuel (« Ouvrir le lien dans un nouvel onglet », « …en arrière-plan », « …dans une fenêtre privée »).
 - ✅ **Mode lecture** : extraction de l'article et de ses images (y compris images chargées tardivement), affichage épuré sans JavaScript, taille du texte réglable.
+- ✅ **Envoyer vers Void Notes** (app compagnon, section `notes` de l'auto-test) : clic droit sur une sélection → « Envoyer vers Void Notes » (texte, titre et lien de la page) ; ⌘⇧M, menu Outils ou clic droit sans sélection → la page (titre, lien, et le texte de l'article quand le mode lecture en trouve un). La note part par `voidnotes://new?title=…&text=…&url=…` (texte coupé à 20 000 caractères). Sans Void Notes, les options restent visibles mais grisées (« nécessite Void Notes ») ; si l'ouverture échoue, un message discret.
 - ✅ **Bloqueur de publicités** en `WKContentRuleList` (≈ 150 règles, blocage avant chargement, sans script), désactivable par site.
 - ✅ **Masquer un élément** (⌘⇧H) : sélection au survol, masquage durable par site via une règle compilée ; gestion dans Réglages → Confidentialité.
 - ✅ **Fenêtres privées** (⌘⇧N) : tous les onglets de la fenêtre partagent un `WKWebsiteDataStore.nonPersistent()` propre à la fenêtre, détruit à sa fermeture ; ni historique, ni session, ni suggestions d'historique, ni enregistrement de mot de passe ; téléchargements hors historique ; pas d'épinglage ni d'espaces ; extensions désactivées par défaut ; barre ardoise et badge « Privé ».
@@ -160,7 +162,7 @@ Void/
   UI/                      Fenêtre, barre latérale, barre du haut, barre de commande, hôte des vues web
   Features/
     PiP/                   PiPController (3 niveaux), FloatingPlayer (plan B)
-    Reader/ AdBlock/ ElementHider/ Passwords/ Import/ Library/ Extensions/
+    Reader/ Notes/ AdBlock/ ElementHider/ Passwords/ Import/ Library/ Extensions/
   Settings/                Fenêtre de réglages, navigateur par défaut
   Resources/Scripts/       core.js, media.js, autofill.js, formfill.js, reader.js, hider.js, webstore.js (monde JS isolé « Void »),
                            extension-shim.js (copié dans chaque extension : compatibilité Chrome → WebKit)
@@ -182,7 +184,7 @@ Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite,
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé, et parfois l'agrandissement du popup d'extension à la poignée (le test déplace le vrai pointeur) ; ce n'est pas une régression. Le cas « Repli natif WebKit seul » du test PiP échoue toujours : ce niveau n'est pas disponible sur ce WebKit (voir le compte rendu PiP).
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ` (ce dernier : Proton Pass installé et connecté).
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux,notes` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ` (ce dernier : Proton Pass installé et connecté).
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md
