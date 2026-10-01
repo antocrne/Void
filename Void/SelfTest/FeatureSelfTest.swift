@@ -106,7 +106,91 @@ final class FeatureSelfTest {
         "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
         "corrections": { t, space in await t.testReportFixes(in: space) },
         "feux": { t, _ in await t.testTrafficLights() },
+        "notes": { t, space in await t.testVoidNotes(in: space) },
     ]
+
+    /// Void Notes: URL, context menu with and without the app, selection, page, failed opening.
+    /// Nothing is handed to macOS: the opening is replaced by `openOverride`.
+    private func testVoidNotes(in space: Space) async {
+        let notes = VoidNotes.shared
+        defer { notes.openOverride = nil; notes.installedOverride = nil }
+        func values(_ url: URL?) -> [String: String] {
+            let items = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+            return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
+        }
+        func contextMenu(_ webView: VoidWebView) -> NSMenuItem? {
+            let menu = NSMenu()
+            if let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                webView.willOpenMenu(menu, with: event)
+            }
+            return menu.items.first { $0.title.contains("Void Notes") }
+        }
+
+        let source = URL(string: "https://example.com/a?q=1&r=2#x")
+        let built = VoidNotes.noteURL(title: "Café & thé = 100 %", text: "a+b\nc & d", url: source)
+        let decoded = values(built)
+        check("Void Notes : URL voidnotes://new, valeurs restituées telles quelles",
+              built?.scheme == "voidnotes" && built?.host() == "new" && decoded["title"] == "Café & thé = 100 %"
+              && decoded["text"] == "a+b\nc & d" && decoded["url"] == source?.absoluteString, built?.absoluteString ?? "nil")
+        let long = values(VoidNotes.noteURL(title: "t", text: String(repeating: "é", count: VoidNotes.maxTextLength + 500), url: nil))["text"] ?? ""
+        check("Void Notes : texte long coupé", long.count == VoidNotes.maxTextLength + 1 && long.hasSuffix("…"), "\(long.count) caractères")
+
+        let paragraph = String(repeating: "Le trou noir courbe la lumière autour de lui. ", count: 12)
+        let tab = await htmlTab("<!doctype html><title>Page de notes</title><body><article><p id='p'>Texte choisi pour la note</p><p>\(paragraph)</p><p>\(paragraph)</p></article></body>", in: space)
+        guard let webView = tab.webView else { check("Void Notes : vue web", false); return }
+        browser.select(tab)
+        _ = await js(tab, "const p = document.getElementById('p'); getSelection().selectAllChildren(p); p.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true})); return 'ok';")
+        _ = await until(2) { !webView.contextSelection.isEmpty }
+        check("Void Notes : sélection transmise au clic droit", webView.contextSelection == "Texte choisi pour la note", webView.contextSelection)
+
+        notes.installedOverride = false
+        let missing = contextMenu(webView)
+        check("Void Notes absent : option visible, grisée, « nécessite Void Notes »",
+              missing != nil && missing?.action == nil && missing?.isEnabled == false && missing?.title.contains("nécessite Void Notes") == true
+              && missing?.toolTip == VoidNotes.missingHint, missing?.title ?? "nil")
+        var opened: [URL] = []
+        notes.openOverride = { opened.append($0); return true }
+        browser.sendPageToNotes()
+        await sleep(0.5)
+        check("Void Notes absent : ⌘⇧M n'ouvre rien, message discret", opened.isEmpty && browser.toast?.message == VoidNotes.missingHint,
+              browser.toast?.message ?? "nil")
+
+        notes.installedOverride = true
+        let present = contextMenu(webView)
+        check("Void Notes présent : « Envoyer vers Void Notes » actif", present?.title == "Envoyer vers Void Notes" && present?.action != nil && present?.isEnabled == true,
+              present?.title ?? "nil")
+        if let present, let action = present.action { NSApp.sendAction(action, to: present.target, from: present) }
+        _ = await until(2) { opened.count == 1 }
+        let selectionNote = values(opened.last)
+        check("Void Notes : sélection → texte, titre et lien de la page",
+              selectionNote["text"] == "Texte choisi pour la note" && selectionNote["title"] == "Page de notes"
+              && selectionNote["url"] == "https://void-selftest.example/", opened.last?.absoluteString ?? "nil")
+
+        webView.contextSelection = ""
+        check("Void Notes : sans sélection, le menu propose la page", contextMenu(webView)?.title == "Envoyer la page vers Void Notes")
+        browser.sendPageToNotes()
+        _ = await until(8) { opened.count == 2 }
+        let pageNote = values(opened.count == 2 ? opened.last : nil)
+        check("Void Notes : page → titre, lien et texte de l'article",
+              pageNote["title"] == "Page de notes" && pageNote["url"] == "https://void-selftest.example/"
+              && pageNote["text"]?.hasPrefix("Texte choisi pour la note\n\nLe trou noir") == true, String((pageNote["text"] ?? "nil").prefix(60)))
+
+        let short = await htmlTab("<!doctype html><title>Courte</title><body><p>Trois mots seulement</p></body>", in: space)
+        browser.select(short)
+        browser.sendPageToNotes()
+        _ = await until(8) { opened.count == 3 }
+        let shortNote = values(opened.count == 3 ? opened.last : nil)
+        check("Void Notes : page sans article → titre et lien seulement", shortNote["title"] == "Courte" && shortNote["url"] != nil && shortNote["text"] == nil,
+              opened.last?.absoluteString ?? "nil")
+
+        notes.openOverride = { _ in false }
+        browser.sendPageToNotes()
+        let warned = await until(8) { self.browser.toast?.message == "Impossible d'ouvrir Void Notes" }
+        check("Void Notes : ouverture refusée → message discret, pas de plantage", warned, browser.toast?.message ?? "nil")
+        browser.close(short)
+        browser.close(tab)
+    }
 
     func run() async {
         if let only = UserDefaults.standard.string(forKey: "VoidSelfTestOnly") {
@@ -832,6 +916,11 @@ final class FeatureSelfTest {
             key(window, code: 124, scalar: NSRightArrowFunctionKey)
             let dropped = await until(2) { webView.droppedKeyDowns > before }
             check("Clavier : flèche que la page ne traite pas → ignorée sans bip", dropped, "ignorées=\(webView.droppedKeyDowns - before)")
+            // Keys in a row: the page answers the first one after the second has been sent.
+            let beforeBurst = webView.droppedKeyDowns
+            for _ in 0..<4 { key(window, code: 124, scalar: NSRightArrowFunctionKey) }
+            let burst = await until(2) { webView.droppedKeyDowns - beforeBurst == 4 }
+            check("Clavier : flèches enchaînées que la page ne traite pas → toutes ignorées", burst, "ignorées=\(webView.droppedKeyDowns - beforeBurst)/4")
         } else { check("Clavier : vue web", false) }
         browser.close(fixed)
         let scrolling = await htmlTab("<!doctype html><body style='margin:0;height:6000px'>long</body>", in: space)

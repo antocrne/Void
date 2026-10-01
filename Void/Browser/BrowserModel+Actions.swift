@@ -45,6 +45,11 @@ extension BrowserModel {
         ElementHider.shared.startPicking(in: tab)
     }
 
+    func sendPageToNotes() {
+        guard let tab = selectedTab else { return }
+        VoidNotes.shared.sendPage(from: tab)
+    }
+
     func showInspector(console: Bool) {
         guard let webView else { return }
         WebKitSPI.showInspector(webView, console: console)

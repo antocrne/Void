@@ -101,6 +101,9 @@ struct VoidCommands: Commands {
             Button("Activer/désactiver le bloqueur sur ce site") { browser.toggleAdBlockForCurrentSite() }
             Button("Téléchargements") { browser.showLibrary(.downloads) }
                 .keyboardShortcut("l", modifiers: [.command, .option])
+            Button(VoidNotes.shared.menuTitle("Envoyer la page vers Void Notes")) { browser.sendPageToNotes() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(!VoidNotes.shared.isInstalled)
             Divider()
             Button("Web Inspector") { browser.showInspector(console: false) }
                 .keyboardShortcut("i", modifiers: [.command, .option])

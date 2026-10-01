@@ -13,10 +13,18 @@
       if (!link && el.tagName === 'A' && el.href) link = el;
       if (!image && el.tagName === 'IMG') image = el;
     }
+    // Selected text, for "Send to Void Notes" (never what is selected in a password field).
+    let selection = '';
+    try {
+      const active = document.activeElement;
+      const secret = active && active.tagName === 'INPUT' && active.type === 'password';
+      if (!secret) selection = String(window.getSelection() || '').slice(0, 20000);
+    } catch (_) {}
     try {
       window.webkit.messageHandlers.voidContext.postMessage({
         href: link ? String(link.href) : '',
-        image: image ? (image.currentSrc || image.src || '') : ''
+        image: image ? (image.currentSrc || image.src || '') : '',
+        selection
       });
     } catch (_) {}
   }, true);

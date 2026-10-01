@@ -7,9 +7,12 @@ final class VoidWebView: WKWebView {
     /// Link / image under the last right-click, reported by core.js just before the menu opens.
     var contextLinkURL: URL?
     var contextImageURL: URL?
-    /// Last key-down given to WebKit: the same event coming back is WebKit re-sending one the
-    /// page didn't handle (see keyDown).
-    private weak var lastKeyDown: NSEvent?
+    /// Text selected in the frame of the last right-click (same report).
+    var contextSelection = ""
+    /// Key-downs given to WebKit: one of them coming back is WebKit re-sending an event the
+    /// page didn't handle (see keyDown). The page answers late when it is busy (a video
+    /// seeking), so several can be waiting at once (keys pressed in a row, a key held down).
+    private let sentKeyDowns = NSHashTable<NSEvent>.weakObjects()
 
     /// A key the page leaves unhandled (an arrow in a video player that doesn't block it, on a
     /// page that can't scroll, or in fullscreen) is re-sent by WebKit up the responder chain,
@@ -17,13 +20,17 @@ final class VoidWebView: WKWebView {
     /// are matched before this point, so the re-sent event is simply dropped; ⌘ combinations
     /// that nothing handles keep the system's answer.
     override func keyDown(with event: NSEvent) {
-        if event === lastKeyDown, !event.modifierFlags.contains(.command) {
-            #if DEBUG
-            droppedKeyDowns += 1
-            #endif
-            return
+        if sentKeyDowns.contains(event) {
+            sentKeyDowns.remove(event)
+            if !event.modifierFlags.contains(.command) {
+                #if DEBUG
+                droppedKeyDowns += 1
+                #endif
+                return
+            }
+        } else {
+            sentKeyDowns.add(event)
         }
-        lastKeyDown = event
         super.keyDown(with: event)
     }
 
@@ -54,6 +61,7 @@ final class VoidWebView: WKWebView {
         super.didCloseMenu(menu, with: event)
         contextLinkURL = nil
         contextImageURL = nil
+        contextSelection = ""
     }
 
     @MainActor
@@ -110,6 +118,18 @@ final class VoidWebView: WKWebView {
             pip.target = self
             menu.addItem(pip)
         }
+        // Void Notes: the selection when there is one, the page otherwise. Without the app the
+        // item stays, disabled (no action), and says why.
+        let notes = VoidNotes.shared
+        notes.refresh()
+        let selection = contextSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        let send = NSMenuItem(title: notes.menuTitle(selection.isEmpty ? "Envoyer la page vers Void Notes" : "Envoyer vers Void Notes"),
+                              action: notes.isInstalled ? #selector(sendToNotes(_:)) : nil, keyEquivalent: "")
+        send.representedObject = selection
+        send.target = self
+        send.isEnabled = notes.isInstalled
+        if !notes.isInstalled { send.toolTip = VoidNotes.missingHint }
+        menu.addItem(send)
         let hide = NSMenuItem(title: "Masquer un élément…", action: #selector(hideElement), keyEquivalent: "")
         hide.target = self
         menu.addItem(hide)
@@ -138,6 +158,14 @@ final class VoidWebView: WKWebView {
         MainActor.assumeIsolated {
             guard let tab else { return }
             Task { await PiPController.shared.toggle(tab) }
+        }
+    }
+
+    @objc private func sendToNotes(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated {
+            guard let tab else { return }
+            let selection = sender.representedObject as? String ?? ""
+            if selection.isEmpty { VoidNotes.shared.sendPage(from: tab) } else { VoidNotes.shared.sendSelection(selection, from: tab) }
         }
     }
 
