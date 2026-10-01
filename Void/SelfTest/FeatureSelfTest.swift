@@ -17,6 +17,50 @@ final class FeatureSelfTest {
 
     init(outputPath: String) { self.outputPath = outputPath }
 
+    /// The traffic lights share the centre line of the first row of buttons, also after a resize.
+    private func testTrafficLights() async {
+        let settings = AppSettings.shared
+        guard let window = browser.window else {
+            check("Feux de fenêtre : fenêtre introuvable", false)
+            return
+        }
+        let saved = (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide)
+        settings.sidebarVisible = true
+        settings.sidebarAutoHide = false
+        // Each button's centre, read again every time: AppKit may swap a button for a new one.
+        func centres() -> [CGFloat] {
+            [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].map { kind in
+                guard let b = window.standardWindowButton(kind) else { return -1 }
+                return window.frame.height - b.convert(b.bounds, to: nil).midY
+            }
+        }
+        for (layout, expected) in [(TabLayout.top, CGFloat(22)), (.sidebar, 19)] {
+            settings.tabLayout = layout
+            await sleep(0.8)
+            let before = centres()
+            let frame = window.frame
+            window.setFrame(frame.insetBy(dx: 20, dy: 20), display: true)
+            await sleep(0.5)
+            let resized = centres()
+            window.setFrame(frame, display: true)
+            // Another window in front, then back: the title bar is drawn again inactive, then active.
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+            other.isReleasedWhenClosed = false
+            other.makeKeyAndOrderFront(nil)
+            await sleep(0.5)
+            let inactive = centres()
+            other.close()
+            window.makeKeyAndOrderFront(nil)
+            await sleep(0.5)
+            let active = centres()
+            let all = before + resized + inactive + active
+            check("Feux de fenêtre (les trois) alignés sur les boutons (\(layout.rawValue) ; redimensionnée, inactive, active)",
+                  all.allSatisfy { abs($0 - expected) < 0.5 },
+                  "rouge/jaune/vert \(before) · redim. \(resized) · inactive \(inactive) · active \(active), attendu \(expected)")
+        }
+        (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide) = saved
+    }
+
     private func check(_ name: String, _ ok: Bool, _ detail: String = "") {
         ok ? (passed += 1) : (failed += 1)
         lines.append("- \(ok ? "✅" : "❌") **\(name)** \(detail.isEmpty ? "" : "— " + detail)")
@@ -61,6 +105,7 @@ final class FeatureSelfTest {
         "historique": { t, _ in t.testHistoryRetention() },
         "proton-champ": { t, space in await t.testExtensionInlineAutofill(in: space) },
         "corrections": { t, space in await t.testReportFixes(in: space) },
+        "feux": { t, _ in await t.testTrafficLights() },
     ]
 
     func run() async {
@@ -274,6 +319,7 @@ final class FeatureSelfTest {
         settings.tabLayout = .sidebar
         await sleep(1.5)
         await snapshotWindow("sidebar-light")
+        await testTrafficLights()
         browser.showCommandBar(.currentTab)
         await sleep(1)
         await snapshotWindow("command-bar")

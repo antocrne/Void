@@ -182,7 +182,7 @@ Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite,
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé, et parfois l'agrandissement du popup d'extension à la poignée (le test déplace le vrai pointeur) ; ce n'est pas une régression. Le cas « Repli natif WebKit seul » du test PiP échoue toujours : ce niveau n'est pas disponible sur ce WebKit (voir le compte rendu PiP).
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ` (ce dernier : Proton Pass installé et connecté).
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ` (ce dernier : Proton Pass installé et connecté).
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

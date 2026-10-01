@@ -37,6 +37,8 @@ struct BrowserWindowView: View {
         .animation(Theme.spring, value: browser.onboardingStep == nil)
         .background(WindowAccessor { window in configure(window) })
         .background(WindowButtonsVisibility(hidden: tabsKeptHidden && !revealed))
+        // On the centre line of the top bar (44 pt) or of the sidebar's first row (4 + 30 pt).
+        .background(TrafficLightsAlignment(centerY: settings.tabLayout == .top ? 22 : 19))
         .onChange(of: tabsKeptHidden) { revealed = false }
         .onAppear {
             browser.openWindowAction = { openWindow(id: $0) }
@@ -77,7 +79,7 @@ struct BrowserWindowView: View {
                 VStack(spacing: 0) {
                     if !settings.sidebarVisible && !hidden {
                         CompactTitleBar()
-                            .frame(height: 36)
+                            .frame(height: 38)
                             .privateChrome(browser.isPrivate)
                             .transition(.opacity)
                     }
@@ -179,7 +181,6 @@ private struct EdgeRevealSidebar: View {
                 .onHover { if $0 { show() } }
             if revealed {
                 SidebarView()
-                    .padding(.top, 2)
                     .frame(width: width)
                     .frame(maxHeight: .infinity)
                     .background(browser.isPrivate ? Theme.privateChrome : Theme.chrome)
