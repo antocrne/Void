@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import WebKit
 
@@ -43,6 +42,7 @@ enum ReaderMode {
         let meta = [article.site, article.byline, "\(minutes) min de lecture"].filter { !$0.isEmpty }.map(escape).joined(separator: " · ")
         return """
         <!doctype html><html><head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'">
         <meta name="color-scheme" content="dark light">
         <style>
@@ -95,11 +95,19 @@ struct ReaderView: View {
             .background(.ultraThinMaterial, in: Capsule())
             .padding(14)
         }
+        #if os(macOS)
         .onExitCommand(perform: onClose)
+        #endif
     }
 }
 
-private struct ReaderWebView: NSViewRepresentable {
+#if os(macOS)
+private typealias PlatformViewRepresentable = NSViewRepresentable
+#else
+private typealias PlatformViewRepresentable = UIViewRepresentable
+#endif
+
+private struct ReaderWebView: PlatformViewRepresentable {
     let article: ReaderArticle
     let fontScale: Double
     let accent: (light: String, dark: String)
@@ -107,7 +115,7 @@ private struct ReaderWebView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> WKWebView {
+    private func makeWebView(_ context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -117,7 +125,15 @@ private struct ReaderWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    #if os(macOS)
+    func makeNSView(context: Context) -> WKWebView { makeWebView(context) }
+    func updateNSView(_ webView: WKWebView, context: Context) { update(webView, context) }
+    #else
+    func makeUIView(context: Context) -> WKWebView { makeWebView(context) }
+    func updateUIView(_ webView: WKWebView, context: Context) { update(webView, context) }
+    #endif
+
+    private func update(_ webView: WKWebView, _ context: Context) {
         context.coordinator.browser = browser
         let key = "\(article.url.absoluteString)|\(fontScale)|\(accent.light)"
         guard context.coordinator.loadedKey != key else { return }

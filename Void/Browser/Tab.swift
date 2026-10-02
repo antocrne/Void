@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import WebKit
 import Observation
 
@@ -20,7 +20,7 @@ final class Tab: Identifiable {
 
     var title: String
     var url: URL?
-    var favicon: NSImage?
+    var favicon: PlatformImage?
     @ObservationIgnored var faviconData: Data?
     var isPinned: Bool
 
@@ -97,23 +97,34 @@ final class Tab: Identifiable {
         self.isPinned = isPinned
         self.isPrivate = isPrivate
         self.faviconData = faviconData
-        self.favicon = faviconData.flatMap(NSImage.init(data:))
+        self.favicon = faviconData.flatMap(PlatformImage.init(data:))
         self.popupConfiguration = popupConfiguration
         self.openedByPage = popupConfiguration != nil
     }
 
     var displayTitle: String {
         if !title.isEmpty { return title }
+        #if os(macOS)
         // An extension's page (options…): its name rather than its random address.
         if url?.scheme == "webkit-extension", #available(macOS 15.4, *),
            let name = ExtensionManager.running?.controller.extensionContext(for: url!)?.webExtension.displayName {
             return name
         }
+        #endif
         if let host = url?.host() { return host.voidNormalizedHost }
         return "Nouvel onglet"
     }
 
     var isAsleep: Bool { webView == nil }
+
+    static let addressPlaceholder = "Rechercher ou saisir une adresse"
+
+    /// What the address field shows: the site's host, or the whole URL when it has none.
+    var addressText: String {
+        guard let url else { return Self.addressPlaceholder }
+        if let host = url.host() { return host.voidNormalizedHost }
+        return url.absoluteString
+    }
 
     /// Returns the tab's web view, creating it (and loading `url`) if the tab was asleep.
     @discardableResult
@@ -322,7 +333,7 @@ final class Tab: Identifiable {
         ]
     }
 
-    func setFavicon(_ image: NSImage, data: Data) {
+    func setFavicon(_ image: PlatformImage, data: Data) {
         favicon = image
         faviconData = data
         browser?.setNeedsSave()

@@ -22,7 +22,9 @@ final class ElementHider {
 
     func startPicking(in tab: Tab) {
         guard let webView = tab.webView else { return }
+        #if os(macOS)
         webView.window?.makeFirstResponder(webView)
+        #endif
         Task {
             _ = await webView.voidCall("return (\n\(Scripts.hider)\n);", arguments: ["voidAccent": Theme.accentCSS.light])
         }

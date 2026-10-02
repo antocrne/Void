@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Void can be the default browser on iOS too, once Apple has granted the
+	com.apple.developer.web-browser entitlement: it must then claim http and https.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Web site URL</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
+			</array>
+		</dict>
+	</array>
+	<!-- "Envoyer vers Void Notes": lets Void see whether the companion app is installed. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>voidnotes</string>
+	</array>
+	<!-- A page's video keeps playing in Picture in Picture when Void goes to the background. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<!-- Downloads land in the app's Documents folder, shown in Files ("Sur mon iPhone" → Void). -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<!-- Void's chrome color (the default theme is dark) while the app starts. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Un site web demande l'accès à la caméra.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Un site web demande l'accès au micro.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Un site web demande votre position.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Void utilise Face ID avant d'afficher ou de remplir un mot de passe.</string>
+</dict>
+</plist>

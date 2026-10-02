@@ -1,8 +1,11 @@
-import AppKit
+import Foundation
 import LocalAuthentication
+#if os(macOS)
+import AppKit
+#endif
 import WebKit
 
-/// Touch ID (or the Mac's password as fallback) before any password is revealed or filled.
+/// Touch ID or Face ID (or the device's password as fallback) before any password is revealed or filled.
 @MainActor
 enum BiometricGate {
     private static var lastSuccess: Date?
@@ -46,6 +49,7 @@ final class PasswordManager {
 
     /// An installed, running password manager extension (Proton Pass, Bitwarden, 1Password…).
     var managerExtensionName: String? {
+        #if os(macOS)
         guard AppSettings.shared.extensionsEnabled, #available(macOS 15.4, *) else { return nil }
         return ExtensionManager.shared.contexts.lazy.compactMap { context -> String? in
             let ext = context.webExtension
@@ -56,6 +60,9 @@ final class PasswordManager {
                 || Self.managerNames.contains { name.localizedCaseInsensitiveContains($0) }
             return isPasswordManager ? name : nil
         }.first
+        #else
+        nil   // no extensions on iOS
+        #endif
     }
 
     /// Chrome Web Store IDs of password managers (their names don't always say so).
@@ -99,17 +106,23 @@ final class PasswordManager {
     private(set) lazy var installedApp: ManagerApp? = Self.knownApps.first(where: Self.isInstalled)
 
     private static func isInstalled(_ app: ManagerApp) -> Bool {
+        #if os(macOS)
         if app.bundleIDs.contains(where: { !NSWorkspace.shared.urlsForApplications(withBundleIdentifier: $0).isEmpty }) { return true }
         let folders = [URL(fileURLWithPath: "/Applications"),
                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")]
         return folders.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent(app.name + ".app").path) }
+        #else
+        false   // an iOS app can't see the others; they fill through the system's AutoFill
+        #endif
     }
 
     /// The app's extension, when it has one and it isn't in Void yet.
     var missingExtensionID: String? {
         guard managerExtensionName == nil, let id = installedApp?.extensionID else { return nil }
+        #if os(macOS)
         if AppSettings.shared.extensionsEnabled, #available(macOS 15.4, *),
            ExtensionManager.shared.isInstalled(chromeID: id) { return nil }
+        #endif
         return id
     }
 

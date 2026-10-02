@@ -1,5 +1,8 @@
-import AppKit
+import Foundation
 import WebKit
+#if os(macOS)
+import AppKit
+#endif
 
 /// Picture in Picture for Void.
 ///
@@ -59,8 +62,10 @@ final class PiPController {
             // Closed with ✕ (video pauses): do nothing.
             if !initiatedByVoid, tab.isPlayingVideo, let browser = tab.browser, browser.selectedTab !== tab {
                 browser.select(tab)
+                #if os(macOS)
                 NSApp.activate(ignoringOtherApps: true)
                 browser.window?.makeKeyAndOrderFront(nil)
+                #endif
             }
         }
     }
@@ -139,11 +144,13 @@ final class PiPController {
             lastError += " native:timeout"
         }
 
+        #if os(macOS)
         // 3. Plan B.
         if allowFloatingFallback, tab.hasVideo {
             FloatingPlayer.shared.open(tab)
             return .entered(.floating)
         }
+        #endif
         return .failed(lastError)
     }
 

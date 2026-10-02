@@ -1,4 +1,7 @@
+import Foundation
+#if os(macOS)
 import AppKit
+#endif
 
 /// What to do with a link whose scheme belongs to another app (mailto:, zoommtg:, vscode:…).
 enum ExternalURLPolicy: Equatable {
@@ -18,6 +21,7 @@ enum ExternalURLPolicy: Equatable {
         return trustedSchemes.contains(scheme) ? .open : .ask
     }
 
+    #if os(macOS)
     /// Asks before opening an app on behalf of `host`.
     @MainActor
     static func confirmAndOpen(_ url: URL, from host: String, in window: NSWindow?) {
@@ -33,4 +37,5 @@ enum ExternalURLPolicy: Equatable {
         }
         if let window { alert.beginSheetModal(for: window, completionHandler: open) } else { open(alert.runModal()) }
     }
+    #endif
 }

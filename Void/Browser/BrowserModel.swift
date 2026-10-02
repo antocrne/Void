@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import WebKit
 import Observation
@@ -73,7 +72,9 @@ final class BrowserModel {
     /// First-launch personalization step shown over the main window (nil = hidden).
     var onboardingStep: Int?
 
+    #if os(macOS)
     @ObservationIgnored weak var window: NSWindow?
+    #endif
     @ObservationIgnored var openWindowAction: ((String) -> Void)?
     @ObservationIgnored var openSettingsAction: (() -> Void)?
     @ObservationIgnored private var closedTabs: [(url: URL, spaceID: UUID)] = []
@@ -377,10 +378,16 @@ final class BrowserModel {
     /// URLs opened from other apps (Void as default browser).
     func openExternal(_ url: URL) {
         openTab(url: url)
+        #if os(macOS)
         NSApp.activate(ignoringOtherApps: true)
         // A closed SwiftUI window can outlive its closing: its being gone isn't enough.
         if kind == .main, window?.isVisible != true { openWindowAction?(WindowID.main) }
         window?.makeKeyAndOrderFront(nil)
+        #else
+        // Links from other apps never land in private browsing.
+        BrowserWindows.shared.show(self)
+        commandBar = nil
+        #endif
     }
 
     // MARK: - Spaces
@@ -516,7 +523,9 @@ final class BrowserModel {
             space.pinned = []
             space.selectedTabID = nil
         }
+        #if os(macOS)
         window = nil
+        #endif
     }
 
     // MARK: - Persistence

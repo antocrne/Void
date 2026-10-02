@@ -1,8 +1,13 @@
-import AppKit
+import Foundation
 import Observation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// "Send to Void Notes" (⌘⇧M, context menu): hands a selection or the page to the companion
-/// app through `voidnotes://new?title=…&text=…&url=…`. macOS delivers the URL to Void Notes
+/// app through `voidnotes://new?title=…&text=…&url=…`. The system delivers the URL to Void Notes
 /// when it is installed; without it the menu items stay visible but disabled.
 @MainActor @Observable
 final class VoidNotes {
@@ -25,13 +30,23 @@ final class VoidNotes {
     private init() {
         refresh()
         // Void Notes installed or removed while Void runs: seen when the user comes back.
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        #if os(macOS)
+        let becameActive = NSApplication.didBecomeActiveNotification
+        #else
+        let becameActive = UIApplication.didBecomeActiveNotification
+        #endif
+        NotificationCenter.default.addObserver(forName: becameActive, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
     }
 
     func refresh() {
+        #if os(macOS)
         var installed = URL(string: "\(Self.scheme)://new").flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) } != nil
+        #else
+        // Needs `voidnotes` in the Info.plist's LSApplicationQueriesSchemes.
+        var installed = URL(string: "\(Self.scheme)://new").map { UIApplication.shared.canOpenURL($0) } ?? false
+        #endif
         #if DEBUG
         if let installedOverride { installed = installedOverride }
         #endif
@@ -107,10 +122,14 @@ final class VoidNotes {
         #if DEBUG
         if let openOverride { finish(openOverride(note)); return }
         #endif
+        #if os(macOS)
         NSWorkspace.shared.open(note, configuration: NSWorkspace.OpenConfiguration()) { _, error in
             if let error { NSLog("[Void] note non transmise à Void Notes : %@", error.localizedDescription) }
             let opened = error == nil
             DispatchQueue.main.async { finish(opened) }
         }
+        #else
+        UIApplication.shared.open(note) { opened in finish(opened) }
+        #endif
     }
 }

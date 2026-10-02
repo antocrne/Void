@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// The five accent colors offered in Settings → Général → Couleur.
 /// Each tone was checked against Void's backgrounds (WCAG): the light/dark tones reach at least
@@ -46,24 +45,24 @@ enum AccentChoice: String, CaseIterable, Identifiable {
 /// appearance (dark by default); the accent follows Settings → Général → Couleur, live.
 enum Theme {
     static let chrome = dynamic(light: chromeLight, dark: chromeDark)
-    static let surface = dynamic(light: NSColor(hex: 0xFFFFFF), dark: NSColor(hex: 0x17171C))
-    static let elevated = dynamic(light: NSColor(hex: 0xFFFFFF), dark: NSColor(hex: 0x1D1D23))
-    static let hover = dynamic(light: NSColor(white: 0, alpha: 0.05), dark: NSColor(white: 1, alpha: 0.055))
-    static let selection = dynamic(light: NSColor(white: 1, alpha: 0.95), dark: NSColor(white: 1, alpha: 0.10))
-    static let stroke = dynamic(light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.08))
-    static let primaryText = dynamic(light: NSColor(hex: 0x131316), dark: NSColor(hex: 0xECECF1))
-    static let secondaryText = dynamic(light: NSColor(hex: 0x62626B), dark: NSColor(hex: 0x8B8B96))
-    static let success = dynamic(light: NSColor(hex: 0x1E7B34), dark: NSColor(hex: 0x5AD27A))
-    static let danger = dynamic(light: NSColor(hex: 0xC4262E), dark: NSColor(hex: 0xFF6B6B))
-    static let switchOff = dynamic(light: NSColor(white: 0, alpha: 0.14), dark: NSColor(white: 1, alpha: 0.18))
+    static let surface = dynamic(light: PlatformColor(hex: 0xFFFFFF), dark: PlatformColor(hex: 0x17171C))
+    static let elevated = dynamic(light: PlatformColor(hex: 0xFFFFFF), dark: PlatformColor(hex: 0x1D1D23))
+    static let hover = dynamic(light: PlatformColor(white: 0, alpha: 0.05), dark: PlatformColor(white: 1, alpha: 0.055))
+    static let selection = dynamic(light: PlatformColor(white: 1, alpha: 0.95), dark: PlatformColor(white: 1, alpha: 0.10))
+    static let stroke = dynamic(light: PlatformColor(white: 0, alpha: 0.08), dark: PlatformColor(white: 1, alpha: 0.08))
+    static let primaryText = dynamic(light: PlatformColor(hex: 0x131316), dark: PlatformColor(hex: 0xECECF1))
+    static let secondaryText = dynamic(light: PlatformColor(hex: 0x62626B), dark: PlatformColor(hex: 0x8B8B96))
+    static let success = dynamic(light: PlatformColor(hex: 0x1E7B34), dark: PlatformColor(hex: 0x5AD27A))
+    static let danger = dynamic(light: PlatformColor(hex: 0xC4262E), dark: PlatformColor(hex: 0xFF6B6B))
+    static let switchOff = dynamic(light: PlatformColor(white: 0, alpha: 0.14), dark: PlatformColor(white: 1, alpha: 0.18))
     static let switchKnob = Color.white
     static let shadow = Color.black
     static let scrim = Color.black.opacity(0.28)
 
     /// Window background behind the chrome (AppKit side of `chrome`).
-    static let chromeNS = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? chromeDark : chromeLight }
-    private static let chromeLight = NSColor(hex: 0xE9E9EE)
-    private static let chromeDark = NSColor(hex: 0x0B0B0E)
+    static let chromeNS = PlatformColor.voidDynamic(light: chromeLight, dark: chromeDark)
+    private static let chromeLight = PlatformColor(hex: 0xE9E9EE)
+    private static let chromeDark = PlatformColor(hex: 0x0B0B0E)
 
     // MARK: Accent
 
@@ -73,9 +72,9 @@ enum Theme {
 
     private static let palettes: [AccentChoice: AccentPalette] = Dictionary(uniqueKeysWithValues: AccentChoice.allCases.map { choice in
         (choice, AccentPalette(
-            accent: dynamic(light: NSColor(hex: choice.lightHex), dark: NSColor(hex: choice.darkHex)),
-            fill: Color(nsColor: NSColor(hex: choice.lightHex)),
-            soft: dynamic(light: NSColor(hex: choice.lightHex, alpha: 0.13), dark: NSColor(hex: choice.darkHex, alpha: 0.2))))
+            accent: dynamic(light: PlatformColor(hex: choice.lightHex), dark: PlatformColor(hex: choice.darkHex)),
+            fill: Color(platformColor: PlatformColor(hex: choice.lightHex)),
+            soft: dynamic(light: PlatformColor(hex: choice.lightHex, alpha: 0.13), dark: PlatformColor(hex: choice.darkHex, alpha: 0.2))))
     })
 
     /// Icons, active controls, selected tab marker, switches, focus rings, links.
@@ -97,21 +96,21 @@ enum Theme {
     // Deliberately independent of the accent: a private window must be recognizable whatever
     // color was chosen. Its chrome is always dark slate (and rendered in dark appearance).
 
-    static let privateChrome = Color(nsColor: privateChromeNS)
-    static let privateChromeNS = NSColor(hex: 0x23262F)
-    static let privateBadge = Color(nsColor: NSColor(white: 1, alpha: 0.14))
-    static let privateBadgeText = Color(nsColor: NSColor(white: 1, alpha: 0.92))
+    static let privateChrome = Color(platformColor: privateChromeNS)
+    static let privateChromeNS = PlatformColor(hex: 0x23262F)
+    static let privateBadge = Color(platformColor: PlatformColor(white: 1, alpha: 0.14))
+    static let privateBadgeText = Color(platformColor: PlatformColor(white: 1, alpha: 0.92))
 
     // MARK: Floating video player (plan B)
 
-    static let videoBackgroundNS = NSColor.black
-    static let videoControlNS = NSColor.white
+    static let videoBackgroundNS = PlatformColor.black
+    static let videoControlNS = PlatformColor.white
 
     // MARK: Logo (brand colors, fixed)
 
-    static let logoGradient = [NSColor(hex: 0xF4F1FF), NSColor(hex: 0x9D8FFF), NSColor(hex: 0x4B3FD0)].map { Color(nsColor: $0) }
-    static let logoGlow = Color(nsColor: NSColor(hex: 0x9D8FFF, alpha: 0.55))
-    static let logoCore = Color(nsColor: NSColor(hex: 0x07070A))
+    static let logoGradient = [PlatformColor(hex: 0xF4F1FF), PlatformColor(hex: 0x9D8FFF), PlatformColor(hex: 0x4B3FD0)].map { Color(platformColor: $0) }
+    static let logoGlow = Color(platformColor: PlatformColor(hex: 0x9D8FFF, alpha: 0.55))
+    static let logoCore = Color(platformColor: PlatformColor(hex: 0x07070A))
 
     // MARK: Reader mode stylesheet colors
 
@@ -121,19 +120,19 @@ enum Theme {
     static let spring = Animation.spring(response: 0.32, dampingFraction: 0.86)
     static let quick = Animation.easeOut(duration: 0.16)
 
-    static func dynamic(light: NSColor, dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
+    static func dynamic(light: PlatformColor, dark: PlatformColor) -> Color {
+        Color(platformColor: .voidDynamic(light: light, dark: dark))
     }
 }
 
-extension NSColor {
+extension PlatformColor {
     convenience init(hex: UInt32, alpha: CGFloat = 1) {
-        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
-                  green: CGFloat((hex >> 8) & 0xFF) / 255,
-                  blue: CGFloat(hex & 0xFF) / 255,
-                  alpha: alpha)
+        let red = CGFloat((hex >> 16) & 0xFF) / 255, green = CGFloat((hex >> 8) & 0xFF) / 255, blue = CGFloat(hex & 0xFF) / 255
+        #if os(macOS)
+        self.init(srgbRed: red, green: green, blue: blue, alpha: alpha)
+        #else
+        self.init(red: red, green: green, blue: blue, alpha: alpha)
+        #endif
     }
 }
 
@@ -233,12 +232,19 @@ struct ChromeButton: View {
     let action: () -> Void
     @State private var hovering = false
 
+    #if os(macOS)
+    private static let side: CGFloat = 26, symbolScale: CGFloat = 1
+    #else
+    /// A finger needs a larger target than a pointer.
+    private static let side: CGFloat = 38, symbolScale: CGFloat = 1.35
+    #endif
+
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size, weight: .medium))
+                .font(.system(size: size * Self.symbolScale, weight: .medium))
                 .foregroundStyle(active ? Theme.accent : Theme.secondaryText)
-                .frame(width: 26, height: 26)
+                .frame(width: Self.side, height: Self.side)
                 .background(RoundedRectangle(cornerRadius: 7).fill(hovering && !disabled ? Theme.hover : .clear))
                 .contentShape(Rectangle())
         }
