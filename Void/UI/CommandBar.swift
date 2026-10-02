@@ -6,6 +6,8 @@ struct Suggestion: Identifiable {
         case search(String)
         case switchTo(Tab)
         case download(DownloadItem)
+        /// A result to copy (a conversion).
+        case copy(String)
         case action(() -> Void)
     }
     let symbol: String
@@ -20,6 +22,7 @@ struct Suggestion: Identifiable {
         case .search(let text): "search:" + text
         case .switchTo(let tab): "tab:" + tab.id.uuidString
         case .download(let item): "download:" + item.id.uuidString
+        case .copy(let text): "copy:" + text
         case .action: "action:" + title
         }
     }
@@ -50,6 +53,16 @@ enum SuggestionEngine {
         }
         let engine = AppSettings.shared.searchEngine.name
         out.append(Suggestion(symbol: "magnifyingglass", title: text, subtitle: "Rechercher avec \(engine)", kind: .search(text)))
+        // « 10 km en miles », « 100 usd en eur »: the answer, right under the search (↩ still searches).
+        switch QuickConverter.answer(for: text) {
+        case .result(let result):
+            out.append(Suggestion(symbol: "equal.circle", title: result.text,
+                                  subtitle: [result.note, "Copier"].compactMap { $0 }.joined(separator: " · "), kind: .copy(result.value)))
+        case .loading:
+            out.append(Suggestion(symbol: "equal.circle", title: "Conversion…", subtitle: "Taux de change en cours de chargement", kind: .action({})))
+        case nil:
+            break
+        }
 
         for tab in browser.allTabs where tab !== browser.selectedTab {
             guard out.count < 5 else { break }
@@ -135,6 +148,10 @@ struct CommandBarOverlay: View {
                             selection = 0
                             suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
                         }
+                        // Exchange rates that have just arrived: the conversion typed gets its answer.
+                        .onChange(of: CurrencyRates.shared.revision) {
+                            suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
+                        }
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 52)
@@ -194,6 +211,10 @@ struct CommandBarOverlay: View {
             if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: request.mode) }
         case .switchTo(let tab): browser.select(tab)
         case .download(let item): DownloadManager.shared.reveal(item)
+        case .copy(let text):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            browser.showToast("doc.on.doc", "« \(text) » copié")
         case .action(let action): action()
         }
     }

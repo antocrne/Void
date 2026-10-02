@@ -41,6 +41,18 @@
   // Content scripts run in web pages: the rest is for the extension's own contexts.
   if (globalThis.location && globalThis.location.protocol !== "webkit-extension:") return;
 
+  // Void asks the background whether it is there (ExtensionManager.backgroundAnswers): what
+  // WebKit tells of a service worker isn't reliable. Registered before the extension's own
+  // listeners: its answer comes first, whatever they make of the message.
+  if (typeof ServiceWorkerGlobalScope === "function" && globalThis instanceof ServiceWorkerGlobalScope) {
+    try {
+      runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (!message || message.voidPing !== true || !sender || sender.id !== runtime.id) return;
+        sendResponse({ voidPong: true });
+      });
+    } catch {}
+  }
+
   // Chrome APIs WebKit doesn't have, which extensions touch as soon as their background script
   // starts: one missing (chrome.runtime.onUpdateAvailable.addListener…) and the whole script
   // stops. Inert stand-ins, only where WebKit has nothing.

@@ -36,16 +36,23 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
             return .cancel
         }
 
-        // ⌘-click / middle-click → new tab (⌘⇧ = in the foreground).
-        if navigationAction.navigationType == .linkActivated, navigationAction.targetFrame != nil {
+        // ⌘-click / middle-click → new tab (⌘⇧ = in the foreground). Only a click made in this very
+        // page: the first load of a tab opened by WebKit (the context menu's "Ouvrir le lien dans un
+        // nouvel onglet", a target=_blank link) comes with the click that opened it, and sending it
+        // to yet another tab would leave this one empty.
+        if navigationAction.navigationType == .linkActivated, navigationAction.targetFrame != nil,
+           navigationAction.sourceFrame.webView === webView {
             let flags = navigationAction.modifierFlags
-            if flags.contains(.command) || navigationAction.buttonNumber == 2 {
+            if flags.contains(.command) || navigationAction.buttonNumber == Self.middleButton {
                 browser.openTab(url: url, background: !flags.contains(.shift), after: tab)
                 return .cancel
             }
         }
         return .allow
     }
+
+    /// `WKNavigationAction.buttonNumber` is a mask: 1 the left button, 2 the right one, 4 the middle one.
+    private static let middleButton = 4
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         var download = !navigationResponse.canShowMIMEType
@@ -213,7 +220,8 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         let flags = navigationAction.modifierFlags
-        let background = flags.contains(.command) && !flags.contains(.shift)
+        // ⌘-click or middle click on a target=_blank link: behind, like any other link.
+        let background = (flags.contains(.command) || navigationAction.buttonNumber == Self.middleButton) && !flags.contains(.shift)
         let newTab = browser.openTab(url: nil, background: background, after: tab, popupConfiguration: configuration)
         newTab.url = navigationAction.request.url
         return newTab.ensureWebView()
