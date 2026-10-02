@@ -520,13 +520,14 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     }
 
     /// Toolbar click on an extension: its popup, or its `action.onClicked`. Its background is
-    /// checked first (see watchBackground): a popup that finds no one to talk to closes itself.
+    /// asked first (see watchBackground) — which also wakes it up if WebKit had unloaded it: a
+    /// popup that finds no one to talk to closes itself.
     func performAction(_ context: WKWebExtensionContext, in browser: BrowserModel) {
         let tab = browser.selectedTab.map(bridge.tab)
         Task {
             if await backgroundWorkerIsLost(context) {
                 await reviveBackground(context)
-                for _ in 0..<20 where await backgroundWorkerIsLost(context) { try? await Task.sleep(for: .milliseconds(150)) }
+                _ = await backgroundAnswers(context)
             }
             context.performAction(for: tab)
         }
@@ -534,17 +535,19 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     // MARK: - Background service worker
 
-    /// WebKit loses the service worker of an extension loaded at launch a few seconds after
+    /// WebKit can lose the service worker of an extension loaded at launch a few seconds after
     /// starting it (it turns redundant), while still taking the background for loaded: messages
     /// from the extension's popup and content scripts then reach no one — Proton Pass's popup opens
     /// empty, finds its worker dead, reloads the extension and closes. The extension's own
     /// `runtime.reload()` brings the worker back for good: Void calls it when the worker is lost.
+    /// Only then: reloading an extension cuts its content scripts off in every open page (no more
+    /// icon in the fields, no filling, until each page is reloaded).
     private func watchBackground(_ context: WKWebExtensionContext) {
         guard Self.hasServiceWorker(context) else { return }
         Task {
-            // The worker is lost about 5 s after it starts: watched for a while after that.
-            for _ in 0..<12 {
-                try? await Task.sleep(for: .seconds(2))
+            // The worker is lost about 5 s after it starts: asked a few times after that.
+            for delay in [6, 8, 10] {
+                try? await Task.sleep(for: .seconds(delay))
                 guard contexts.contains(where: { $0 === context }) else { return }
                 if await backgroundWorkerIsLost(context) { return await reviveBackground(context) }
             }
@@ -555,14 +558,54 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         (context.webExtension.manifest["background"] as? [String: Any])?["service_worker"] is String
     }
 
-    /// The background page WebKit keeps for a service worker, without any worker registered.
+    /// The worker no longer answers, asked twice. What its page says of its registration is no
+    /// proof: after WebKit unloads an idle background (30 s) and wakes it up again, the page lists
+    /// no registration while the worker runs and answers — taking it for lost reloaded the
+    /// extension at each click on its button. Without Void's shim in the extension (a folder that
+    /// isn't Void's copy) there is no one to ask: the registration, while the page is there.
     private func backgroundWorkerIsLost(_ context: WKWebExtensionContext) async -> Bool {
-        guard Self.hasServiceWorker(context), let page = WebKitSPI.backgroundWebView(context), !page.isLoading,
-              let count = try? await page.callAsyncJavaScript(
-                "return (await navigator.serviceWorker.getRegistrations()).length", contentWorld: .page) as? Int
-        else { return false }
-        return count == 0
+        guard Self.hasServiceWorker(context) else { return false }
+        guard hasShim(context) else {
+            guard let page = WebKitSPI.backgroundWebView(context), !page.isLoading,
+                  let count = try? await page.callAsyncJavaScript(
+                    "return (await navigator.serviceWorker.getRegistrations()).length", contentWorld: .page) as? Int
+            else { return false }
+            return count == 0
+        }
+        if await backgroundAnswers(context) { return false }
+        try? await Task.sleep(for: .seconds(1))
+        return !(await backgroundAnswers(context))
     }
+
+    /// Void's copy of the extension has the current shim (addShims), hence its answer to backgroundAnswers.
+    private func hasShim(_ context: WKWebExtensionContext) -> Bool {
+        guard let path = record(for: context)?.path else { return false }
+        let stamp = try? String(contentsOf: URL(fileURLWithPath: path).appendingPathComponent(Self.stampFile), encoding: .utf8)
+        return stamp?.hasPrefix(Self.shimStamp + "|") == true
+    }
+
+    /// Asks the extension's background whether it is there, from one of the extension's own pages
+    /// (a blank one of Void's, see addShims): extension-shim.js answers in the worker. A background
+    /// WebKit had unloaded is woken up by the question. True when there is no way to ask.
+    func backgroundAnswers(_ context: WKWebExtensionContext) async -> Bool {
+        guard let configuration = context.webViewConfiguration else { return true }
+        let page = WKWebView(frame: .zero, configuration: configuration)
+        page.load(URLRequest(url: context.baseURL.appendingPathComponent(Self.blankPageFile)))
+        for _ in 0..<30 where page.isLoading || page.url == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        let answer = try? await page.callAsyncJavaScript("""
+            return await Promise.race([
+              browser.runtime.sendMessage({ voidPing: true }).then((reply) => !!(reply && reply.voidPong), () => false),
+              new Promise((done) => setTimeout(() => done(false), 3000))]);
+            """, contentWorld: .page) as? Bool
+        return answer ?? true
+    }
+
+    #if DEBUG
+    /// Self-test: WebKit currently keeps the extension's background loaded.
+    func backgroundIsLoaded(_ context: WKWebExtensionContext) -> Bool { WebKitSPI.backgroundWebView(context) != nil }
+    /// Self-test: extensions reloaded because their worker was lost.
+    @ObservationIgnored private(set) var revivals = 0
+    #endif
 
     @ObservationIgnored private var reviving: Set<ObjectIdentifier> = []
 
@@ -573,6 +616,9 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
               reviving.insert(ObjectIdentifier(context)).inserted else { return }
         defer { reviving.remove(ObjectIdentifier(context)) }
         NSLog("[Void] extension « %@ » : service worker perdu, rechargement", context.webExtension.displayName ?? context.uniqueIdentifier)
+        #if DEBUG
+        revivals += 1
+        #endif
         let page = WKWebView(frame: .zero, configuration: configuration)
         page.load(URLRequest(url: context.baseURL.appendingPathComponent(Self.blankPageFile)))
         for _ in 0..<30 where page.isLoading || page.url == nil { try? await Task.sleep(for: .milliseconds(100)) }

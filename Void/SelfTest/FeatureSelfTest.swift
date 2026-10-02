@@ -107,7 +107,211 @@ final class FeatureSelfTest {
         "corrections": { t, space in await t.testReportFixes(in: space) },
         "feux": { t, _ in await t.testTrafficLights() },
         "notes": { t, space in await t.testVoidNotes(in: space) },
+        "nouvel-onglet": { t, space in await t.testNewTabLinks(in: space) },
+        "conversion": { t, _ in await t.testConversions() },
+        "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
     ]
+
+    /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and
+    /// wakes it up when needed. A woken worker isn't taken for a lost one (reloading the extension
+    /// would cut it off from every open page), and its button still opens its popup.
+    /// Meant for a copy of a real profile (Proton Pass).
+    private func testExtensionBackgroundWake(in space: Space) async {
+        guard #available(macOS 15.4, *) else { return }
+        let manager = ExtensionManager.shared
+        for _ in 0..<40 where manager.contexts.count < manager.installedRecords.count { await sleep(0.25) }
+        for _ in 0..<20 where browser.window == nil { await sleep(0.25) }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        guard !manager.contexts.isEmpty else { check("Réveil des extensions : aucune extension installée, test non exécuté", true); return }
+        func name(_ context: WKWebExtensionContext) -> String { String((context.webExtension.displayName ?? context.uniqueIdentifier).prefix(24)) }
+
+        await sleep(26)   // past the launch checks (ExtensionManager.watchBackground)
+        var answers: [String] = []
+        for context in manager.contexts {
+            let start = Date()
+            answers.append("\(name(context)) : \(await manager.backgroundAnswers(context) ? "répond" : "muet") en \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+        }
+        check("Réveil des extensions : l'arrière-plan répond après le lancement", !answers.contains { $0.contains("muet") },
+              answers.joined(separator: " · ") + " · rechargements : \(manager.revivals)")
+
+        let unloaded = await until(240) { !manager.contexts.contains(where: manager.backgroundIsLoaded) }
+        check("Réveil des extensions : WebKit décharge les arrière-plans inactifs", unloaded,
+              manager.contexts.filter(manager.backgroundIsLoaded).map(name).joined(separator: ", "))
+        await sleep(2)
+
+        // A login page: content scripts wake their background up.
+        let revivals = manager.revivals
+        let tab = await htmlTab("""
+            <!doctype html><title>Connexion</title><body style="font:16px system-ui;padding:40px"><main><h1>Mon compte</h1>
+            <form method="post" action="/login"><label>Courriel<br><input id="u" name="username" type="text" autocomplete="username" style="width:400px;height:36px"></label><br><br>
+            <label>Mot de passe<br><input id="p" name="password" type="password" style="width:400px;height:36px"></label><br><br>
+            <button type="submit">Me connecter</button></form></main></body>
+            """, in: space, base: "https://login.urssaf.fr/")
+        browser.select(tab)
+        await sleep(5)
+        let elements = (await js(tab, "return [...document.querySelectorAll('*')].filter(e => e.tagName.includes('-')).map(e => e.tagName.toLowerCase()).join(',');") as? String) ?? ""
+        for context in manager.contexts {
+            let start = Date()
+            let answered = await manager.backgroundAnswers(context)
+            let delay = Int(Date().timeIntervalSince(start) * 1000)
+            manager.performAction(context, in: browser)
+            await sleep(4)
+            let popover = manager.shownPopover
+            let text = try? await manager.shownPopupWebView?.evaluateJavaScript("document.body ? document.body.innerText.length : -1")
+            check("Réveil des extensions : « \(name(context)) » répond après un réveil, son bouton ouvre son popup sans la recharger",
+                  answered && manager.revivals == revivals && popover?.isShown == true && ((text as? Int) ?? 0) > 0,
+                  "réponse=\(answered) en \(delay) ms · rechargements \(revivals) → \(manager.revivals) · popup affiché=\(popover?.isShown ?? false) texte=\(text.map { "\($0)" } ?? "nil") · page : \(elements)")
+            popover?.performClose(nil)
+            await sleep(1.5)
+        }
+        browser.close(tab)
+    }
+
+    /// Conversions answered in the address bar: units, currencies (rates given here, no network),
+    /// and what must stay a plain search.
+    private func testConversions() async {
+        let rates = CurrencyRates(fileURL: nil)
+        func value(_ input: String) -> String {
+            switch QuickConverter.answer(for: input, rates: rates) {
+            case .result(let result): result.text.replacingOccurrences(of: "\u{202F}", with: " ").replacingOccurrences(of: "\u{00A0}", with: " ")
+            case .loading: "chargement"
+            case nil: "nil"
+            }
+        }
+        let decimal = Locale.current.decimalSeparator ?? ","
+        func expect(_ input: String, _ expected: String) -> String? {
+            let got = value(input)
+            return got == expected.replacingOccurrences(of: ",", with: decimal) ? nil : "« \(input) » → \(got)"
+        }
+        let units = [
+            expect("10 km en miles", "10 km = 6,21371 mi"), expect("10km to mi", "10 km = 6,21371 mi"),
+            expect("72 °F en °C", "72 °F = 22,22 °C"), expect("100 c en f", "100 °C = 212 °F"),
+            expect("1,5 kg en lb", "1,5 kg = 3,30693 lb"), expect("2.5 l -> cl", "2,5 l = 250 cl"),
+            expect("90 km/h en mph", "90 km/h = 55,9234 mph"), expect("3 h en min", "3 h = 180 min"),
+            expect("12 in en cm", "12 in = 30,48 cm"), expect("5 go en mo", "5 Go = 5 000 Mo"),
+            expect("2 To to Go", "2 To = 2 000 Go"), expect("1 ha = m2", "1 ha = 10 000 m²"),
+        ].compactMap { $0 }
+        check("Conversion : unités (longueur, température, masse, volume, vitesse, durée, données, surface)", units.isEmpty, units.joined(separator: " · "))
+
+        let plain = ["10 km", "trou noir", "10 km en litres", "3 petits cochons", "2024 élections en france", "apple.com", "192.168.1.1", "10"]
+            .filter { value($0) != "nil" }
+        check("Conversion : une recherche ordinaire n'en est pas une", plain.isEmpty, plain.joined(separator: " · "))
+
+        check("Conversion : devise sans taux, en attente", value("100 usd en eur") == "chargement", value("100 usd en eur"))
+        rates.set(rates: ["USD": 1.25, "GBP": 0.8, "JPY": 160, "CHF": 0.95], day: "2026-10-01")
+        let local = rates.localCurrency
+        let money = [
+            expect("100 usd en eur", "100 USD = 80 EUR"), expect("100 € en $", "100 EUR = 125 USD"),
+            expect("$50 to gbp", "50 USD = 32 GBP"), expect("1 234,50 eur en yens", "1 234,5 EUR = 197 520 JPY"),
+            expect("10 livres sterling en francs suisses", "10 GBP = 11,88 CHF"), expect("100 usd gbp", "100 USD = 64 GBP"),
+            local == "EUR" ? expect("100 dollars", "100 USD = 80 EUR") : nil,
+        ].compactMap { $0 }
+        check("Conversion : devises (codes, symboles, noms), taux de la BCE", money.isEmpty && rates.sourceNote == "Taux BCE du 1 oct. 2026",
+              money.joined(separator: " · ") + " " + (rates.sourceNote ?? "nil"))
+        check("Conversion : devise inconnue ou identique → recherche", value("100 usd en xyz") == "nil" && value("100 eur en euros") == "nil",
+              value("100 usd en xyz") + " " + value("100 eur en euros"))
+
+        let parsed = CurrencyRates.parse("<Cube><Cube time='2026-10-01'><Cube currency='USD' rate='1.1298'/><Cube currency='JPY' rate='178.49'/><Cube currency='GBP' rate='0.85373'/><Cube currency='CHF' rate='0.9437'/><Cube currency='CAD' rate='1.5'/></Cube></Cube>")
+        check("Conversion : fichier de la BCE lu", parsed?.day == "2026-10-01" && parsed?.rates["USD"] == 1.1298 && parsed?.rates.count == 5)
+
+        // The real file, from the ECB (network).
+        let live = CurrencyRates(fileURL: nil)
+        let fetched = await live.fetch()
+        check("Conversion : taux du jour récupérés auprès de la BCE", fetched && (live.rate("USD") ?? 0) > 0.5 && live.rate("EUR") == 1,
+              "USD=\(live.rate("USD").map { "\($0)" } ?? "nil") · \(live.sourceNote ?? "nil")")
+
+        let rows = SuggestionEngine.suggestions(for: "10 km en miles", browser: browser)
+        let row = rows.firstIndex { if case .copy = $0.kind { true } else { false } }
+        check("Conversion : affichée dans la barre d'adresse, sous la recherche (↩ recherche toujours)",
+              row == 1 && rows.first?.symbol == "magnifyingglass" && rows[1].title.hasPrefix("10 km = 6"), rows.map(\.title).joined(separator: " | "))
+    }
+
+    /// A link opened in a new tab opens one tab, with its page: ⌘-click and ⌘⇧-click on a
+    /// target=_blank link (the click's modifiers come back with the new tab's first load), and
+    /// WebKit's own "Ouvrir le lien dans un nouvel onglet" of the context menu.
+    private func testNewTabLinks(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let links = await htmlTab("""
+            <!doctype html><body style="margin:0;font:40px system-ui">
+            <a id="a" href="https://example.com/?via=cmdblank" target="_blank" style="display:block;padding:40px">⌘-clic _blank</a>
+            <a id="b" href="https://example.com/?via=cmdshiftblank" target="_blank" style="display:block;padding:40px">⌘⇧-clic _blank</a>
+            <a id="c" href="https://example.com/?via=plain" style="display:block;padding:40px">⌘-clic</a>
+            </body>
+            """, in: space)
+        browser.select(links)
+        await sleep(0.5)
+        func opened(_ before: [Tab]) -> String {
+            space.tabs.filter { tab in !before.contains { $0 === tab } }.map { $0.url?.absoluteString ?? "vide" }.joined(separator: ", ")
+        }
+        for (selector, modifiers, marker, foreground) in [("#a", NSEvent.ModifierFlags.command, "via=cmdblank", false),
+                                                         ("#b", [.command, .shift], "via=cmdshiftblank", true),
+                                                         ("#c", .command, "via=plain", false)] {
+            let before = space.tabs
+            await click(links, selector: selector, modifiers: modifiers)
+            await sleep(2.5)
+            let new = space.tabs.filter { tab in !before.contains { $0 === tab } }
+            let loaded = new.first?.webView?.url?.absoluteString.contains(marker) == true
+            check("Nouvel onglet (\(selector), \(marker)) : un seul onglet, avec sa page, \(foreground ? "au premier plan" : "en arrière-plan")",
+                  new.count == 1 && loaded && (browser.selectedTab === new.first) == foreground, opened(before))
+            browser.select(links)
+            await sleep(0.3)
+        }
+
+        // WebKit's own item of the context menu.
+        for selector in ["#a", "#c"] {
+            let before = space.tabs
+            let windows = NSApp.windows.filter(\.isVisible).count
+            var picked = false
+            VoidWebView.menuTestHook = { menu in
+                if let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow" }) {
+                    menu.performActionForItem(at: index)
+                    picked = true
+                }
+                DispatchQueue.main.async { menu.cancelTrackingWithoutAnimation() }
+            }
+            await mouse(links, selector: selector, types: [.rightMouseDown, .rightMouseUp], button: 1)
+            await sleep(2.5)
+            VoidWebView.menuTestHook = nil
+            let new = space.tabs.filter { tab in !before.contains { $0 === tab } }
+            check("Nouvel onglet (menu contextuel sur \(selector)) : un seul onglet, avec sa page, pas de fenêtre en plus",
+                  picked && new.count == 1 && new.first?.webView?.url?.host() == "example.com" && NSApp.windows.filter(\.isVisible).count == windows,
+                  "menu=\(picked) · \(opened(before)) · fenêtres \(windows) → \(NSApp.windows.filter(\.isVisible).count)")
+            browser.select(links)
+            await sleep(0.3)
+        }
+
+        // Middle click, on a plain link and on a target=_blank one.
+        for (selector, marker) in [("#a", "via=cmdblank"), ("#c", "via=plain")] {
+            let before = space.tabs
+            await mouse(links, selector: selector, types: [.otherMouseDown, .otherMouseUp], button: 2)
+            await sleep(2.5)
+            let new = space.tabs.filter { tab in !before.contains { $0 === tab } }
+            check("Nouvel onglet (clic milieu sur \(selector)) : un seul onglet, avec sa page, en arrière-plan",
+                  new.count == 1 && new.first?.webView?.url?.absoluteString.contains(marker) == true && browser.selectedTab === links,
+                  opened(before))
+            browser.select(links)
+            await sleep(0.3)
+        }
+    }
+
+    /// Mouse events of another button than the left one, on an element of the page.
+    private func mouse(_ tab: Tab, selector: String, types: [NSEvent.EventType], button: Int64) async {
+        guard let webView = tab.webView, let window = webView.window,
+              let p = await webView.voidCall("const r = document.querySelector(s).getBoundingClientRect(); return {x: r.left + r.width/2, y: r.top + r.height/2};",
+                                             arguments: ["s": selector]) as? [String: Double] else { return }
+        let location = webView.convert(NSPoint(x: p["x"]!, y: webView.isFlipped ? p["y"]! : webView.bounds.height - p["y"]!), to: nil)
+        for type in types {
+            guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+            // The button number of an NSEvent made by hand is 0: set on its Quartz event (a copy).
+            let quartz = event.cgEvent
+            quartz?.setIntegerValueField(.mouseEventButtonNumber, value: button)
+            window.sendEvent(quartz.flatMap(NSEvent.init(cgEvent:)) ?? event)
+            await sleep(0.08)
+        }
+    }
 
     /// Void Notes: URL, context menu with and without the app, selection, page, failed opening.
     /// Nothing is handed to macOS: the opening is replaced by `openOverride`.
@@ -987,6 +1191,11 @@ final class FeatureSelfTest {
         browser.showCommandBar(.currentTab)
         await sleep(1)
         await snapshotWindow("command-bar")
+        browser.commandBar = nil
+        await sleep(0.3)
+        browser.commandBar = CommandBarRequest(mode: .currentTab, text: "10 km en miles")
+        await sleep(1)
+        await snapshotWindow("command-bar-conversion")
         browser.commandBar = nil
         browser.close(tab)
         (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide) = saved
