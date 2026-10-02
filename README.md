@@ -3,6 +3,7 @@
 **Un navigateur qui s'efface.** Version **0.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
+- Une version **iPhone et iPad** partage le même modèle, le même stockage et les mêmes scripts (cible *Void iOS*, voir [iOS](#ios-iphone-et-ipad))
 - Apple silicon, macOS 14 minimum
 - **≈ 6 Mo** (build Release, image disque de 2,4 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
 - ~13 600 lignes de Swift (dont ~2 500 d’auto-tests), ~1 000 lignes de JavaScript injecté
@@ -151,12 +152,42 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 14. Vidéo YouTube en cours, fermer la fenêtre principale (bouton rouge) → le son s'arrête ; ⌘N → la fenêtre revient, onglet et historique intacts.
 15. Vidéo YouTube en plein écran (bouton du lecteur) → pause, lecture, flèches ← → : pas d'écran noir ni de bip ; Échap → la page revient. Clic droit sur une image → « Télécharger l'image » → elle apparaît dans les téléchargements.
 
+## iOS (iPhone et iPad)
+
+La cible **Void iOS** (iOS 17 minimum) compile le même modèle que l'app Mac — onglets, espaces et leur stockage séparé, session, historique, favoris, bloqueur, éléments masqués, mode lecture, conversions, mots de passe — avec une interface faite pour le doigt, dans `VoidiOS/`.
+
+**Avec Xcode** : schéma *Void iOS* → un simulateur, puis ⌘R. Sur un appareil, renseigner une équipe dans *Signing & Capabilities*.
+
+**En ligne de commande** (simulateur) :
+
+```bash
+xcodebuild -project Void.xcodeproj -scheme "Void iOS" -destination "platform=iOS Simulator,name=iPhone 17" -derivedDataPath build/DerivedData-iOS build
+```
+
+Ce qui change par rapport au Mac :
+
+- **iPhone** : la page, et une seule barre en bas — précédent, suivant, l'adresse (un toucher ouvre la barre d'adresse ; un balayage dessus passe à l'onglet voisin), le nombre d'onglets, et un menu ··· (partager, favori, épingler, mode lecture, rechercher dans la page, bloqueur, masquer un élément, Picture in Picture, Void Notes, imprimer, bibliothèque, réglages).
+- **Onglets et espaces** : la barre latérale du Mac devient une feuille (espaces en haut, épinglés en grille, onglets en liste ; balayer un onglet vers la gauche le ferme, le maintenir puis le faire glisser le déplace, toucher longuement ouvre son menu). Sur **iPad**, c'est une vraie barre latérale (⌃⌘S), avec une barre fine au-dessus de la page.
+- **Navigation privée** : pas de fenêtre à part, mais un mode (bouton œil, ou menu ···) avec son propre stockage en mémoire, détruit par « Tout fermer » ou en le quittant sans onglet.
+- **Liens** : toucher longuement un lien → « Ouvrir dans un nouvel onglet », « …en arrière-plan », « …en navigation privée », puis les actions d'iOS.
+- **Masquer un élément** : un toucher masque (un balayage fait toujours défiler la page), l'étiquette en haut annule.
+- **Mots de passe** : trousseau de l'appareil, derrière Face ID / Touch ID / le code. Le remplissage automatique d'iOS (Mots de passe, Proton Pass, 1Password…) reste proposé au-dessus du clavier.
+- **Téléchargements** : dans le dossier de Void, visible dans l'app Fichiers ; un toucher ouvre l'aperçu.
+- **iPad avec clavier** : les raccourcis du Mac qui ont un sens (⌘T, ⌘L, ⌘W, ⌘⇧T, ⌘R, ⌘F, ⌘D, ⌘⇧R, ⌘⇧H, ⌘⇧P, ⌘1…⌘9, ⌘Y…).
+- **Pages** : version mobile sur iPhone, version ordinateur sur iPad (comme Safari).
+
+Absents sur iOS : les extensions Chrome, l'import depuis d'autres navigateurs, les fenêtres multiples, la barre de favoris, le lecteur vidéo flottant (plan B du PiP), le Web Inspector, la personnalisation au premier lancement, le choix du dossier de téléchargement, les auto-tests.
+
+**Navigateur par défaut** : iOS ne le permet qu'aux apps ayant reçu d'Apple l'autorisation `com.apple.developer.web-browser` (à demander avec un compte développeur). L'`Info.plist` déclare déjà `http`/`https` ; sans cette autorisation, Void n'apparaît pas dans Réglages → Apps → App de navigateur par défaut.
+
+État des vérifications (simulateur iPhone 17, iOS 27) : ☑️ vérifié à la main — chargement de pages, barre d'adresse et suggestions, conversions, onglets (ouvrir, fermer, arrière-plan, veille, restauration au relancement), espaces, navigation privée, mode lecture, masquer un élément, menu des liens, historique, réglages. **Non vérifiés** : l'interface iPad sur un iPad (seule sa composition a été regardée), le Picture in Picture, les téléchargements, l'enregistrement et le remplissage des mots de passe, l'authentification HTTP, un appareil réel.
+
 ## Architecture
 
 ```
-Void.xcodeproj
-Config/                    Info.plist (http/https, HTML), entitlements (Hardened Runtime, pas de sandbox)
-Void/
+Void.xcodeproj             Deux cibles : Void (macOS) et Void iOS
+Config/                    Info.plist (http/https, HTML), entitlements (Hardened Runtime, pas de sandbox), Info-iOS.plist
+Void/                      Commun aux deux apps, sauf les fichiers propres au Mac (exclus de la cible iOS dans le projet)
   App/                     Point d'entrée SwiftUI, AppDelegate, menus et raccourcis, réglages, thème & logo
   Browser/                 Modèle : Tab (WKWebView paresseuse), Space, BrowserModel, session, résolution d'URL
   Web/                     Configuration WebKit, délégués navigation/UI, menu contextuel, APIs internes gardées
@@ -168,9 +199,16 @@ Void/
   Resources/Scripts/       core.js, media.js, autofill.js, formfill.js, reader.js, hider.js, webstore.js (monde JS isolé « Void »),
                            extension-shim.js (copié dans chaque extension : compatibilité Chrome → WebKit)
   SelfTest/                Auto-tests PiP et fonctionnalités (compilés en Debug uniquement)
-scripts/make-icon.swift    Génère l'icône
+VoidiOS/                   L'app iOS
+  App/                     Point d'entrée, raccourcis clavier, navigation normale/privée (BrowserWindows),
+                           ce que le modèle commun appelle et qui n'existe que sur Mac (MacOnlyStubs)
+  Web/                     Délégué de navigation iOS (alertes, menu des liens), vue web
+  UI/                      Barre du bas, barre d'adresse, onglets et espaces, bibliothèque, réglages
+scripts/make-icon.swift    Génère l'icône (macOS et iOS)
 docs/                      Compte rendu PiP, rapports d'auto-test, captures
 ```
+
+Un fichier Swift ajouté dans `Void/` est compilé par les deux cibles : s'il est propre au Mac (AppKit), l'ajouter aux exceptions de la cible iOS (inspecteur de fichier → *Target Membership*). Le code commun passe par `App/Platform.swift` (image, couleur, presse-papiers) et quelques `#if os(macOS)`.
 
 Choix notables :
 - **Légèreté** : une seule vue web est créée au lancement (onglet visible) ; les autres onglets restent « endormis » jusqu'au clic. Règles de blocage compilées une fois puis mises en cache par WebKit.

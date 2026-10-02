@@ -1,5 +1,8 @@
-import AppKit
+import Foundation
 import WebKit
+#if os(macOS)
+import AppKit
+#endif
 import Observation
 
 @MainActor @Observable
@@ -66,6 +69,7 @@ final class DownloadManager {
         item.state = .cancelled
     }
 
+    #if os(macOS)
     func reveal(_ item: DownloadItem) {
         guard let url = item.destination else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -75,6 +79,15 @@ final class DownloadManager {
         guard let url = item.destination else { return }
         NSWorkspace.shared.open(url)
     }
+    #else
+    func reveal(_ item: DownloadItem) { open(item) }
+
+    /// Quick Look, over the browser.
+    func open(_ item: DownloadItem) {
+        guard item.state == .finished, let url = item.destination, FileManager.default.fileExists(atPath: url.path) else { return }
+        BrowserWindows.shared.previewedFile = url
+    }
+    #endif
 
     func clearFinished() {
         items.removeAll { $0.state != .running && !$0.isPrivate }
@@ -133,6 +146,7 @@ final class DownloadManager {
     /// already carried a quarantine before Void looked at it.
     @discardableResult
     static func quarantine(_ file: URL, source: URL?) -> Bool {
+        #if os(macOS)
         var url = file
         if (try? url.resourceValues(forKeys: [.quarantinePropertiesKey]))?.quarantineProperties != nil { return true }
         var properties: [String: Any] = [
@@ -146,6 +160,9 @@ final class DownloadManager {
         values.quarantineProperties = properties
         do { try url.setResourceValues(values) } catch { NSLog("[Void] quarantaine impossible : %@", error.localizedDescription) }
         return false
+        #else
+        return true   // iOS apps are sandboxed: a downloaded file can't be run
+        #endif
     }
 }
 
@@ -177,6 +194,7 @@ enum DownloadPermission {
         UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: key) ?? []).filter { $0 != host }, forKey: key)
     }
 
+    #if os(macOS)
     /// `host`: the site of the page asking (normalized). `file`: what it wants to save, if known.
     static func request(_ host: String, file: String?, in browser: BrowserModel, window: NSWindow?) async -> Bool {
         #if DEBUG
@@ -198,6 +216,21 @@ enum DownloadPermission {
         if allowed { allow(host, in: browser) }
         return allowed
     }
+    #else
+    /// `host`: the site of the page asking (normalized). `file`: what it wants to save, if known.
+    static func request(_ host: String, file: String?, in browser: BrowserModel) async -> Bool {
+        if host.isEmpty || isAllowed(host, in: browser) { return true }
+        guard asking.insert(host).inserted else { return false }
+        defer { asking.remove(host) }
+        let message = (file.map { "Ce site veut enregistrer « \($0) » dans les fichiers de Void." }
+            ?? "Ce site veut enregistrer un fichier dans les fichiers de Void.")
+            + (browser.isPrivate ? " (Jusqu'à la fermeture de la navigation privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
+        let allowed = await Dialogs.confirm(title: "Autoriser les téléchargements depuis « \(host) » ?", message: message,
+                                            confirm: "Autoriser", cancel: "Refuser") ?? false
+        if allowed { allow(host, in: browser) }
+        return allowed
+    }
+    #endif
 }
 
 private final class DownloadDelegate: NSObject, WKDownloadDelegate {
@@ -222,10 +255,12 @@ private final class DownloadDelegate: NSObject, WKDownloadDelegate {
                 let already = DownloadManager.quarantine(destination, source: item.sourceURL)
                 NSLog("[Void] téléchargement terminé, quarantaine %@", already ? "déjà posée par WebKit" : "posée par Void")
             }
+            #if os(macOS)
             if let path = item.destination?.path {
                 // Makes the Downloads stack in the Dock bounce, like Safari.
                 DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: path)
             }
+            #endif
             (item.browser ?? .shared).showToast("checkmark.circle", "\(item.filename) téléchargé")
         }
     }

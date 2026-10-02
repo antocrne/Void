@@ -43,17 +43,6 @@ struct AddressPill: View {
 
 }
 
-extension Tab {
-    static let addressPlaceholder = "Rechercher ou saisir une adresse"
-
-    /// What the address field shows: the site's host, or the whole URL when it has none.
-    var addressText: String {
-        guard let url else { return Self.addressPlaceholder }
-        if let host = url.host() { return host.voidNormalizedHost }
-        return url.absoluteString
-    }
-}
-
 /// Tools of the address field, shown only when relevant: saved logins, PiP, and on hover
 /// reader mode, ad blocker and bookmark. Shared by the sidebar's address pill and the
 /// top bar's active tab.

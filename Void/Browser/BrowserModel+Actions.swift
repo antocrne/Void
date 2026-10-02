@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import WebKit
 
@@ -50,14 +49,23 @@ extension BrowserModel {
         VoidNotes.shared.sendPage(from: tab)
     }
 
+    #if os(macOS)
     func showInspector(console: Bool) {
         guard let webView else { return }
         WebKitSPI.showInspector(webView, console: console)
     }
+    #endif
 
     func toggleFind() {
+        #if os(macOS)
         guard selectedTab?.webView != nil else { return }
         withAnimation(Theme.quick) { findBarVisible.toggle() }
+        #else
+        // The system's find bar, above the keyboard.
+        guard let webView else { return }
+        webView.isFindInteractionEnabled = true
+        webView.findInteraction?.presentFindNavigator(showingReplace: false)
+        #endif
     }
 
     /// ⌘G / ⌘⇧G: the last search of this window, even with the find bar closed (as in Safari).
@@ -78,16 +86,25 @@ extension BrowserModel {
     }
 
     func print() {
+        #if os(macOS)
         guard let webView, let window = webView.window else { return }
         let operation = webView.printOperation(with: NSPrintInfo.shared)
         operation.view?.frame = webView.bounds
         operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        #else
+        guard let webView else { return }
+        let controller = UIPrintInteractionController.shared
+        let info = UIPrintInfo(dictionary: nil)
+        info.jobName = selectedTab?.displayTitle ?? "Void"
+        controller.printInfo = info
+        controller.printFormatter = webView.viewPrintFormatter()
+        controller.present(animated: true)
+        #endif
     }
 
     func copyURL() {
         guard let url = selectedTab?.url else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        Clipboard.copy(url.absoluteString)
         showToast("link", "Lien copié")
     }
 
@@ -135,6 +152,7 @@ extension BrowserModel {
         }
     }
 
+    #if os(macOS)
     /// Closes the key window when it isn't the browser window (⌘W in Settings/Library).
     func closeTabOrWindow() {
         if let key = NSApp.keyWindow, key !== window {
@@ -145,4 +163,5 @@ extension BrowserModel {
             window?.performClose(nil)
         }
     }
+    #endif
 }

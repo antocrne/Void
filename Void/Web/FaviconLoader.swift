@@ -1,11 +1,11 @@
-import AppKit
+import Foundation
 import WebKit
 
 /// Finds the page's icon (link rel=icon, else /favicon.ico) and stores a 32 px PNG on the tab.
 @MainActor
 enum FaviconLoader {
     nonisolated private static let session = URLSession(configuration: .ephemeral)
-    private static var cache: [String: (NSImage, Data)] = [:]
+    private static var cache: [String: (PlatformImage, Data)] = [:]
 
     static func clearCache() { cache = [:] }
 
@@ -26,9 +26,9 @@ enum FaviconLoader {
             if let fallback = URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL { candidates.append(fallback) }
             for url in candidates.prefix(3) {
                 guard let data = await download(url),
-                      let image = NSImage(data: data), image.isValid,
+                      let image = PlatformImage(data: data),
                       let png = image.voidResizedPNG(side: 32),
-                      let resized = NSImage(data: png) else { continue }
+                      let resized = PlatformImage(data: png) else { continue }
                 // Private windows leave no trace, not even in this in-memory cache.
                 if !tab.isPrivate {
                     if cache.count >= 300 { cache.removeAll() }
@@ -59,20 +59,5 @@ enum FaviconLoader {
             return nil
         }
         return data
-    }
-}
-
-extension NSImage {
-    func voidResizedPNG(side: CGFloat) -> Data? {
-        let px = Int(side)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        NSGraphicsContext.current?.imageInterpolation = .high
-        draw(in: NSRect(x: 0, y: 0, width: side, height: side), from: .zero, operation: .copy, fraction: 1)
-        NSGraphicsContext.restoreGraphicsState()
-        return rep.representation(using: .png, properties: [:])
     }
 }

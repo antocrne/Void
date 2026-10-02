@@ -1,5 +1,5 @@
 #!/usr/bin/env swift
-// Generates Void's app icon (all macOS sizes) into Assets.xcassets/AppIcon.appiconset.
+// Generates Void's app icon (all macOS sizes, and the iOS one) into Assets.xcassets/AppIcon.appiconset.
 // Usage: swift scripts/make-icon.swift
 import AppKit
 import CoreGraphics
@@ -11,23 +11,27 @@ func color(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
 }
 
-func render(_ px: Int) -> Data {
+/// `fullBleed`: the iOS icon — the whole square, opaque (iOS rounds the corners and adds no shadow).
+func render(_ px: Int, fullBleed: Bool = false) -> Data {
     let s = CGFloat(px)
     let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let alpha = fullBleed ? CGImageAlphaInfo.noneSkipLast : CGImageAlphaInfo.premultipliedLast
     let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                        bitmapInfo: alpha.rawValue)!
 
     // macOS icon grid: 824/1024 body with ~185/1024 corner radius.
-    let inset = s * 100 / 1024
+    let inset = fullBleed ? 0 : s * 100 / 1024
     let body = CGRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
-    let radius = body.width * 0.225
+    let radius = fullBleed ? 0 : body.width * 0.225
     let path = CGPath(roundedRect: body, cornerWidth: radius, cornerHeight: radius, transform: nil)
 
     // Soft drop shadow.
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03, color: color(0x000000, 0.45))
-    ctx.addPath(path); ctx.setFillColor(color(0x0B0B0E)); ctx.fillPath()
-    ctx.restoreGState()
+    if !fullBleed {
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03, color: color(0x000000, 0.45))
+        ctx.addPath(path); ctx.setFillColor(color(0x0B0B0E)); ctx.fillPath()
+        ctx.restoreGState()
+    }
 
     // Background: deep night gradient.
     ctx.saveGState()
@@ -58,10 +62,12 @@ func render(_ px: Int) -> Data {
     ctx.restoreGState()
 
     // Hairline highlight on the edge.
-    ctx.addPath(path)
-    ctx.setStrokeColor(color(0xFFFFFF, 0.08))
-    ctx.setLineWidth(max(1, s * 0.004))
-    ctx.strokePath()
+    if !fullBleed {
+        ctx.addPath(path)
+        ctx.setStrokeColor(color(0xFFFFFF, 0.08))
+        ctx.setLineWidth(max(1, s * 0.004))
+        ctx.strokePath()
+    }
 
     let image = ctx.makeImage()!
     return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!
@@ -76,6 +82,8 @@ for base in [16, 32, 128, 256, 512] {
         images.append(["idiom": "mac", "size": "\(base)x\(base)", "scale": "\(scale)x", "filename": name])
     }
 }
+try! render(1024, fullBleed: true).write(to: output.appendingPathComponent("icon_ios_1024.png"))
+images.append(["idiom": "universal", "platform": "ios", "size": "1024x1024", "filename": "icon_ios_1024.png"])
 let contents: [String: Any] = ["images": images, "info": ["author": "xcode", "version": 1]]
 let json = try! JSONSerialization.data(withJSONObject: contents, options: [.prettyPrinted, .sortedKeys])
 try! json.write(to: output.appendingPathComponent("Contents.json"))

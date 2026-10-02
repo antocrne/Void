@@ -31,9 +31,13 @@ final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
                     break
                 }
             case "voidStore":
+                #if os(macOS)
                 if #available(macOS 15.4, *), message.frameInfo.isMainFrame {
                     WebStoreBridge.handle(body["action"] as? String, tab: tab)
                 }
+                #else
+                break
+                #endif
             case "voidContext":
                 webView.contextLinkURL = (body["href"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
                 webView.contextImageURL = (body["image"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }

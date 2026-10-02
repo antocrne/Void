@@ -1,5 +1,6 @@
 // Void — element picker for "Hide element" (⌘⇧H). Evaluated on demand in the main frame.
 // Hover highlights, click hides and reports a CSS selector, Escape cancels.
+// On a touch screen: a tap hides (a swipe still scrolls the page), the label at the top cancels.
 (() => {
   if (window.__voidHiderActive) return 'active';
   window.__voidHiderActive = true;
@@ -14,13 +15,16 @@
     border: '2px solid ' + accent, background: accent + '29', borderRadius: '4px',
     transition: 'all 70ms ease-out', boxSizing: 'border-box'
   });
+  const touch = 'ontouchstart' in window;
   const tip = document.createElement('div');
-  tip.textContent = 'Cliquez sur un élément pour le masquer — Échap pour annuler';
+  tip.textContent = touch ? 'Touchez un élément pour le masquer — touchez ici pour annuler'
+                          : 'Cliquez sur un élément pour le masquer — Échap pour annuler';
   Object.assign(tip.style, {
     position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: '2147483647',
     pointerEvents: 'none', font: '500 12px -apple-system, system-ui, sans-serif', color: '#ECECF1',
     background: 'rgba(15,15,19,0.92)', padding: '7px 14px', borderRadius: '999px',
-    boxShadow: '0 6px 24px rgba(0,0,0,0.35)'
+    boxShadow: '0 6px 24px rgba(0,0,0,0.35)', whiteSpace: 'nowrap', maxWidth: '94vw',
+    overflow: 'hidden', textOverflow: 'ellipsis'
   });
   document.documentElement.append(box, tip);
 
@@ -67,13 +71,15 @@
     removeEventListener('mousedown', stop, true);
     removeEventListener('mouseup', stop, true);
     removeEventListener('keydown', key, true);
+    removeEventListener('touchstart', touchStart, true);
+    removeEventListener('touchmove', touchMove, true);
+    removeEventListener('touchend', touchEnd, true);
     box.remove();
     tip.remove();
     window.__voidHiderActive = false;
   };
-  const click = (e) => {
-    stop(e);
-    const target = document.elementFromPoint(e.clientX, e.clientY);
+  const hide = (x, y) => {
+    const target = document.elementFromPoint(x, y);
     if (target && target !== box && target !== tip && target !== document.documentElement && target !== document.body) current = target;
     if (!current) return;
     const selector = selectorFor(current);
@@ -81,6 +87,37 @@
     current.style.setProperty('display', 'none', 'important');
     cleanup();
     post({ selector, host: location.hostname });
+  };
+  const click = (e) => {
+    stop(e);
+    hide(e.clientX, e.clientY);
+  };
+
+  // Touch: the finger down shows what would go, lifting it without having moved hides it.
+  let start = null;
+  const inTip = (t) => {
+    const r = tip.getBoundingClientRect();
+    return t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top - 8 && t.clientY <= r.bottom + 8;
+  };
+  const touchStart = (e) => {
+    const t = e.touches[0];
+    start = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+    if (start && !inTip(t)) move(t);
+  };
+  const touchMove = (e) => {
+    const t = e.touches[0];
+    if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) {
+      start = null;   // scrolling
+      box.style.display = 'none';
+    }
+  };
+  const touchEnd = (e) => {
+    const t = e.changedTouches[0];
+    if (!start || !t) return;
+    start = null;
+    stop(e);   // no click (a link under the finger isn't followed)
+    if (inTip(t)) { cleanup(); post({ cancelled: true }); return; }
+    hide(t.clientX, t.clientY);
   };
   const key = (e) => {
     if (e.key === 'Escape') { stop(e); cleanup(); post({ cancelled: true }); }
@@ -91,5 +128,10 @@
   addEventListener('mousedown', stop, true);
   addEventListener('mouseup', stop, true);
   addEventListener('keydown', key, true);
+  if (touch) {
+    addEventListener('touchstart', touchStart, { capture: true, passive: true });
+    addEventListener('touchmove', touchMove, { capture: true, passive: true });
+    addEventListener('touchend', touchEnd, { capture: true, passive: false });
+  }
   return 'started';
 })()

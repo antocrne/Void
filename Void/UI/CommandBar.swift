@@ -100,6 +100,7 @@ enum SuggestionEngine {
     }
 }
 
+#if os(macOS)
 /// Floating command bar (⌘L / ⌘T): one field for URLs and searches.
 struct CommandBarOverlay: View {
     let request: CommandBarRequest
@@ -212,8 +213,7 @@ struct CommandBarOverlay: View {
         case .switchTo(let tab): browser.select(tab)
         case .download(let item): DownloadManager.shared.reveal(item)
         case .copy(let text):
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            Clipboard.copy(text)
             browser.showToast("doc.on.doc", "« \(text) » copié")
         case .action(let action): action()
         }
@@ -255,3 +255,4 @@ private struct SuggestionRow: View {
         .contentShape(Rectangle())
     }
 }
+#endif

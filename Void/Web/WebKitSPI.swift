@@ -1,6 +1,6 @@
 import WebKit
 
-/// Thin, guarded wrappers around WebKit internals that have no public equivalent on macOS.
+/// Thin, guarded wrappers around WebKit internals that have no public equivalent.
 /// Every call checks `responds(to:)` first, so a future WebKit that removes one simply
 /// makes the feature degrade instead of crashing.
 enum WebKitSPI {
@@ -66,6 +66,7 @@ enum WebKitSPI {
         unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, muted ? 1 : 0)
     }
 
+    #if os(macOS)
     // MARK: Extensions
 
     /// The page WebKit hosts an extension's background in (for a service worker, the page that
@@ -76,6 +77,7 @@ enum WebKitSPI {
         guard context.responds(to: sel) else { return nil }
         return context.perform(sel)?.takeUnretainedValue() as? WKWebView
     }
+    #endif
 
     // MARK: Extension popups
 

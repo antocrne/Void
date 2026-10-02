@@ -1,5 +1,10 @@
-import AppKit
+import Foundation
 import Observation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 enum TabLayout: String, CaseIterable, Identifiable {
     case sidebar, top
@@ -21,7 +26,12 @@ enum PasswordManagerChoice: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .automatic: "Automatique"
-        case .void: "Void (trousseau macOS)"
+        case .void:
+            #if os(macOS)
+            "Void (trousseau macOS)"
+            #else
+            "Void (trousseau de l'appareil)"
+            #endif
         case .other: "Un autre gestionnaire"
         }
     }
@@ -103,9 +113,11 @@ final class AppSettings {
     var extensionsEnabled: Bool {
         didSet {
             defaults.set(extensionsEnabled, forKey: "extensionsEnabled")
+            #if os(macOS)
             if #available(macOS 15.4, *) {
                 if extensionsEnabled { ExtensionManager.shared.start() } else { ExtensionManager.shared.stop() }
             }
+            #endif
         }
     }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
@@ -119,7 +131,9 @@ final class AppSettings {
     var extensionsInPrivate: Bool {
         didSet {
             defaults.set(extensionsInPrivate, forKey: "extensionsInPrivate")
+            #if os(macOS)
             if #available(macOS 15.4, *) { ExtensionManager.shared.applyPrivateAccess() }
+            #endif
         }
     }
 
@@ -135,7 +149,7 @@ final class AppSettings {
     var accent: AccentChoice { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
     /// The first-launch personalization was completed or skipped.
     var onboardingCompleted: Bool { didSet { defaults.set(onboardingCompleted, forKey: "onboardingCompleted") } }
-    /// nil = ~/Downloads.
+    /// nil = ~/Downloads (on iOS: the app's Documents folder, shown in Files).
     var downloadFolderPath: String? { didSet { defaults.set(downloadFolderPath, forKey: "downloadFolderPath") } }
 
     static let defaultSidebarWidth: Double = 252
@@ -180,15 +194,31 @@ final class AppSettings {
         if let downloadFolderPath, FileManager.default.fileExists(atPath: downloadFolderPath) {
             return URL(fileURLWithPath: downloadFolderPath, isDirectory: true)
         }
+        #if os(macOS)
         return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        #else
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        #endif
     }
 
     func applyAppearance() {
+        #if os(macOS)
         switch theme {
         case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
         case .light: NSApp.appearance = NSAppearance(named: .aqua)
         case .system: NSApp.appearance = nil
         }
+        #else
+        // Every window, sheets and web views included (a page's prefers-color-scheme follows).
+        let style: UIUserInterfaceStyle = switch theme {
+        case .dark: .dark
+        case .light: .light
+        case .system: .unspecified
+        }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            scene.windows.forEach { $0.overrideUserInterfaceStyle = style }
+        }
+        #endif
     }
 
     func toggleAdBlock(for host: String) {
