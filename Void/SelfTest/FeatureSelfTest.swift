@@ -108,6 +108,7 @@ final class FeatureSelfTest {
         "feux": { t, _ in await t.testTrafficLights() },
         "notes": { t, space in await t.testVoidNotes(in: space) },
         "nouvel-onglet": { t, space in await t.testNewTabLinks(in: space) },
+        "page-nouvel-onglet": { t, space in await t.testNewTabPage(in: space) },
         "conversion": { t, _ in await t.testConversions() },
         "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
     ]
@@ -225,6 +226,74 @@ final class FeatureSelfTest {
         let row = rows.firstIndex { if case .copy = $0.kind { true } else { false } }
         check("Conversion : affichée dans la barre d'adresse, sous la recherche (↩ recherche toujours)",
               row == 1 && rows.first?.symbol == "magnifyingglass" && rows[1].title.hasPrefix("10 km = 6"), rows.map(\.title).joined(separator: " | "))
+    }
+
+    /// ⌘T shows the new-tab page over the current tab, its field focused (no floating bar). What is
+    /// typed there opens in a new tab; Esc, ⌘W or another space bring the tab back.
+    private func testNewTabPage(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let tab = await htmlTab("<!doctype html><body style='font:40px system-ui'>page sous la page nouvel onglet</body>", in: space)
+        browser.select(tab)
+        await sleep(0.3)
+        guard let window = browser.window else { check("Page nouvel onglet : pas de fenêtre", false); return }
+        var field: NSTextView? { window.firstResponder as? NSTextView }
+        func press(_ code: UInt16, _ chars: String) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                            isARepeat: false, keyCode: code) {
+                    window.sendEvent(e)
+                }
+            }
+        }
+
+        browser.showCommandBar(.newTab)
+        let focused = await until { field != nil }
+        check("Page nouvel onglet : ⌘T l'affiche, champ prêt, sans barre flottante",
+              browser.selectedTab == nil && browser.commandBar == nil && browser.tabBeforeNewTabPage === tab && focused && !tab.isClosed,
+              "premier répondeur : \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "aucun")")
+        await snapshotWindow("nouvel-onglet")
+
+        field?.insertText("10 km en miles", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await sleep(0.8)
+        await snapshotWindow("nouvel-onglet-suggestions")
+        press(53, "\u{1b}")
+        let cleared = await until(2) { field?.string.isEmpty == true }
+        press(53, "\u{1b}")
+        let back = await until(2) { browser.selectedTab === tab }
+        check("Page nouvel onglet : Échap efface la saisie, puis ramène l'onglet", cleared && back,
+              "effacé : \(cleared), onglet : \(browser.selectedTab?.displayTitle ?? "aucun")")
+
+        browser.showCommandBar(.newTab)
+        _ = await until { field != nil }
+        if NSApp.keyWindow === window { browser.closeTabOrWindow() } else { browser.leaveNewTabPage() }
+        await sleep(0.3)
+        check("Page nouvel onglet : ⌘W la quitte sans fermer d'onglet ni la fenêtre",
+              browser.selectedTab === tab && !tab.isClosed && window.isVisible)
+
+        let before = space.tabs
+        browser.showCommandBar(.newTab)
+        _ = await until { field != nil }
+        field?.insertText("https://example.com/?via=newtabpage", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await sleep(0.5)
+        press(36, "\r")
+        let opened = await until(6) { browser.selectedTab?.url?.absoluteString.contains("via=newtabpage") == true }
+        let new = space.tabs.filter { t in !before.contains { $0 === t } }
+        check("Page nouvel onglet : ↩ ouvre la saisie dans un nouvel onglet, l'onglet d'avant reste",
+              opened && new.count == 1 && !tab.isClosed && browser.tabBeforeNewTabPage == nil,
+              new.map { $0.url?.absoluteString ?? "vide" }.joined(separator: ", "))
+        new.forEach { browser.close($0, force: true) }
+
+        if browser.managesSpaces {
+            browser.select(tab)
+            browser.showCommandBar(.newTab)
+            let other = browser.addSpace(name: "Autre", icon: "circle")
+            browser.switchSpace(to: space)
+            check("Page nouvel onglet : changer d'espace rend l'onglet à son espace", space.selectedTabID == tab.id)
+            browser.deleteSpace(other)
+        }
+        browser.close(tab, force: true)
     }
 
     /// A link opened in a new tab opens one tab, with its page: ⌘-click and ⌘⇧-click on a

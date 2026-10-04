@@ -157,6 +157,8 @@ extension BrowserModel {
     func closeTabOrWindow() {
         if let key = NSApp.keyWindow, key !== window {
             key.performClose(nil)
+        } else if leaveNewTabPage() {
+            // The new tab is dropped: back to the tab it was opened over.
         } else if selectedTab != nil {
             closeCurrentTab()
         } else {

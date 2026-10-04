@@ -100,8 +100,26 @@ enum SuggestionEngine {
     }
 }
 
+extension Suggestion {
+    /// Choosing it. `mode`: where an address or a search opens.
+    @MainActor func perform(in browser: BrowserModel, mode: CommandBarMode) {
+        switch kind {
+        case .go(let url): browser.open(url, mode: mode)
+        case .search(let query):
+            if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: mode) }
+        case .switchTo(let tab): browser.select(tab)
+        case .download(let item): DownloadManager.shared.reveal(item)
+        case .copy(let text):
+            Clipboard.copy(text)
+            browser.showToast("doc.on.doc", "« \(text) » copié")
+        case .action(let action): action()
+        }
+    }
+}
+
 #if os(macOS)
-/// Floating command bar (⌘L / ⌘T): one field for URLs and searches.
+/// Floating command bar (⌘L): one field for URLs and searches. A new tab is typed on the
+/// new-tab page instead (NewTabPage).
 struct CommandBarOverlay: View {
     let request: CommandBarRequest
     /// Width of the docked sidebar: the bar is centered on the page, not on the whole window.
@@ -206,17 +224,7 @@ struct CommandBarOverlay: View {
 
     private func run(_ suggestion: Suggestion) {
         dismiss()
-        switch suggestion.kind {
-        case .go(let url): browser.open(url, mode: request.mode)
-        case .search(let query):
-            if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: request.mode) }
-        case .switchTo(let tab): browser.select(tab)
-        case .download(let item): DownloadManager.shared.reveal(item)
-        case .copy(let text):
-            Clipboard.copy(text)
-            browser.showToast("doc.on.doc", "« \(text) » copié")
-        case .action(let action): action()
-        }
+        suggestion.perform(in: browser, mode: request.mode)
     }
 
     private func dismiss() {
@@ -225,7 +233,7 @@ struct CommandBarOverlay: View {
     }
 }
 
-private struct SuggestionRow: View {
+struct SuggestionRow: View {
     let suggestion: Suggestion
     let selected: Bool
 
