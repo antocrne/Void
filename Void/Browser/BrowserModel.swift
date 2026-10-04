@@ -63,6 +63,11 @@ final class BrowserModel {
     var spaceTransitionEdge: Edge = .trailing
 
     var commandBar: CommandBarRequest?
+    /// ⌘T on the Mac: the selected tab steps aside for the new-tab page and its field, and comes
+    /// back if nothing is opened (Esc, ⌘W). nil when the page shows because the space has no tab.
+    @ObservationIgnored weak var tabBeforeNewTabPage: Tab?
+    /// Bumped by every ⌘T (or ⌘L on the new-tab page): its field takes the focus again, emptied.
+    var newTabFieldRequest = 0
     var findBarVisible = false
     /// What the find bar looked for last (⌘G repeats it).
     @ObservationIgnored var lastFindText = ""
@@ -188,6 +193,7 @@ final class BrowserModel {
         guard !tab.isClosed, let space = tab.space, space.allTabs.contains(where: { $0 === tab }) else { return }
         let previous = selectedTab
         if space.id != currentSpaceID { currentSpaceID = space.id }
+        tabBeforeNewTabPage = nil
         withAnimation(Theme.spring) { space.selectedTabID = tab.id }
         // Inactivity counts from the moment a tab stops being shown.
         previous?.lastAccess = Date()
@@ -357,6 +363,13 @@ final class BrowserModel {
     // MARK: - Navigation
 
     func showCommandBar(_ mode: CommandBarMode) {
+        #if os(macOS)
+        // A new tab is typed on the new-tab page itself, not in the floating bar over it.
+        if mode == .newTab || selectedTab == nil {
+            showNewTabPage()
+            return
+        }
+        #endif
         let text = mode == .currentTab ? (selectedTab?.url?.absoluteString ?? "") : ""
         commandBar = CommandBarRequest(mode: mode, text: text)
     }
@@ -373,6 +386,29 @@ final class BrowserModel {
         case .newTab:
             openTab(url: url)
         }
+    }
+
+    /// The new-tab page, its field focused. The selected tab is set aside — still loaded, like any
+    /// tab not shown — until something is opened from the page, or the page is left (Esc, ⌘W).
+    func showNewTabPage() {
+        commandBar = nil
+        findBarVisible = false
+        if let tab = selectedTab {
+            tabBeforeNewTabPage = tab
+            tab.lastAccess = Date()
+            withAnimation(Theme.quick) { currentSpace.selectedTabID = nil }
+            PiPController.shared.selectionChanged(from: tab, to: nil)
+        }
+        newTabFieldRequest += 1
+    }
+
+    /// Esc or ⌘W on the new-tab page: back to the tab it was opened over. False when there is
+    /// none (an empty space, or that tab closed meanwhile).
+    @discardableResult
+    func leaveNewTabPage() -> Bool {
+        guard selectedTab == nil, let tab = tabBeforeNewTabPage, !tab.isClosed, tab.space?.id == currentSpaceID else { return false }
+        select(tab)
+        return true
     }
 
     /// URLs opened from other apps (Void as default browser).
@@ -395,6 +431,11 @@ final class BrowserModel {
     func switchSpace(to space: Space) {
         guard space.id != currentSpaceID else { return }
         let previous = selectedTab
+        // Leaving the new-tab page: the space left keeps the tab it was showing before.
+        if previous == nil, let aside = tabBeforeNewTabPage, !aside.isClosed, aside.space === currentSpace {
+            currentSpace.selectedTabID = aside.id
+        }
+        tabBeforeNewTabPage = nil
         let oldIndex = spaces.firstIndex { $0.id == currentSpaceID } ?? 0
         let newIndex = spaces.firstIndex { $0.id == space.id } ?? 0
         spaceTransitionEdge = newIndex > oldIndex ? .trailing : .leading
@@ -560,10 +601,16 @@ final class BrowserModel {
             return SavedSpace(id: space.id, name: space.name, icon: space.icon,
                               pinned: space.pinned.map(persistable),
                               tabs: restoreTabs ? space.tabs.filter { !$0.isPrivate && $0.url != nil }.map(persistable) : [],
-                              selectedTabID: space.selectedTab?.isPrivate == true ? nil : space.selectedTabID)
+                              selectedTabID: space.selectedTab?.isPrivate == true ? nil : selectedID(space))
         })
         saved.favicons = favicons
         StateStore.save(saved)
+    }
+
+    /// The selected tab to save: the one set aside by the new-tab page while it is shown.
+    private func selectedID(_ space: Space) -> UUID? {
+        if space.selectedTabID == nil, let aside = tabBeforeNewTabPage, aside.space === space, !aside.isClosed { return aside.id }
+        return space.selectedTabID
     }
 
     /// ⌘N windows show copies of the main window's spaces: renaming, a new icon, a new space

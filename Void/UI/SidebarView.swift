@@ -83,7 +83,9 @@ private struct SpaceTabList: View {
                 .foregroundStyle(Theme.secondaryText)
                 .padding(.horizontal, 9)
                 .frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hoveringNew ? Theme.hover : .clear))
+                // Highlighted while the new-tab page is shown, as the tab it stands for.
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(space.selectedTabID == nil ? Theme.selection : (hoveringNew ? Theme.hover : .clear)))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

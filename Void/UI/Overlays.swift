@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Empty state of a space.
+/// The new-tab page (⌘T), also the empty state of a space: its field opens what is typed in a new
+/// tab, with the suggestions of the command bar.
 struct NewTabPage: View {
     @Environment(BrowserModel.self) private var browser
 
@@ -23,17 +24,114 @@ struct NewTabPage: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(Theme.secondaryText)
             }
-            Button { browser.showCommandBar(.newTab) } label: {
-                Text("Rechercher ou saisir une adresse")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.secondaryText)
-                    .frame(width: 320, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.hover))
-            }
-            .buttonStyle(.plain)
+            NewTabField()
+                .padding(.top, 4)
         }
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.surface)
+    }
+}
+
+/// The field of the new-tab page. Its suggestions drop down over the page, without moving it.
+private struct NewTabField: View {
+    @Environment(BrowserModel.self) private var browser
+    @State private var text = ""
+    @State private var selection = 0
+    /// Recomputed when the text changes only: it queries the history database.
+    @State private var suggestions: [Suggestion] = []
+    @FocusState private var focused: Bool
+
+    private static let height: CGFloat = 42
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: browser.isPrivate ? "eye.slash" : "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(focused ? Theme.accent : Theme.secondaryText)
+            TextField(Tab.addressPlaceholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .focused($focused)
+                .focusEffectDisabled()
+                .onSubmit(commit)
+                .onKeyPress(.upArrow) { move(-1); return .handled }
+                .onKeyPress(.downArrow) { move(1); return .handled }
+                .onKeyPress(.escape) { escape(); return .handled }
+                .onChange(of: text) {
+                    selection = 0
+                    suggestions = text.isEmpty ? [] : SuggestionEngine.suggestions(for: text, browser: browser)
+                }
+                // Exchange rates that have just arrived: the conversion typed gets its answer.
+                .onChange(of: CurrencyRates.shared.revision) {
+                    if !text.isEmpty { suggestions = SuggestionEngine.suggestions(for: text, browser: browser) }
+                }
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: 520)
+        .frame(height: Self.height)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(focused ? Theme.elevated : Theme.hover))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(focused ? Theme.accent.opacity(0.7) : .clear, lineWidth: 1.5))
+        .overlay(alignment: .top) {
+            if focused, !suggestions.isEmpty { list.offset(y: Self.height + 6) }
+        }
+        .zIndex(1)
+        .animation(Theme.quick, value: focused)
+        // ⌘T again (or ⌘L here): a fresh field, ready to type.
+        .onChange(of: browser.newTabFieldRequest, initial: true) {
+            text = ""
+            DispatchQueue.main.async { focused = true }
+        }
+    }
+
+    private var list: some View {
+        ScrollView {
+            VStack(spacing: 2) {
+                ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                    SuggestionRow(suggestion: suggestion, selected: index == selection)
+                        .onTapGesture { run(suggestion) }
+                        .onHover { if $0 { selection = index } }
+                }
+            }
+            .padding(6)
+        }
+        .frame(maxHeight: 340)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 520)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.elevated))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke))
+        .shadow(color: Theme.shadow.opacity(0.25), radius: 20, y: 8)
+    }
+
+    private func move(_ delta: Int) {
+        guard !suggestions.isEmpty else { return }
+        selection = (selection + delta + suggestions.count) % suggestions.count
+    }
+
+    private func commit() {
+        if suggestions.indices.contains(selection) {
+            run(suggestions[selection])
+        } else if !text.isEmpty {
+            browser.navigate(text, mode: .newTab)
+        }
+    }
+
+    private func run(_ suggestion: Suggestion) {
+        text = ""
+        suggestion.perform(in: browser, mode: .newTab)
+    }
+
+    /// Esc: clears what is typed, then goes back to the tab the page was opened over.
+    private func escape() {
+        if !text.isEmpty {
+            text = ""
+        } else if browser.leaveNewTabPage() {
+            // Once WebHost has put the tab's web view back in the window.
+            DispatchQueue.main.async {
+                if let webView = browser.selectedTab?.webView { webView.window?.makeFirstResponder(webView) }
+            }
+        }
     }
 }
 
