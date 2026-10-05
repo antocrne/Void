@@ -206,10 +206,12 @@ struct ErrorOverlay: View {
 }
 
 struct FloatingPlaceholder: View {
+    var isMeeting = false
+
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "rectangle.on.rectangle").font(.system(size: 30, weight: .light))
-            Text("Cette vidéo est dans le lecteur flottant").font(.system(size: 14, weight: .medium))
+            Image(systemName: isMeeting ? "video" : "rectangle.on.rectangle").font(.system(size: 30, weight: .light))
+            Text(isMeeting ? "Cette réunion est dans une fenêtre flottante" : "Cette vidéo est dans le lecteur flottant").font(.system(size: 14, weight: .medium))
             Button("Ramener ici") { FloatingPlayer.shared.close() }
         }
         .foregroundStyle(Theme.secondaryText)

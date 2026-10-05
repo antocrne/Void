@@ -135,7 +135,124 @@ final class FeatureSelfTest {
         "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
         "visio": { t, space in await t.testMeetings(in: space) },
         "fermer-autres": { t, space in await t.testCloseOtherTabs(in: space) },
+        "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
+        "reunion": { t, space in await t.testMeetingWindow(in: space) },
     ]
+
+    /// Two tabs side by side: both pages in the window, each on its side; focus moves with a
+    /// click (first responder), the pair hides and comes back with the selection, ends on close.
+    private func testSideBySide(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        let a = await htmlTab("<!doctype html><body style='background:#fee'>gauche</body>", in: space)
+        let b = await htmlTab("<!doctype html><body style='background:#eef'>droite</body>", in: space)
+        let c = await htmlTab("<!doctype html><body>autre</body>", in: space)
+        browser.select(a)
+        browser.showSideBySide(b)
+        await sleep(0.6)
+        func frames() -> (CGRect, CGRect)? {
+            guard let wa = a.webView, let wb = b.webView, wa.window === browser.window, wb.window === browser.window,
+                  let host = wa.superview, wb.superview === host else { return nil }
+            return (wa.frame, wb.frame)
+        }
+        let first = frames()
+        check("Côte à côte : les deux pages dans la fenêtre, A à gauche, B à droite, même hauteur",
+              browser.shownSplit?.left === a && first.map { $0.0.maxX < $0.1.minX && $0.0.height == $0.1.height && abs($0.0.width - $0.1.width) < 2 && $0.0.width > 100 } == true,
+              first.map { "\(Int($0.0.minX))…\(Int($0.0.maxX)) | \(Int($0.1.minX))…\(Int($0.1.maxX))" } ?? "vue absente")
+
+        browser.window?.makeFirstResponder(b.webView)
+        await sleep(0.4)
+        check("Côte à côte : un clic dans l'autre côté lui donne le focus, la paire reste",
+              browser.selectedTab === b && browser.shownSplit != nil && frames()?.0.minX == 0, "sélection \(browser.selectedTab?.displayTitle ?? "nil")")
+
+        space.splitRatio = 0.3
+        await sleep(0.4)
+        let narrow = frames()
+        check("Côte à côte : le partage de largeur suit le séparateur", narrow.map { $0.0.width < $0.1.width * 0.6 } == true,
+              narrow.map { "\(Int($0.0.width)) / \(Int($0.1.width))" } ?? "nil")
+        browser.swapSides()
+        await sleep(0.4)
+        check("Côte à côte : inverser les côtés", browser.shownSplit?.left === b && frames().map { $0.1.maxX < $0.0.minX } == true)
+
+        browser.select(c)
+        await sleep(0.4)
+        let hidden = browser.shownSplit == nil && a.webView?.window == nil && b.webView?.window == nil
+        browser.select(a)
+        await sleep(0.4)
+        check("Côte à côte : un autre onglet cache la paire, qui revient avec l'un des deux",
+              hidden && browser.shownSplit != nil && frames() != nil)
+
+        // Moving between the two sides isn't leaving a tab: no meeting window, no PiP.
+        a.isInCall = true
+        browser.select(b)
+        await sleep(0.4)
+        check("Côte à côte : passer à l'autre côté n'envoie pas la réunion en fenêtre flottante",
+              !FloatingPlayer.shared.isOpen && !a.isInFloatingPlayer && a.webView?.window === browser.window)
+        a.isInCall = false
+
+        browser.requestClose(b, force: true)
+        await sleep(0.6)
+        check("Côte à côte : fermer un côté rend toute la page à l'autre",
+              space.split == nil && browser.selectedTab === a && a.webView.map { $0.frame.width == $0.superview?.bounds.width } == true)
+
+        browser.toggleSideBySide()
+        check("Côte à côte : ⌥⌘S reprend le dernier onglet utilisé", browser.splitPartner === c, browser.splitPartner?.displayTitle ?? "nil")
+        browser.toggleSideBySide()
+        check("Côte à côte : ⌥⌘S à nouveau, retour à une page", browser.shownSplit == nil && space.split == nil)
+
+        browser.openSideBySide(URL(string: "about:blank")!, beside: a)
+        check("Côte à côte : « Ouvrir le lien côte à côte » ouvre un onglet à côté",
+              browser.selectedTab === a && browser.splitPartner != nil && browser.splitPartner !== c)
+        browser.endSideBySide()
+        for tab in space.tabs where tab !== a { browser.close(tab, force: true) }
+        browser.close(a, force: true)
+    }
+
+    /// A call's whole page goes into a floating window when its tab is left, zoomed out, and comes
+    /// back on return; ⌘⇧P does it by hand; hanging up brings it back. The camera is never opened
+    /// in self-test: the call is simulated (isInCall).
+    private func testMeetingWindow(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        let meeting = await htmlTab("<!doctype html><body>appel</body>", in: space, base: "https://void-visio.example/")
+        let other = await htmlTab("<!doctype html><body>ailleurs</body>", in: space)
+        let zoom = meeting.webView?.pageZoom ?? 1
+        browser.select(meeting)
+        meeting.isInCall = true
+        browser.select(other)
+        await sleep(0.5)
+        let floating = meeting.webView?.window
+        check("Réunion : quitter l'onglet l'envoie en fenêtre flottante, page entière dézoomée",
+              FloatingPlayer.shared.isOpen && FloatingPlayer.shared.tab === meeting && meeting.isInFloatingPlayer
+                && floating != nil && floating !== browser.window && floating?.level == .floating
+                && abs((meeting.webView?.pageZoom ?? 0) - zoom * FloatingPlayer.meetingZoom) < 0.01,
+              "fenêtre \(floating.map { "\(type(of: $0))" } ?? "nil") · zoom \(meeting.webView?.pageZoom ?? 0)")
+
+        browser.select(meeting)
+        await sleep(0.8)
+        check("Réunion : revenir à l'onglet la ramène, zoom rendu",
+              !FloatingPlayer.shared.isOpen && !meeting.isInFloatingPlayer && meeting.webView?.window === browser.window
+                && meeting.webView?.pageZoom == zoom)
+
+        browser.togglePiP()
+        await sleep(0.4)
+        let manual = FloatingPlayer.shared.isOpen && meeting.isInFloatingPlayer && FloatingPlayer.shared.mode == .meeting
+        meeting.isInCall = false
+        PiPController.shared.callStateChanged(meeting)
+        await sleep(3.6)
+        check("Réunion : ⌘⇧P l'envoie en fenêtre flottante, raccrocher l'en ramène",
+              manual && !FloatingPlayer.shared.isOpen && meeting.webView?.window === browser.window)
+
+        meeting.isInCall = true
+        let saved = AppSettings.shared.autoMeetingPiP
+        AppSettings.shared.autoMeetingPiP = false
+        browser.select(other)
+        await sleep(0.4)
+        check("Réunion : réglage désactivé, l'appel reste dans son onglet (page gardée en vie)",
+              !FloatingPlayer.shared.isOpen && meeting.webView?.window === browser.window)
+        AppSettings.shared.autoMeetingPiP = saved
+        meeting.isInCall = false
+        browser.close(other, force: true)
+        browser.close(meeting, force: true)
+    }
 
     /// Context menu → "Fermer les autres onglets": the tab stays, shown, with the pinned tabs.
     private func testCloseOtherTabs(in space: Space) async {
@@ -829,6 +946,9 @@ final class FeatureSelfTest {
 
         // Fixes of docs/RAPPORT_BUGS.md
         await testReportFixes(in: space)
+
+        await testSideBySide(in: space)
+        await testMeetingWindow(in: space)
 
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
@@ -2195,6 +2315,29 @@ final class FeatureSelfTest {
               "« \(popupTitle) » \(NSStringFromSize(popoverSize)) affiché=\(popover?.isShown ?? false)")
         await testPopupResize(manager.action(context, in: browser), extensionID: context.uniqueIdentifier)
         manager.action(context, in: browser)?.closePopup()
+
+        // Pinned to the toolbar: its own button, remembered in extensions.json, its popup hangs from it.
+        let ownButton = { [browser] in manager.pinnedButton(for: context, in: browser) }
+        manager.setPinned(true, context)
+        var pinnedButton: NSView?
+        for _ in 0..<20 where pinnedButton == nil { await sleep(0.1); pinnedButton = ownButton() }
+        let listURL = StateStore.directory.appendingPathComponent("extensions.json")
+        let saved = (try? JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: listURL)))?
+            .first { $0.id == context.uniqueIdentifier }?.pinned == true
+        await sleep(0.8)   // the previous popup's closing
+        browser.window?.makeKeyAndOrderFront(nil)
+        manager.performAction(context, in: browser)
+        var pinnedPopover: NSPopover?
+        for _ in 0..<40 where pinnedPopover?.isShown != true { await sleep(0.25); pinnedPopover = manager.shownPopover }
+        let popupShown = pinnedPopover?.isShown == true
+        let hangsFromIt = pinnedButton != nil && manager.shownPopoverAnchor === pinnedButton
+        manager.action(context, in: browser)?.closePopup()
+        manager.setPinned(false, context)
+        var unpinnedGone = false
+        for _ in 0..<20 where !unpinnedGone { await sleep(0.1); unpinnedGone = ownButton() == nil }
+        check("Extensions : épinglée, elle a son bouton dans la barre (retenu dans extensions.json), son popup s'y ouvre ; désépinglée, il disparaît",
+              pinnedButton != nil && saved && popupShown && hangsFromIt && unpinnedGone,
+              "bouton=\(pinnedButton != nil) enregistré=\(saved) popup=\(popupShown) ancré=\(hangsFromIt) retiré=\(unpinnedGone)")
         browser.close(under, force: true)
 
         let folder = manager.record(for: context)?.path

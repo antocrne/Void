@@ -5,19 +5,36 @@ import WebKit
 /// always-on-top panel and media.js makes the video fill it. Because it's the real page,
 /// this also works for DRM-protected (EME/FairPlay) players, but the page keeps running
 /// (it's heavier than native PiP) and the window is Void's, not the system's.
+///
+/// Meetings: the same window holds a video call's whole page (every participant, the page's
+/// own mute and hang-up buttons), zoomed out so the site lays it out for a larger screen.
 @MainActor
 final class FloatingPlayer: NSObject, NSWindowDelegate {
     static let shared = FloatingPlayer()
 
+    enum Mode { case video, meeting }
+
     private var panel: NSPanel?
     private(set) weak var tab: Tab?
+    private(set) var mode: Mode = .video
     private var videoFrame: WKFrameInfo?
+    /// The page's zoom before the meeting window zoomed it out.
+    private var savedZoom: CGFloat?
+    /// Where the user last left the meeting window (this launch).
+    private var meetingFrame: NSRect?
+
+    static let meetingZoom: CGFloat = 0.75
 
     var isOpen: Bool { panel != nil }
 
-    func open(_ tab: Tab) {
+    func open(_ tab: Tab, mode: Mode = .video) {
         close()
         guard let webView = tab.webView else { return }
+        self.mode = mode
+        if mode == .meeting {
+            openMeeting(tab, webView)
+            return
+        }
 
         let size = NSSize(width: 480, height: 270)
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -71,6 +88,50 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
         }
     }
 
+    private func openMeeting(_ tab: Tab, _ webView: WKWebView) {
+        let size = NSSize(width: 420, height: 316)
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let origin = NSPoint(x: screen.maxX - size.width - 24, y: screen.minY + 24)
+        let panel = NSPanel(contentRect: NSRect(origin: origin, size: size),
+                            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        if let meetingFrame, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(meetingFrame) }) {
+            panel.setFrame(meetingFrame, display: false)
+        }
+        panel.title = tab.displayTitle
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.contentMinSize = NSSize(width: 280, height: 200)
+        panel.backgroundColor = Theme.videoBackgroundNS
+        panel.delegate = self
+
+        let back = NSButton(image: NSImage(systemSymbolName: "arrow.up.backward.and.arrow.down.forward", accessibilityDescription: "Revenir à l'onglet")!,
+                            target: self, action: #selector(returnToTab))
+        back.isBordered = false
+        back.toolTip = "Revenir à l'onglet"
+        back.frame = NSRect(x: 0, y: 0, width: 26, height: 18)
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = back
+        accessory.layoutAttribute = .trailing
+        panel.addTitlebarAccessoryViewController(accessory)
+
+        tab.isInFloatingPlayer = true            // WebHost stops managing this web view
+        webView.removeFromSuperview()
+        savedZoom = webView.pageZoom
+        webView.pageZoom = webView.pageZoom * Self.meetingZoom
+        let content = NSView(frame: NSRect(origin: .zero, size: panel.contentRect(forFrameRect: panel.frame).size))
+        webView.frame = content.bounds
+        webView.autoresizingMask = [.width, .height]
+        content.addSubview(webView)
+        panel.contentView = content
+        panel.orderFrontRegardless()
+        self.panel = panel
+        self.tab = tab
+    }
+
     @objc private func returnToTab() {
         let tab = self.tab
         close()
@@ -83,6 +144,7 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
 
     func close() {
         guard let panel else { return }
+        if mode == .meeting { meetingFrame = panel.frame }
         self.panel = nil
         panel.delegate = nil
         restore()
@@ -90,16 +152,25 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard panel != nil else { return }
-        panel = nil
+        guard let panel else { return }
+        if mode == .meeting { meetingFrame = panel.frame }
+        self.panel = nil
         restore()
     }
 
     private func restore() {
         let frame = videoFrame
         let tab = self.tab
+        let zoom = savedZoom
         self.tab = nil
         videoFrame = nil
+        savedZoom = nil
+        if mode == .meeting {
+            if let zoom { tab?.webView?.pageZoom = zoom }
+            tab?.webView?.removeFromSuperview()
+            tab?.isInFloatingPlayer = false        // WebHost takes it back
+            return
+        }
         // Even when the tab was put to sleep meanwhile: nothing of this player is kept.
         if let webView = tab?.webView {
             Task {

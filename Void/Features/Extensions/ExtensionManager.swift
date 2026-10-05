@@ -14,6 +14,8 @@ struct InstalledExtension: Codable, Identifiable, Hashable {
     /// nil for installs made before Void asked: everything the manifest requests.
     var grantedPermissions: [String]?
     var grantedSites: [String]?
+    /// Shown as its own button next to 🧩 (nil: only in 🧩's menu).
+    var pinned: Bool?
 
     @available(macOS 15.4, *)
     var grant: ExtensionGrant? {
@@ -68,7 +70,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// An install in progress (store download, unpacking): its name, for the UI.
     private(set) var installing: String?
     var lastError: String?
-    /// Bumped when an extension's toolbar action changes (icon, badge, title).
+    /// Bumped when an extension's toolbar action changes (icon, badge, title), or it is pinned.
     private(set) var actionsRevision = 0
 
     @ObservationIgnored private let listURL = StateStore.directory.appendingPathComponent("extensions.json")
@@ -77,8 +79,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// The popup shown last (self-test).
     @ObservationIgnored private(set) weak var shownPopover: NSPopover?
     @ObservationIgnored private(set) weak var shownPopupWebView: WKWebView?
+    /// The button the shown popup hangs from.
+    @ObservationIgnored private(set) weak var shownPopoverAnchor: NSView?
     /// Per window: the toolbar button popups hang from.
-    @ObservationIgnored private var anchors: [ObjectIdentifier: WeakView] = [:]
+    /// Per window: 🧩 (extension nil), and the button of each pinned extension.
+    @ObservationIgnored private var anchors: [AnchorKey: WeakView] = [:]
 
     private override init() {
         super.init()
@@ -261,7 +266,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                 removeCopy(previous.path)
             }
             installed.append(InstalledExtension(id: id, path: folder.path, chromeID: chromeID,
-                                                grantedPermissions: grant.permissions.sorted(), grantedSites: grant.sites.sorted()))
+                                                grantedPermissions: grant.permissions.sorted(), grantedSites: grant.sites.sorted(),
+                                                pinned: previous?.pinned))
             // Installing switches extensions on (they would do nothing otherwise); only now, so
             // that starting doesn't load the version being replaced.
             if !AppSettings.shared.extensionsEnabled { AppSettings.shared.extensionsEnabled = true }
@@ -522,6 +528,16 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     /// Toolbar click on an extension: its popup, or its `action.onClicked`. Its background is
     /// asked first (see watchBackground) — which also wakes it up if WebKit had unloaded it: a
     /// popup that finds no one to talk to closes itself.
+    // MARK: - Pinned to the toolbar
+
+    func isPinned(_ context: WKWebExtensionContext) -> Bool { record(for: context)?.pinned == true }
+
+    func setPinned(_ pinned: Bool, _ context: WKWebExtensionContext) {
+        guard let index = installed.firstIndex(where: { $0.id == context.uniqueIdentifier }) else { return }
+        installed[index].pinned = pinned ? true : nil
+        actionsRevision &+= 1   // the toolbar redraws on it
+    }
+
     func performAction(_ context: WKWebExtensionContext, in browser: BrowserModel) {
         let tab = browser.selectedTab.map(bridge.tab)
         Task {
@@ -647,14 +663,32 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         return controller.extensionContext(for: url)?.webViewConfiguration
     }
 
-    func setAnchor(_ view: NSView, for browser: BrowserModel) {
-        anchors[ObjectIdentifier(browser)] = WeakView(view)
+    func setAnchor(_ view: NSView, for browser: BrowserModel, extension id: String? = nil) {
+        anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: id)] = WeakView(view)
     }
 
     /// Only if it is still the anchor: while the tabs move from the sidebar to the top (or back),
     /// the new button can arrive before the old one leaves.
-    func removeAnchor(_ view: NSView, for browser: BrowserModel) {
-        if anchors[ObjectIdentifier(browser)]?.view === view { anchors[ObjectIdentifier(browser)] = nil }
+    func removeAnchor(_ view: NSView, for browser: BrowserModel, extension id: String? = nil) {
+        let key = AnchorKey(browser: ObjectIdentifier(browser), extensionID: id)
+        if anchors[key]?.view === view { anchors[key] = nil }
+    }
+
+    /// A pinned extension's button in that window, while it is there.
+    func pinnedButton(for context: WKWebExtensionContext, in browser: BrowserModel) -> NSView? {
+        anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: context.uniqueIdentifier)]?.view.flatMap { $0.window == nil ? nil : $0 }
+    }
+
+    /// Where an extension's popup hangs: its own button when it is pinned and shown, else 🧩.
+    private func anchor(for context: WKWebExtensionContext, in browser: BrowserModel) -> NSView? {
+        let own = isPinned(context) ? anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: context.uniqueIdentifier)]?.view : nil
+        if let own, own.window != nil, !own.visibleRect.isEmpty { return own }
+        return anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: nil)]?.view
+    }
+
+    private struct AnchorKey: Hashable {
+        let browser: ObjectIdentifier
+        let extensionID: String?
     }
 
     private final class WeakView {
@@ -761,7 +795,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         guard let popover = action.popupPopover else { return completionHandler(nil) }
         shownPopover = popover
         shownPopupWebView = action.popupWebView
-        let anchor = anchors[ObjectIdentifier(browser)]?.view
+        let anchor = anchor(for: context, in: browser)
+        shownPopoverAnchor = anchor
         // Under the button in the top bar, above it at the bottom of the sidebar.
         let above = anchor?.window.map { anchor!.convert(anchor!.bounds, to: nil).midY < $0.contentLayoutRect.midY } ?? false
         if let webView = action.popupWebView {

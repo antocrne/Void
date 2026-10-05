@@ -108,6 +108,8 @@ final class AppSettings {
     var sidebarVisible: Bool { didSet { defaults.set(sidebarVisible, forKey: "sidebarVisible") } }
     var restoreTabs: Bool { didSet { defaults.set(restoreTabs, forKey: "restoreTabs") } }
     var autoPiP: Bool { didSet { defaults.set(autoPiP, forKey: "autoPiP") } }
+    /// Mac: a video call goes into a floating window when its tab is left.
+    var autoMeetingPiP: Bool { didSet { defaults.set(autoMeetingPiP, forKey: "autoMeetingPiP") } }
     var adBlockEnabled: Bool { didSet { defaults.set(adBlockEnabled, forKey: "adBlockEnabled"); ContentRules.shared.reload() } }
     var adBlockAllowlist: [String] { didSet { defaults.set(adBlockAllowlist, forKey: "adBlockAllowlist"); ContentRules.shared.reload() } }
     var extensionsEnabled: Bool {
@@ -166,6 +168,7 @@ final class AppSettings {
         sidebarVisible = d.object(forKey: "sidebarVisible") as? Bool ?? true
         restoreTabs = d.object(forKey: "restoreTabs") as? Bool ?? true
         autoPiP = d.object(forKey: "autoPiP") as? Bool ?? true
+        autoMeetingPiP = d.object(forKey: "autoMeetingPiP") as? Bool ?? true
         adBlockEnabled = d.object(forKey: "adBlockEnabled") as? Bool ?? true
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false

@@ -39,6 +39,24 @@ final class VoidWebView: WKWebView {
     var droppedKeyDowns = 0
     #endif
 
+    /// Side by side: a click into the other side's page gives it the focus (address field, shortcuts).
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { MainActor.assumeIsolated { focusSplitSide() } }
+        return accepted
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        MainActor.assumeIsolated { focusSplitSide() }
+        super.mouseDown(with: event)
+    }
+
+    @MainActor
+    private func focusSplitSide() {
+        guard let tab, let browser = tab.browser, browser.selectedTab !== tab, browser.splitPartner === tab else { return }
+        DispatchQueue.main.async { if browser.splitPartner === tab { browser.select(tab) } }
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         MainActor.assumeIsolated { customize(menu) }
@@ -89,11 +107,15 @@ final class VoidWebView: WKWebView {
             background.representedObject = link
             background.target = self
             menu.insertItem(background, at: linkItemIndex + 1)
+            let side = NSMenuItem(title: "Ouvrir le lien côte à côte", action: #selector(openLinkSideBySide(_:)), keyEquivalent: "")
+            side.representedObject = link
+            side.target = self
+            menu.insertItem(side, at: linkItemIndex + 2)
             if tab?.isPrivate == false {
                 let privateItem = NSMenuItem(title: "Ouvrir dans une fenêtre privée", action: #selector(openLinkPrivately(_:)), keyEquivalent: "")
                 privateItem.representedObject = link
                 privateItem.target = self
-                menu.insertItem(privateItem, at: linkItemIndex + 2)
+                menu.insertItem(privateItem, at: linkItemIndex + 3)
             }
         } else if linkItemIndex == nil, let link = contextLinkURL {
             // Some menus (e.g. link inside an image) lack WebKit's item: add ours.
@@ -123,7 +145,11 @@ final class VoidWebView: WKWebView {
         }
 
         menu.addItem(.separator())
-        if tab?.hasVideo == true {
+        if tab?.isInCall == true {
+            let pip = NSMenuItem(title: "Réunion en fenêtre flottante", action: #selector(togglePiP), keyEquivalent: "")
+            pip.target = self
+            menu.addItem(pip)
+        } else if tab?.hasVideo == true {
             let pip = NSMenuItem(title: "Picture in Picture", action: #selector(togglePiP), keyEquivalent: "")
             pip.target = self
             menu.addItem(pip)
@@ -156,6 +182,14 @@ final class VoidWebView: WKWebView {
         guard let url = sender.representedObject as? URL else { return }
         MainActor.assumeIsolated {
             _ = (tab?.browser ?? .shared).openTab(url: url, after: tab)
+        }
+    }
+
+    @objc private func openLinkSideBySide(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        MainActor.assumeIsolated {
+            guard let tab, let browser = tab.browser else { return }
+            browser.openSideBySide(url, beside: tab)
         }
     }
 

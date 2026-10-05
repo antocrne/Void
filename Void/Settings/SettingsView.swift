@@ -77,6 +77,9 @@ private struct GeneralSettings: View {
                 Toggle("Picture in Picture automatique en quittant un onglet", isOn: $settings.autoPiP)
                 Text("Quand une vidéo joue avec le son et que vous changez d'onglet ou d'espace, elle passe en PiP ; elle revient à son retour. ⌘⇧P bascule le PiP à la main.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Réunion en fenêtre flottante en quittant son onglet", isOn: $settings.autoMeetingPiP)
+                Text("Pendant un appel (caméra ou micro utilisés : Meet, Teams, Zoom, Jitsi…), la page entière passe dans une petite fenêtre au-dessus des autres, avec tous les participants et les boutons de l'appel ; elle revient à son retour. ⌘⇧P l'y envoie à la main.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             ImportSection()
         }
@@ -764,6 +767,7 @@ private struct ExtensionList: View {
     @State private var pendingRemoval: WKWebExtensionContext?
 
     var body: some View {
+        let _ = manager.actionsRevision   // redrawn when one is pinned
         Section("Installées") {
             ForEach(manager.contexts, id: \.uniqueIdentifier) { context in
                 HStack {
@@ -781,6 +785,9 @@ private struct ExtensionList: View {
                         }
                     }
                     Spacer()
+                    Toggle("Épinglée", isOn: Binding(get: { manager.isPinned(context) }, set: { manager.setPinned($0, context) }))
+                        .toggleStyle(.checkbox)
+                        .help("Afficher son bouton dans la barre, à côté de 🧩")
                     if context.optionsPageURL != nil {
                         Button("Options") { manager.openOptions(context) }
                     }

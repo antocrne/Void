@@ -13,6 +13,10 @@ final class Space: Identifiable {
     var pinned: [Tab] = []
     var tabs: [Tab] = []
     var selectedTabID: UUID?
+    /// Two tabs shown side by side (see SplitView.swift); kept while another tab is selected.
+    var split: SplitPair?
+    /// Share of the page width given to the left side.
+    var splitRatio = 0.5
     let isEphemeral: Bool
 
     @ObservationIgnored weak var browser: BrowserModel?

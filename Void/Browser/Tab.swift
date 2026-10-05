@@ -41,6 +41,8 @@ final class Tab: Identifiable {
     }
     var isInPiP = false
     var isInFloatingPlayer = false
+    /// The page is using the camera or the microphone (a video call): see PiPController.
+    var isInCall = false
     /// A video (or any element) of the page is fullscreen: WebKit has moved the web view into its
     /// own window and left a placeholder in ours; nothing may move either until it's back.
     var isInElementFullscreen = false
@@ -196,6 +198,7 @@ final class Tab: Identifiable {
         hasVideo = false
         isPlayingVideo = false
         isAudible = false
+        isInCall = false
         mediaFrames = [:]
         reader = nil
         loginAccounts = []
@@ -324,6 +327,12 @@ final class Tab: Identifiable {
                     ExtensionEvents.tabChanged(self, .loading)
                 }
             },
+            wv.observe(\.cameraCaptureState, options: [.initial, .new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.updateCallState(wv) }
+            },
+            wv.observe(\.microphoneCaptureState, options: [.initial, .new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.updateCallState(wv) }
+            },
             wv.observe(\.estimatedProgress, options: [.new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }
             },
@@ -334,6 +343,13 @@ final class Tab: Identifiable {
                 MainActor.assumeIsolated { self?.canGoForward = wv.canGoForward }
             },
         ]
+    }
+
+    private func updateCallState(_ wv: WKWebView) {
+        let inCall = wv.cameraCaptureState != WKMediaCaptureState.none || wv.microphoneCaptureState != WKMediaCaptureState.none
+        guard inCall != isInCall else { return }
+        isInCall = inCall
+        PiPController.shared.callStateChanged(self)
     }
 
     func setFavicon(_ image: PlatformImage, data: Data) {

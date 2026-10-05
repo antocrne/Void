@@ -162,7 +162,7 @@ final class BrowserModel {
     /// Tabs whose web view must stay attached to the window even when not selected,
     /// so that video keeps playing and PiP keeps working (see WebHost).
     var keepAliveTabs: [Tab] {
-        allTabs.filter { $0.webView != nil && !$0.isInFloatingPlayer && ($0.isPlayingVideo || $0.isInPiP || $0.isAudible) }
+        allTabs.filter { $0.webView != nil && !$0.isInFloatingPlayer && ($0.isPlayingVideo || $0.isInPiP || $0.isAudible || $0.isInCall) }
     }
 
     func tab(for webView: WKWebView) -> Tab? { (webView as? VoidWebView)?.tab }
@@ -201,6 +201,7 @@ final class BrowserModel {
         // web view would load and play with no row to show or close it.
         guard !tab.isClosed, let space = tab.space, space.allTabs.contains(where: { $0 === tab }) else { return }
         let previous = selectedTab
+        let shownBefore = visibleTabs
         if space.id != currentSpaceID { currentSpaceID = space.id }
         tabBeforeNewTabPage = nil
         withAnimation(Theme.spring) { space.selectedTabID = tab.id }
@@ -209,7 +210,8 @@ final class BrowserModel {
         tab.lastAccess = Date()
         tab.ensureWebView()
         findBarVisible = false
-        if previous !== tab { PiPController.shared.selectionChanged(from: previous, to: tab) }
+        // Moving between the two sides of a split keeps both on screen: no PiP either way.
+        if previous !== tab { PiPController.shared.visibleTabsChanged(from: shownBefore, to: visibleTabs) }
         ExtensionEvents.tabActivated(tab, previous: previous)
         setNeedsSave()
     }
@@ -219,10 +221,12 @@ final class BrowserModel {
     func close(_ tab: Tab, force: Bool = false, reselect: Bool = true) {
         // Already closed: a second ⌘W answered by the page after the first one, a late callback.
         guard !tab.isClosed, let space = tab.space else { return }
+        // Side by side: the other side takes the whole page.
+        let partner = leaveSplit(tab)
         if tab.isPinned && !force {
             // ⌘W on a pinned tab puts it to sleep instead of closing it.
             let wasSelected = space.selectedTabID == tab.id
-            if wasSelected { selectNeighbor(of: tab, in: space) }
+            if wasSelected { selectNeighbor(of: tab, in: space, preferring: partner) }
             if tab.isInPiP || tab.isInFloatingPlayer {
                 // Sleep once PiP (or the floating player) has actually been left — unless the tab
                 // was shown again meanwhile (it would be left without its page).
@@ -240,7 +244,7 @@ final class BrowserModel {
         if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
         if let url = tab.url { closedTabs.append((url, space.id)) }
         if closedTabs.count > 30 { closedTabs.removeFirst() }
-        if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space) }
+        if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
         withAnimation(Theme.spring) {
             space.tabs.removeAll { $0 === tab }
             space.pinned.removeAll { $0 === tab }
@@ -265,8 +269,8 @@ final class BrowserModel {
         return space.pinned.first { $0 !== tab && !$0.isAsleep }
     }
 
-    private func selectNeighbor(of tab: Tab, in space: Space) {
-        let next = neighbor(of: tab, in: space)
+    private func selectNeighbor(of tab: Tab, in space: Space, preferring partner: Tab? = nil) {
+        let next = partner ?? neighbor(of: tab, in: space)
         guard space.id == currentSpaceID else {
             // A space in the background: only its remembered selection changes. It isn't shown,
             // and its tab isn't woken up, until the user goes there.
@@ -401,10 +405,11 @@ final class BrowserModel {
         commandBar = nil
         findBarVisible = false
         if let tab = selectedTab {
+            let shownBefore = visibleTabs
             tabBeforeNewTabPage = tab
             tab.lastAccess = Date()
             withAnimation(Theme.quick) { currentSpace.selectedTabID = nil }
-            PiPController.shared.selectionChanged(from: tab, to: nil)
+            PiPController.shared.visibleTabsChanged(from: shownBefore, to: [])
         }
         newTabFieldRequest += 1
     }
@@ -438,6 +443,7 @@ final class BrowserModel {
     func switchSpace(to space: Space) {
         guard space.id != currentSpaceID else { return }
         let previous = selectedTab
+        let shownBefore = visibleTabs
         // Leaving the new-tab page: the space left keeps the tab it was showing before.
         if previous == nil, let aside = tabBeforeNewTabPage, !aside.isClosed, aside.space === currentSpace {
             currentSpace.selectedTabID = aside.id
@@ -448,7 +454,8 @@ final class BrowserModel {
         spaceTransitionEdge = newIndex > oldIndex ? .trailing : .leading
         withAnimation(Theme.spring) { currentSpaceID = space.id }
         space.selectedTab?.ensureWebView()
-        PiPController.shared.selectionChanged(from: previous, to: space.selectedTab)
+        splitPartner?.ensureWebView()
+        PiPController.shared.visibleTabsChanged(from: shownBefore, to: visibleTabs)
         if let shown = space.selectedTab { ExtensionEvents.tabActivated(shown, previous: previous) }
         setNeedsSave()
     }
@@ -520,9 +527,9 @@ final class BrowserModel {
     func sleepInactiveTabs(idleFor delay: TimeInterval? = nil, now: Date = Date()) {
         guard AppSettings.shared.sleepInactiveTabs else { return }
         let idle = delay ?? Self.tabSleepDelay
-        let visible = selectedTab
+        let visible = visibleTabs
         for space in spaces {
-            for tab in space.tabs where tab !== visible && tab.canAutoSleep(idleFor: idle, now: now) {
+            for tab in space.tabs where !visible.contains(where: { $0 === tab }) && tab.canAutoSleep(idleFor: idle, now: now) {
                 Task { await tab.sleepKeepingPlace(idleFor: idle) }
             }
         }

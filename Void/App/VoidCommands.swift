@@ -69,6 +69,15 @@ struct VoidCommands: Commands {
             Button("Picture in Picture") { browser.togglePiP() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Divider()
+            Button(browser.shownSplit == nil ? "Afficher côte à côte" : "Quitter la vue côte à côte") { browser.toggleSideBySide() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(browser.selectedTab == nil)
+            Button("Passer à l'autre côté") { browser.focusOtherSide() }
+                .keyboardShortcut("s", modifiers: [.command, .option, .shift])
+                .disabled(browser.shownSplit == nil)
+            Button("Inverser les côtés") { browser.swapSides() }
+                .disabled(browser.shownSplit == nil)
+            Divider()
             Button("Zoom avant") { browser.zoom(0.1) }
                 .keyboardShortcut("+")
             Button("Zoom arrière") { browser.zoom(-0.1) }

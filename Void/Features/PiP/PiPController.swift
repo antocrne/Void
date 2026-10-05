@@ -18,6 +18,10 @@ import AppKit
 /// Auto PiP: when the user leaves a tab whose video is playing with sound, PiP is requested
 /// for that tab; the web view stays attached to the window (see WebHost) so playback never
 /// pauses. Coming back to the tab exits PiP.
+///
+/// Meetings (Mac): a tab using the camera or the microphone goes whole into the floating window
+/// instead — every participant, and the page's own buttons (mute, hang up) — since the video PiP
+/// would show a single stream. Manually (⌘⇧P) or on leaving the tab (Settings → Général).
 @MainActor
 final class PiPController {
     static let shared = PiPController()
@@ -106,6 +110,12 @@ final class PiPController {
             await exit(tab)
             return
         }
+        #if os(macOS)
+        if tab.isInCall {
+            FloatingPlayer.shared.open(tab, mode: .meeting)
+            return
+        }
+        #endif
         let outcome = await enter(tab, allowFloatingFallback: true)
         switch outcome {
         case .entered(.floating):
@@ -188,15 +198,45 @@ final class PiPController {
     // MARK: - Automatic PiP
 
     func selectionChanged(from old: Tab?, to new: Tab?) {
-        if let new, new.autoPiPEngaged {
+        visibleTabsChanged(from: old.map { [$0] } ?? [], to: new.map { [$0] } ?? [])
+    }
+
+    /// The pages on screen changed (a tab selected, or side by side shown or ended): tabs coming
+    /// back leave the PiP they were sent to, tabs going away may enter it.
+    func visibleTabsChanged(from before: [Tab], to after: [Tab]) {
+        for new in after where new.autoPiPEngaged && !before.contains(where: { $0 === new }) {
             new.autoPiPEngaged = false
             if isActive(new) { Task { await exit(new) } }
         }
-        guard AppSettings.shared.autoPiP, let old, old !== new, old.webView != nil,
-              old.isPlayingVideo, old.isAudible, !isActive(old) else { return }
-        Task {
-            let outcome = await enter(old, allowFloatingFallback: false)
-            if case .entered = outcome { old.autoPiPEngaged = true }
+        for old in before where !after.contains(where: { $0 === old }) {
+            guard old.webView != nil, !isActive(old) else { continue }
+            #if os(macOS)
+            if old.isInCall {
+                if AppSettings.shared.autoMeetingPiP {
+                    FloatingPlayer.shared.open(old, mode: .meeting)
+                    old.autoPiPEngaged = true
+                }
+                continue
+            }
+            #endif
+            guard AppSettings.shared.autoPiP, old.isPlayingVideo, old.isAudible else { continue }
+            Task {
+                let outcome = await enter(old, allowFloatingFallback: false)
+                if case .entered = outcome { old.autoPiPEngaged = true }
+            }
         }
+    }
+
+    /// The call of a tab in the floating window ended (hung up): the page goes back to its tab.
+    /// After a moment, since some sites stop and restart their tracks (camera turned off).
+    func callStateChanged(_ tab: Tab) {
+        #if os(macOS)
+        guard !tab.isInCall, tab.isInFloatingPlayer, FloatingPlayer.shared.mode == .meeting else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard !tab.isInCall, tab.isInFloatingPlayer, FloatingPlayer.shared.tab === tab,
+                  FloatingPlayer.shared.mode == .meeting else { return }
+            FloatingPlayer.shared.close()
+        }
+        #endif
     }
 }

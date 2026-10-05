@@ -4,7 +4,8 @@ import WebKit
 
 /// The extensions, in the chrome: one puzzle button, always there, whose menu lists them (with
 /// their badge); choosing one runs its action, and its popup hangs from the button. Without
-/// extensions, the menu leads to the Chrome Web Store.
+/// extensions, the menu leads to the Chrome Web Store. Pinned extensions also get their own
+/// button, just before it, and their popup hangs from that one.
 struct ExtensionsButton: View {
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
@@ -26,8 +27,20 @@ private struct ExtensionsMenu: View {
         let manager = ExtensionManager.shared
         let _ = manager.actionsRevision   // redrawn when a badge or an icon changes
         let items = manager.contexts.map { context in (context: context, action: manager.action(context, in: browser)) }
-        let hasBadge = items.contains { !($0.action?.badgeText.isEmpty ?? true) }
-        Menu {
+        let pinned = settings.extensionsEnabled ? items.filter { manager.isPinned($0.context) } : []
+        // Pinned buttons show their own badge.
+        let hasBadge = items.contains { !($0.action?.badgeText.isEmpty ?? true) && !manager.isPinned($0.context) }
+        HStack(spacing: 2) {
+            ForEach(pinned, id: \.context.uniqueIdentifier) { item in
+                PinnedExtensionButton(context: item.context, action: item.action)
+            }
+            menu(items, hasBadge: hasBadge)
+        }
+    }
+
+    private func menu(_ items: [(context: WKWebExtensionContext, action: WKWebExtension.Action?)], hasBadge: Bool) -> some View {
+        let manager = ExtensionManager.shared
+        return Menu {
             if !settings.extensionsEnabled {
                 Button("Activer les extensions") { settings.extensionsEnabled = true }
                 Divider()
@@ -45,6 +58,16 @@ private struct ExtensionsMenu: View {
                     }
                 }
                 .disabled(item.action?.isEnabled == false)
+            }
+            if settings.extensionsEnabled, !items.isEmpty {
+                Divider()
+                Menu("Épingler à la barre") {
+                    ForEach(items, id: \.context.uniqueIdentifier) { item in
+                        Toggle(item.context.webExtension.displayName ?? "Extension", isOn: Binding(
+                            get: { manager.isPinned(item.context) },
+                            set: { manager.setPinned($0, item.context) }))
+                    }
+                }
             }
             Divider()
             Button("Chrome Web Store") { manager.openWebStore(in: browser) }
@@ -75,30 +98,96 @@ private struct ExtensionsMenu: View {
     }
 }
 
-/// Registers the button's AppKit view: extension popups are shown from it.
+/// A pinned extension in the chrome: its icon and badge; a click runs its action (as its line in
+/// 🧩's menu does), and its popup hangs from it.
+@available(macOS 15.4, *)
+private struct PinnedExtensionButton: View {
+    @Environment(BrowserModel.self) private var browser
+    let context: WKWebExtensionContext
+    let action: WKWebExtension.Action?
+    @State private var hovering = false
+
+    var body: some View {
+        let manager = ExtensionManager.shared
+        let name = action?.label.nonEmpty ?? context.webExtension.displayName ?? "Extension"
+        let disabled = action?.isEnabled == false
+        Button { manager.performAction(context, in: browser) } label: {
+            Group {
+                if let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16)) {
+                    Image(nsImage: icon).resizable().interpolation(.high).frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: "puzzlepiece").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.secondaryText)
+                }
+            }
+            .frame(width: 26, height: 26)
+            .background(RoundedRectangle(cornerRadius: 7).fill(hovering && !disabled ? Theme.hover : .clear))
+            .overlay(alignment: .bottomTrailing) {
+                if let badge = action?.badgeText.nonEmpty {
+                    Text(badge)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 2.5)
+                        .frame(minWidth: 11, minHeight: 11)
+                        .background(Capsule().fill(Theme.accent))
+                        .fixedSize()
+                        .offset(x: 1, y: 0)
+                        .allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
+        .background(ExtensionPopupAnchor(browser: browser, extensionID: context.uniqueIdentifier))
+        .onHover { hovering = $0 }
+        .animation(Theme.quick, value: hovering)
+        .help(name)
+        .contextMenu {
+            Button("Désépingler") { manager.setPinned(false, context) }
+            if context.optionsPageURL != nil {
+                Button("Options") { manager.openOptions(context) }
+            }
+            Divider()
+            Button("Gérer les extensions…") {
+                UserDefaults.standard.set("extensions", forKey: "settingsPanel")
+                browser.openSettingsAction?()
+            }
+        }
+    }
+}
+
+/// Registers the button's AppKit view: extension popups are shown from it (🧩's: extensionID nil).
 @available(macOS 15.4, *)
 private struct ExtensionPopupAnchor: NSViewRepresentable {
     let browser: BrowserModel
+    var extensionID: String? = nil
 
     func makeNSView(context: Context) -> AnchorView {
         let view = AnchorView()
         view.browser = browser
+        view.extensionID = extensionID
         return view
     }
 
-    func updateNSView(_ view: AnchorView, context: Context) { view.browser = browser }
+    func updateNSView(_ view: AnchorView, context: Context) {
+        view.browser = browser
+        view.extensionID = extensionID
+    }
 
     final class AnchorView: NSView {
         weak var browser: BrowserModel?
+        var extensionID: String?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             MainActor.assumeIsolated {
                 guard let browser else { return }
                 if window == nil {
-                    ExtensionManager.shared.removeAnchor(self, for: browser)
+                    ExtensionManager.shared.removeAnchor(self, for: browser, extension: extensionID)
                 } else {
-                    ExtensionManager.shared.setAnchor(self, for: browser)
+                    ExtensionManager.shared.setAnchor(self, for: browser, extension: extensionID)
                 }
             }
         }

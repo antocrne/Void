@@ -52,10 +52,21 @@ struct TabContextMenu: View {
                 NSPasteboard.general.setString(url.absoluteString, forType: .string)
             }
         }
-        if tab.hasVideo {
+        if tab.isInCall {
+            Button(tab.isInFloatingPlayer ? "Ramener la réunion dans l'onglet" : "Réunion en fenêtre flottante") {
+                Task { await PiPController.shared.toggle(tab) }
+            }
+        } else if tab.hasVideo {
             Button(tab.isInPiP ? "Quitter Picture in Picture" : "Picture in Picture") {
                 Task { await PiPController.shared.toggle(tab) }
             }
+        }
+        if let selected = browser.selectedTab, selected !== tab, selected.space === tab.space,
+           !browser.visibleTabs.contains(where: { $0 === tab }) {
+            Button("Afficher côte à côte") { browser.showSideBySide(tab) }
+        }
+        if tab.space?.split?.contains(tab.id) == true {
+            Button("Quitter la vue côte à côte") { browser.endSideBySide(of: tab) }
         }
         if browser.spaces.count > 1 && !tab.isPrivate {
             Menu("Déplacer vers") {
@@ -99,7 +110,21 @@ struct SidebarTabRow: View {
                 .foregroundStyle(selected ? Theme.primaryText : Theme.primaryText.opacity(0.78))
                 .lineLimit(1)
             Spacer(minLength: 2)
-            if tab.isInPiP || tab.isPlayingVideo {
+            if tab.space?.split?.contains(tab.id) == true {
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.secondaryText)
+                    .help("Côte à côte")
+            }
+            if tab.isInCall {
+                Button { Task { await PiPController.shared.toggle(tab) } } label: {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(tab.isInFloatingPlayer ? Theme.accent : Theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help(tab.isInFloatingPlayer ? "Ramener la réunion dans l'onglet" : "Réunion en fenêtre flottante")
+            } else if tab.isInPiP || tab.isPlayingVideo {
                 Button { Task { await PiPController.shared.toggle(tab) } } label: {
                     Image(systemName: tab.isInPiP ? "pip.fill" : (tab.isAudible ? "speaker.wave.2.fill" : "play.fill"))
                         .font(.system(size: 10.5))
