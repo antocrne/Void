@@ -252,17 +252,73 @@ private struct RenameSpaceForm: View {
 struct DownloadsButton: View {
     @Environment(BrowserModel.self) private var browser
     @State private var showingPrivateList = false
+    @State private var hovering = false
 
     var body: some View {
-        let active = DownloadManager.shared.activeCount(for: browser)
+        let progress = DownloadManager.shared.progress(for: browser)
         let speed = DownloadManager.shared.speedText(for: browser)
-        ChromeButton(symbol: active > 0 ? "arrow.down.circle.fill" : "arrow.down.circle",
-                     help: "Téléchargements (⌥⌘L)" + (speed.map { " · \($0)" } ?? ""), active: active > 0) {
+        Button {
             if browser.isPrivate { showingPrivateList = true } else { browser.showLibrary(.downloads) }
+        } label: {
+            Group {
+                if let progress {
+                    DownloadProgressIcon(progress: progress)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.secondaryText)
+                }
+            }
+            .frame(width: 26, height: 26)
+            .background(RoundedRectangle(cornerRadius: 7).fill(hovering ? Theme.hover : .clear))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("Téléchargements (⌥⌘L)" + (speed.map { " · \($0)" } ?? ""))
+        .onHover { hovering = $0 }
+        .animation(Theme.quick, value: hovering)
         .popover(isPresented: $showingPrivateList, arrowEdge: .top) {
             PrivateDownloadsList(browser: browser)
         }
+    }
+}
+
+/// The arrow inside a thin ring that fills up as the downloads progress; a short arc turns while
+/// no size is known. Grey while everything is paused.
+private struct DownloadProgressIcon: View {
+    let progress: DownloadManager.Progress
+    @State private var spinning = false
+
+    private static let diameter: CGFloat = 15
+
+    var body: some View {
+        let tint = progress.paused ? Theme.secondaryText : Theme.accent
+        ZStack {
+            Circle().stroke(Theme.secondaryText.opacity(0.28), lineWidth: 1.5)
+            if let fraction = progress.fraction {
+                Circle()
+                    .trim(from: 0, to: max(0.03, fraction))
+                    .stroke(tint, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    // WebKit's progress comes twice a second: the ring glides between reports.
+                    .animation(.linear(duration: 0.5), value: fraction)
+            } else {
+                Circle()
+                    .trim(from: 0, to: 0.22)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .rotationEffect(.degrees(spinning ? 270 : -90))
+                    .animation(progress.paused ? .default : .linear(duration: 1.1).repeatForever(autoreverses: false), value: spinning)
+                    .onAppear { spinning = !progress.paused }
+                    .onChange(of: progress.paused) { spinning = !progress.paused }
+            }
+            Image(systemName: progress.paused ? "pause.fill" : "arrow.down")
+                .font(.system(size: 7.5, weight: .bold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: Self.diameter, height: Self.diameter)
+        .accessibilityElement()
+        .accessibilityLabel("Téléchargements")
+        .accessibilityValue(progress.fraction.map { "\(Int($0 * 100)) %" } ?? (progress.paused ? "En pause" : "En cours"))
     }
 }
 

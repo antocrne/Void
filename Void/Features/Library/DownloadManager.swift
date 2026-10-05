@@ -139,6 +139,22 @@ final class DownloadManager {
         browser.isPrivate ? items(of: browser).filter { $0.state == .running }.count : history.filter { $0.state == .running }.count
     }
 
+    /// What the downloads icon shows: nil when nothing is running or paused. `fraction` is nil when
+    /// no size is known; `paused` when nothing is moving.
+    struct Progress: Equatable {
+        var fraction: Double?
+        var paused: Bool
+    }
+
+    func progress(for browser: BrowserModel) -> Progress? {
+        let list = (browser.isPrivate ? items(of: browser) : history).filter { $0.state == .running || $0.state == .paused }
+        guard !list.isEmpty else { return nil }
+        let sized = list.filter { $0.totalBytes > 0 }
+        let total = sized.reduce(Int64(0)) { $0 + $1.totalBytes }
+        let fraction = total > 0 ? min(1, Double(sized.reduce(Int64(0)) { $0 + $1.receivedBytes }) / Double(total)) : nil
+        return Progress(fraction: fraction, paused: !list.contains { $0.state == .running })
+    }
+
     /// "2 en cours · 4,2 Mo/s" while something downloads.
     func speedText(for browser: BrowserModel) -> String? {
         let running = (browser.isPrivate ? items(of: browser) : history).filter { $0.state == .running }

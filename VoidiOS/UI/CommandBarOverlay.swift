@@ -14,10 +14,14 @@ struct CommandBarOverlay: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Theme.scrim
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { dismiss() }
+            // The page behind is blurred and darkened: the bar and its suggestions stand apart from it.
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Color.black.opacity(0.45)
+            }
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture { dismiss() }
 
             VStack(spacing: 0) {
                 field
@@ -123,17 +127,7 @@ struct CommandBarOverlay: View {
 
     private func run(_ suggestion: Suggestion) {
         dismiss()
-        switch suggestion.kind {
-        case .go(let url): browser.open(url, mode: request.mode)
-        case .search(let query):
-            if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: request.mode) }
-        case .switchTo(let tab): browser.select(tab)
-        case .download(let item): DownloadManager.shared.reveal(item)
-        case .copy(let text):
-            Clipboard.copy(text)
-            browser.showToast("doc.on.doc", "« \(text) » copié")
-        case .action(let action): action()
-        }
+        suggestion.perform(in: browser, mode: request.mode)
     }
 
     private func dismiss() {
@@ -142,7 +136,8 @@ struct CommandBarOverlay: View {
     }
 }
 
-private struct SuggestionRow: View {
+/// A suggestion of the address bar or of the new-tab page.
+struct SuggestionRow: View {
     let suggestion: Suggestion
     /// Puts the suggestion in the field, to carry on typing from it.
     let refine: (String) -> Void

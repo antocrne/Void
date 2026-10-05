@@ -81,11 +81,7 @@ struct AddressPill: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Theme.hover)
                 .overlay(alignment: .leading) {
-                    if settings.showReadingProgress, let tab, tab.readingProgress > 0.005 {
-                        GeometryReader { geo in
-                            Rectangle().fill(Theme.accentSoft).frame(width: geo.size.width * tab.readingProgress)
-                        }
-                    }
+                    if settings.showReadingProgress, let tab { ReadingProgressFill(tab: tab) }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
@@ -133,6 +129,23 @@ struct AddressPill: View {
         guard let tab else { return "magnifyingglass" }
         if tab.url?.scheme == "https" { return tab.hasOnlySecureContent ? "lock.fill" : "lock.trianglebadge.exclamationmark" }
         return tab.url == nil ? "magnifyingglass" : "globe"
+    }
+}
+
+/// The address field fills up with the accent as the page is scrolled (Réglages). Its own view:
+/// it changes at every frame of a scroll, the rest of the bar doesn't.
+private struct ReadingProgressFill: View {
+    let tab: Tab
+
+    var body: some View {
+        GeometryReader { geo in
+            Rectangle()
+                .fill(Theme.accentSoft)
+                .frame(width: geo.size.width * tab.readingProgress)
+                .opacity(tab.readingProgress > 0.005 ? 1 : 0)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
