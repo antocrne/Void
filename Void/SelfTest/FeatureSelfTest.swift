@@ -137,7 +137,51 @@ final class FeatureSelfTest {
         "fermer-autres": { t, space in await t.testCloseOtherTabs(in: space) },
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
+        "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
     ]
+
+    /// The window as it is on screen (screencapture), next to the report.
+    private func captureOnScreen(_ name: String, window: NSWindow? = nil) async {
+        guard let window = window ?? browser.window else { return }
+        let path = (outputPath as NSString).deletingPathExtension + "-\(name).png"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
+        try? process.run()
+        while process.isRunning { await sleep(0.1) }
+    }
+
+    /// Not a test: demo pages side by side and a (simulated) call in its floating window, captured
+    /// next to the report (-apercu-*.png) to see what they look like.
+    private func previewSplitAndMeeting(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let style = "<style>body{font:15px -apple-system;margin:0;padding:32px 40px;color:#222}h1{font-size:26px;margin:0 0 6px}p{line-height:1.55;color:#444}.tag{display:inline-block;background:#eef;padding:3px 9px;border-radius:6px;font-size:12px;margin-right:6px}li{margin:8px 0}</style>"
+        let article = await htmlTab(style + "<title>Planète Mars — Wikipédia</title><h1>Planète Mars</h1><span class=tag>Astronomie</span><span class=tag>Système solaire</span><p>Mars est la quatrième planète par ordre de distance croissante au Soleil et la deuxième par masse et par taille croissantes. Son éloignement au Soleil est compris entre 1,381 et 1,666 UA, avec une période orbitale de 669,58 jours martiens.</p><p>C'est une planète tellurique, comme le sont Mercure, Vénus et la Terre, environ dix fois moins massive que la Terre mais dix fois plus massive que la Lune. Sa topographie présente des analogies aussi bien avec la Lune, à travers ses cratères et ses bassins d'impact, qu'avec la Terre, avec des formations d'origine tectonique et climatique telles que des volcans, des rifts, des vallées, des mesas, des champs de dunes et des calottes polaires.</p><p>Le plus haut volcan du Système solaire, Olympus Mons, et le plus grand canyon, Valles Marineris, se trouvent sur Mars.</p>", in: space, base: "https://fr.wikipedia.org/")
+        let notes = await htmlTab(style + "<title>Notes — exposé</title><h1>Exposé sur Mars</h1><p style='color:#888'>Brouillon · modifié il y a 2 min</p><ul><li>☑︎ Distance au Soleil : 1,38 – 1,67 UA</li><li>☑︎ Olympus Mons, plus haut volcan</li><li>☐ Valles Marineris : longueur ?</li><li>☐ Missions : Curiosity, Perseverance</li><li>☐ Trouver une image de la calotte polaire</li></ul>", in: space, base: "https://notes.example/")
+        browser.select(article)
+        browser.showSideBySide(notes)
+        await sleep(2.5)
+        await captureOnScreen("apercu-cote-a-cote")
+
+        let tiles = [("Camille", "#5b7cfa,#9b6bf2"), ("Yanis", "#f2994a,#f2c94c"), ("Inès", "#27ae60,#6fcf97"), ("Vous", "#eb5757,#f2994a")]
+            .map { "<div class=t style='background:linear-gradient(135deg,\($0.1))'><span class=a>\($0.0.prefix(1))</span><span class=n>\($0.0)</span></div>" }.joined()
+        let call = await htmlTab("<title>Point hebdo — Réunion</title><style>body{margin:0;background:#202124;font:14px -apple-system;color:#fff;height:100vh;display:flex;flex-direction:column}.g{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.t{border-radius:10px;position:relative;display:flex;align-items:center;justify-content:center}.a{width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;font-size:32px}.n{position:absolute;left:10px;bottom:8px;font-size:13px;text-shadow:0 1px 2px #0008}.b{display:flex;justify-content:center;gap:12px;padding:12px}.b span{width:44px;height:44px;border-radius:50%;background:#3c4043;display:flex;align-items:center;justify-content:center;font-size:18px}.b .r{background:#ea4335;width:60px;border-radius:22px}</style><div class=g>\(tiles)</div><div class=b><span>🎙</span><span>📷</span><span>🖥</span><span class=r>📞</span></div>", in: space, base: "https://meet.example/")
+        browser.select(call)
+        call.isInCall = true
+        await sleep(0.6)
+        await captureOnScreen("apercu-reunion-onglet")
+        browser.select(article)
+        await sleep(1.2)
+        if let panel = call.webView?.window, panel !== browser.window { await captureOnScreen("apercu-reunion-fenetre", window: panel) }
+        browser.select(call)
+        browser.togglePiP()
+        await sleep(1.2)
+        await captureOnScreen("apercu-reunion-placeholder")
+        await PiPController.shared.exit(call)
+        call.isInCall = false
+        check("Aperçu : captures enregistrées à côté du rapport", true)
+    }
 
     /// Two tabs side by side: both pages in the window, each on its side; focus moves with a
     /// click (first responder), the pair hides and comes back with the selection, ends on close.
@@ -2524,8 +2568,14 @@ final class FeatureSelfTest {
         image.addRepresentation(rep)
         // cacheDisplay doesn't capture WKWebView's remote layers: draw a real snapshot on top.
         let shown = tab ?? (window === browser.window ? browser.selectedTab : nil)
+        // Side by side, or a window holding a page of its own (floating player): every page shown.
+        var pages: [WKWebView] = shown?.webView.map { [$0] } ?? []
+        if tab == nil {
+            if window === browser.window, let partner = browser.splitPartner?.webView { pages.insert(partner, at: 0) }
+            if window !== browser.window { pages = content.subviews.compactMap { $0 as? WKWebView } }
+        }
         // Overlays above the page (command bar, onboarding) would be covered by the page snapshot.
-        if browser.commandBar == nil, browser.onboardingStep == nil, let webView = shown?.webView, webView.window === window {
+        for webView in pages where browser.commandBar == nil && browser.onboardingStep == nil && webView.window === window {
             let shot: NSImage? = await withCheckedContinuation { c in webView.takeSnapshot(with: nil) { img, _ in c.resume(returning: img) } }
             if let shot {
                 let frame = webView.convert(webView.bounds, to: content)
