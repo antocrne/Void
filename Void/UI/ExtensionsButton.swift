@@ -5,20 +5,23 @@ import WebKit
 /// The extensions, in the chrome: one puzzle button, always there, whose menu lists them (with
 /// their badge); choosing one runs its action, and its popup hangs from the button. Without
 /// extensions, the menu leads to the Chrome Web Store. Pinned extensions also get their own
-/// button, just before it, and their popup hangs from that one.
+/// button, and their popup hangs from that one: in the top bar just before 🧩; in the sidebar
+/// just after it, as many as `sidebarRoom` allows (the others stay in the menu).
 struct ExtensionsButton: View {
+    var sidebarRoom: Int? = nil
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
 
     var body: some View {
         if #available(macOS 15.4, *), !browser.isPrivate || settings.extensionsInPrivate {
-            ExtensionsMenu()
+            ExtensionsMenu(sidebarRoom: sidebarRoom)
         }
     }
 }
 
 @available(macOS 15.4, *)
 private struct ExtensionsMenu: View {
+    let sidebarRoom: Int?
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
     @State private var hovering = false
@@ -28,13 +31,24 @@ private struct ExtensionsMenu: View {
         let _ = manager.actionsRevision   // redrawn when a badge or an icon changes
         let items = manager.contexts.map { context in (context: context, action: manager.action(context, in: browser)) }
         let pinned = settings.extensionsEnabled ? items.filter { manager.isPinned($0.context) } : []
-        // Pinned buttons show their own badge.
-        let hasBadge = items.contains { !($0.action?.badgeText.isEmpty ?? true) && !manager.isPinned($0.context) }
+        let shown = pinned.prefix(sidebarRoom ?? pinned.count)
+        let shownIDs = Set(shown.map(\.context.uniqueIdentifier))
+        // Shown pinned buttons show their own badge.
+        let hasBadge = items.contains { !($0.action?.badgeText.isEmpty ?? true) && !shownIDs.contains($0.context.uniqueIdentifier) }
         HStack(spacing: 2) {
-            ForEach(pinned, id: \.context.uniqueIdentifier) { item in
-                PinnedExtensionButton(context: item.context, action: item.action)
-            }
+            if sidebarRoom == nil { pinnedButtons(shown) }
             menu(items, hasBadge: hasBadge)
+            if sidebarRoom != nil { pinnedButtons(shown) }
+        }
+        .onChange(of: sidebarRoom, initial: true) { _, room in
+            if let room { manager.setPinRoom(room, for: browser) }
+        }
+        .onDisappear { if sidebarRoom != nil { manager.setPinRoom(nil, for: browser) } }
+    }
+
+    private func pinnedButtons(_ items: ArraySlice<(context: WKWebExtensionContext, action: WKWebExtension.Action?)>) -> some View {
+        ForEach(items, id: \.context.uniqueIdentifier) { item in
+            PinnedExtensionButton(context: item.context, action: item.action)
         }
     }
 
@@ -66,6 +80,11 @@ private struct ExtensionsMenu: View {
                         Toggle(item.context.webExtension.displayName ?? "Extension", isOn: Binding(
                             get: { manager.isPinned(item.context) },
                             set: { manager.setPinned($0, item.context) }))
+                        .disabled(!manager.canPin(item.context))
+                    }
+                    if let limit = manager.pinLimit, manager.pinnedCount >= limit {
+                        Divider()
+                        Text("Plus de place : élargissez la barre latérale")
                     }
                 }
             }

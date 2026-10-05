@@ -105,21 +105,36 @@ private struct SpaceTabList: View {
     }
 }
 
-/// Bottom of the sidebar: downloads, extensions, private window, spaces (none in a private window).
+/// Bottom of the sidebar: private window, downloads, extensions and the pinned ones (as many as
+/// fit), spaces (none in a private window).
 private struct SpaceBar: View {
     @Environment(BrowserModel.self) private var browser
     @State private var creating = false
+    @State private var width: CGFloat?
+
+    /// A button and the gap after it; the least room between the tools and the spaces.
+    private static let slot: CGFloat = 28, minGap: CGFloat = 8
+
+    /// The pinned extensions' room: the bar's width less every other button.
+    private var pinRoom: Int? {
+        guard let width else { return nil }
+        let others = browser.isPrivate
+            ? 3   // downloads, 🧩, close
+            : 3 + browser.spaces.count + (browser.managesSpaces ? 1 : 0)   // private window, downloads, 🧩, spaces, +
+        return max(0, Int((width - Self.minGap) / Self.slot) - others)
+    }
 
     var body: some View {
         HStack(spacing: 2) {
+            if !browser.isPrivate {
+                ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
+            }
             DownloadsButton()
-            ExtensionsButton()
+            ExtensionsButton(sidebarRoom: pinRoom)
+            Spacer(minLength: Self.minGap)
             if browser.isPrivate {
-                Spacer()
                 ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }
             } else {
-                ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
-                Spacer()
                 ForEach(browser.spaces) { space in
                     SpaceIconButton(space: space, selected: space.id == browser.currentSpaceID)
                 }
@@ -130,6 +145,7 @@ private struct SpaceBar: View {
             }
         }
         .frame(height: 30)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
