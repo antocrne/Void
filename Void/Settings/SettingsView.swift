@@ -787,7 +787,9 @@ private struct ExtensionList: View {
                     Spacer()
                     Toggle("Épinglée", isOn: Binding(get: { manager.isPinned(context) }, set: { manager.setPinned($0, context) }))
                         .toggleStyle(.checkbox)
-                        .help("Afficher son bouton dans la barre, à côté de 🧩")
+                        .disabled(!manager.canPin(context))
+                        .help(manager.canPin(context) ? "Afficher son bouton dans la barre, à côté de 🧩"
+                                                      : "Plus de place dans la barre latérale : élargissez-la pour en épingler d'autres")
                     if context.optionsPageURL != nil {
                         Button("Options") { manager.openOptions(context) }
                     }

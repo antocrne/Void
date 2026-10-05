@@ -532,8 +532,28 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     func isPinned(_ context: WKWebExtensionContext) -> Bool { record(for: context)?.pinned == true }
 
+    /// Per window, how many pinned buttons its sidebar has room for (none: tabs on top, no limit).
+    private var pinRoom: [ObjectIdentifier: Int] = [:]
+
+    /// The pinned buttons the narrowest sidebar shown can hold (nil: no limit).
+    var pinLimit: Int? { pinRoom.values.min() }
+
+    var pinnedCount: Int { contexts.filter(isPinned).count }
+
+    /// Unpinned, there must be room left for it.
+    func canPin(_ context: WKWebExtensionContext) -> Bool {
+        isPinned(context) || pinLimit.map { pinnedCount < $0 } ?? true
+    }
+
+    /// A window's sidebar says how many pinned buttons fit (nil when it goes).
+    func setPinRoom(_ room: Int?, for browser: BrowserModel) {
+        let key = ObjectIdentifier(browser)
+        if pinRoom[key] != room { pinRoom[key] = room }
+    }
+
     func setPinned(_ pinned: Bool, _ context: WKWebExtensionContext) {
-        guard let index = installed.firstIndex(where: { $0.id == context.uniqueIdentifier }) else { return }
+        guard !pinned || canPin(context),
+              let index = installed.firstIndex(where: { $0.id == context.uniqueIdentifier }) else { return }
         installed[index].pinned = pinned ? true : nil
         actionsRevision &+= 1   // the toolbar redraws on it
     }
