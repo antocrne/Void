@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// iPhone: the only chrome on screen. Back, forward, the address, a new tab, the tabs and a menu.
+/// A swipe up from it shows the tabs, as in Safari.
 struct BottomBar: View {
     let showTabs: () -> Void
     @Environment(BrowserModel.self) private var browser
@@ -19,6 +20,13 @@ struct BottomBar: View {
         .padding(.horizontal, 8)
         .padding(.top, 7)
         .padding(.bottom, 3)
+        .contentShape(Rectangle())
+        // Alongside the address's sideways swipe and the buttons' taps, not instead of them.
+        .simultaneousGesture(DragGesture(minimumDistance: 16).onEnded { value in
+            let up = -min(value.translation.height, value.predictedEndTranslation.height)
+            guard up > 50, abs(value.translation.height) > 1.5 * abs(value.translation.width) else { return }
+            showTabs()
+        })
     }
 }
 
