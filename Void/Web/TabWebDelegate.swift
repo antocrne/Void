@@ -56,10 +56,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         var download = !navigationResponse.canShowMIMEType
-        if navigationResponse.isForMainFrame,
-           let http = navigationResponse.response as? HTTPURLResponse,
+        // "attachment" in any frame: Google Drive and others download through a hidden frame,
+        // where a PDF or an image would otherwise be shown to nobody.
+        if let http = navigationResponse.response as? HTTPURLResponse,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.lowercased().hasPrefix("attachment") {
+           disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment") {
             download = true
         }
         guard download else { return .allow }
@@ -70,7 +71,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Asked once per site (DownloadPermission). The site is the page's; a tab opened just for the
     /// file has none yet, then it's the file's. A refused download leaves no empty tab behind.
     private func mayDownload(_ url: URL?, file: String? = nil, in webView: WKWebView) async -> Bool {
-        let host = (webView.url?.host() ?? url?.host() ?? "").voidNormalizedHost
+        // A tab opened for the file has no page yet: the site is the one that opened it.
+        let opener = webView.backForwardList.currentItem == nil ? tab?.openerHost : nil
+        let host = (opener ?? webView.url?.host() ?? url?.host() ?? "").voidNormalizedHost
         let file = file ?? url?.lastPathComponent
         let allowed = await DownloadPermission.request(host, file: file, in: browser, window: webView.window)
         if !allowed {
@@ -224,6 +227,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let background = (flags.contains(.command) || navigationAction.buttonNumber == Self.middleButton) && !flags.contains(.shift)
         let newTab = browser.openTab(url: nil, background: background, after: tab, popupConfiguration: configuration)
         newTab.url = navigationAction.request.url
+        newTab.openerHost = webView.url?.host()
         return newTab.ensureWebView()
     }
 
@@ -308,8 +312,39 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    // MARK: - Camera, microphone, screen
+
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+        guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return .deny }
+        let host = origin.host.voidNormalizedHost
+        return await MediaPermission.decide(host: host, type: type, in: browser) {
+            let alert = NSAlert()
+            alert.messageText = "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?"
+            alert.informativeText = "Jusqu'à ce que vous quittiez Void" + (self.browser.isPrivate ? " ou fermiez cette fenêtre privée." : ".")
+            alert.addButton(withTitle: "Autoriser")
+            alert.addButton(withTitle: "Refuser")
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+            }
+        }
+    }
+
+    /// Screen sharing (getDisplayMedia) in a video call (WKUIDelegatePrivate). The answer opens the
+    /// system's picker of screens and windows (1); 0 refuses.
+    @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
+    func webView(_ webView: WKWebView, requestDisplayCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                 withSystemAudio: Bool, decisionHandler: @escaping (Int) -> Void) {
+        guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return decisionHandler(0) }
+        let alert = NSAlert()
+        alert.messageText = "Partager votre écran avec « \(origin.host.voidNormalizedHost) » ?"
+        alert.informativeText = "macOS vous laissera ensuite choisir l'écran ou la fenêtre à montrer."
+        alert.addButton(withTitle: "Choisir quoi partager…")
+        alert.addButton(withTitle: "Refuser")
+        alert.beginSheetModal(for: window) { decisionHandler($0 == .alertFirstButtonReturn ? 1 : 0) }
+    }
+
     // MARK: - File upload
-    // (Camera/mic: not implementing the permission delegate keeps WebKit's default, which prompts.)
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo) async -> [URL]? {
         let panel = NSOpenPanel()

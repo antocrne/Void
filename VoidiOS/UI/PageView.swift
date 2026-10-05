@@ -8,9 +8,13 @@ struct PageView: View {
     var body: some View {
         let tab = browser.selectedTab
         ZStack(alignment: .top) {
+            // On iPhone the page goes up under the status bar, as in Safari: WebKit keeps its
+            // content below it until it is scrolled, and fills that strip with the page's colour.
             Theme.surface
+                .ignoresSafeArea(edges: .top)
 
             WebHost(browser: browser)
+                .ignoresSafeArea(edges: .top)
 
             if tab == nil {
                 NewTabPage()
@@ -105,7 +109,7 @@ struct NewTabPage: View {
         }
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.surface)
+        .background(Theme.surface.ignoresSafeArea(edges: .top))
     }
 }
 

@@ -255,7 +255,9 @@ struct DownloadsButton: View {
 
     var body: some View {
         let active = DownloadManager.shared.activeCount(for: browser)
-        ChromeButton(symbol: active > 0 ? "arrow.down.circle.fill" : "arrow.down.circle", help: "Téléchargements (⌥⌘L)", active: active > 0) {
+        let speed = DownloadManager.shared.speedText(for: browser)
+        ChromeButton(symbol: active > 0 ? "arrow.down.circle.fill" : "arrow.down.circle",
+                     help: "Téléchargements (⌥⌘L)" + (speed.map { " · \($0)" } ?? ""), active: active > 0) {
             if browser.isPrivate { showingPrivateList = true } else { browser.showLibrary(.downloads) }
         }
         .popover(isPresented: $showingPrivateList, arrowEdge: .top) {

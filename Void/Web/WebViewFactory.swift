@@ -99,8 +99,12 @@ enum WebViewFactory {
         #else
         wv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         wv.isFindInteractionEnabled = true
+        // iOS keeps WebKit's default: the page's own background colour, which also fills the
+        // status bar area above the page, as in Safari.
         #endif
+        #if os(macOS)
         wv.underPageBackgroundColor = .clear
+        #endif
         return wv
     }
 }

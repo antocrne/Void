@@ -11,7 +11,8 @@ struct TopBarView: View {
     var body: some View {
         let space = browser.currentSpace
         HStack(spacing: 4) {
-            Color.clear.frame(width: 68)
+            // Room for the traffic lights, which full screen hides.
+            if !browser.isFullScreen { Color.clear.frame(width: 68) }
 
             if browser.isPrivate {
                 PrivateBadge()

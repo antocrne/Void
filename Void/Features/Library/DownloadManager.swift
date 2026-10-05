@@ -21,6 +21,55 @@ final class DownloadItem: Identifiable {
     @ObservationIgnored weak var browser: BrowserModel?
     @ObservationIgnored var download: WKDownload?
     @ObservationIgnored var observation: NSKeyValueObservation?
+    /// Bytes received so far, and the file's size when the server gives it (0 otherwise).
+    var receivedBytes: Int64 = 0
+    var totalBytes: Int64 = 0
+    /// Current speed, smoothed over the last seconds (0 until a first measure).
+    var bytesPerSecond: Double = 0
+    @ObservationIgnored private var lastSample: (date: Date, bytes: Int64)?
+
+    /// Reads a progress report from WebKit. The speed is measured at most twice a second.
+    func update(received: Int64, total: Int64) {
+        let now = Date()
+        totalBytes = max(0, total)
+        guard let last = lastSample else {
+            lastSample = (now, received)
+            receivedBytes = received
+            return
+        }
+        let elapsed = now.timeIntervalSince(last.date)
+        guard elapsed >= 0.5 || (total > 0 && received >= total) else { return }
+        receivedBytes = received
+        let instant = Double(max(0, received - last.bytes)) / max(elapsed, 0.001)
+        bytesPerSecond = bytesPerSecond == 0 ? instant : bytesPerSecond * 0.6 + instant * 0.4
+        lastSample = (now, received)
+        if total > 0 { progress = Double(received) / Double(total) }
+    }
+
+    /// "12,4 Mo sur 80 Mo · 3,1 Mo/s · 18 s restantes", as much as is known.
+    var statusText: String {
+        let size = ByteCountFormatter()
+        size.countStyle = .file
+        var parts = [totalBytes > 0 ? "\(size.string(fromByteCount: receivedBytes)) sur \(size.string(fromByteCount: totalBytes))"
+                                    : size.string(fromByteCount: receivedBytes)]
+        if bytesPerSecond > 0 {
+            parts.append("\(size.string(fromByteCount: Int64(bytesPerSecond)))/s")
+            if totalBytes > receivedBytes {
+                let remaining = Double(totalBytes - receivedBytes) / bytesPerSecond
+                let time = DateComponentsFormatter()
+                time.unitsStyle = .abbreviated
+                time.maximumUnitCount = remaining >= 3600 ? 2 : 1
+                time.allowedUnits = [.hour, .minute, .second]
+                if let text = time.string(from: max(1, remaining.rounded())) { parts.append("\(text) restantes") }
+            }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "Terminé · 80 Mo".
+    var finishedText: String {
+        receivedBytes > 0 ? "Terminé · \(ByteCountFormatter.string(fromByteCount: receivedBytes, countStyle: .file))" : "Terminé"
+    }
 
     init(filename: String, sourceURL: URL?, browser: BrowserModel?) {
         self.filename = filename
@@ -49,12 +98,21 @@ final class DownloadManager {
         browser.isPrivate ? items(of: browser).filter { $0.state == .running }.count : history.filter { $0.state == .running }.count
     }
 
+    /// "2 en cours · 4,2 Mo/s" while something downloads.
+    func speedText(for browser: BrowserModel) -> String? {
+        let running = (browser.isPrivate ? items(of: browser) : history).filter { $0.state == .running }
+        guard !running.isEmpty else { return nil }
+        let speed = running.reduce(0) { $0 + $1.bytesPerSecond }
+        let count = running.count == 1 ? "1 en cours" : "\(running.count) en cours"
+        return speed > 0 ? "\(count) · \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s" : count
+    }
+
     func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?) {
         let item = DownloadItem(filename: url?.lastPathComponent ?? "Téléchargement", sourceURL: url, browser: browser)
         item.download = download
-        item.observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak item] progress, _ in
-            let value = progress.fractionCompleted
-            DispatchQueue.main.async { item?.progress = value }
+        item.observation = download.progress.observe(\.completedUnitCount, options: [.initial, .new]) { [weak item] progress, _ in
+            let (received, total) = (progress.completedUnitCount, progress.totalUnitCount)
+            DispatchQueue.main.async { item?.update(received: received, total: total) }
         }
         items.insert(item, at: 0)
         download.delegate = delegate
@@ -172,8 +230,6 @@ final class DownloadManager {
 @MainActor
 enum DownloadPermission {
     private static let key = "downloadAllowedHosts"
-    /// Sites being asked about: another download of theirs meanwhile is refused.
-    private static var asking: Set<String> = []
 
     static func isAllowed(_ host: String, in browser: BrowserModel) -> Bool {
         if browser.isPrivate { return browser.allowedDownloadHosts.contains(host) }
@@ -194,41 +250,56 @@ enum DownloadPermission {
         UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: key) ?? []).filter { $0 != host }, forKey: key)
     }
 
+    /// Questions on screen, by site: a second download of the same site meanwhile (several files
+    /// at once, a file and its retry) waits for the same answer instead of being refused.
+    private static var asking: [String: Task<Bool, Never>] = [:]
+
     #if os(macOS)
     /// `host`: the site of the page asking (normalized). `file`: what it wants to save, if known.
+    /// `window`: where to ask; a tab not on screen (opened in the background, or not yet shown)
+    /// asks over its browser's window.
     static func request(_ host: String, file: String?, in browser: BrowserModel, window: NSWindow?) async -> Bool {
         #if DEBUG
         if SelfTestRunner.isRequested { return true }
         #endif
         if host.isEmpty || isAllowed(host, in: browser) { return true }
-        guard let window, asking.insert(host).inserted else { return false }
-        defer { asking.remove(host) }
-        let alert = NSAlert()
-        alert.messageText = "Autoriser les téléchargements depuis « \(host) » ?"
-        alert.informativeText = (file.map { "Ce site veut enregistrer « \($0) » dans votre dossier de téléchargements." }
-            ?? "Ce site veut enregistrer un fichier dans votre dossier de téléchargements.")
-            + (browser.isPrivate ? " (Jusqu'à la fermeture de cette fenêtre privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
-        alert.addButton(withTitle: "Autoriser")
-        alert.addButton(withTitle: "Refuser")
-        let allowed = await withCheckedContinuation { continuation in
-            alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+        if let pending = asking[host] { return await pending.value }
+        guard let window = window ?? browser.window else { return false }
+        let task = Task { @MainActor in
+            let alert = NSAlert()
+            alert.messageText = "Autoriser les téléchargements depuis « \(host) » ?"
+            alert.informativeText = (file.map { "Ce site veut enregistrer « \($0) » dans votre dossier de téléchargements." }
+                ?? "Ce site veut enregistrer un fichier dans votre dossier de téléchargements.")
+                + (browser.isPrivate ? " (Jusqu'à la fermeture de cette fenêtre privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
+            alert.addButton(withTitle: "Autoriser")
+            alert.addButton(withTitle: "Refuser")
+            let allowed = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+            }
+            if allowed { allow(host, in: browser) }
+            return allowed
         }
-        if allowed { allow(host, in: browser) }
-        return allowed
+        asking[host] = task
+        defer { asking[host] = nil }
+        return await task.value
     }
     #else
     /// `host`: the site of the page asking (normalized). `file`: what it wants to save, if known.
     static func request(_ host: String, file: String?, in browser: BrowserModel) async -> Bool {
         if host.isEmpty || isAllowed(host, in: browser) { return true }
-        guard asking.insert(host).inserted else { return false }
-        defer { asking.remove(host) }
-        let message = (file.map { "Ce site veut enregistrer « \($0) » dans les fichiers de Void." }
-            ?? "Ce site veut enregistrer un fichier dans les fichiers de Void.")
-            + (browser.isPrivate ? " (Jusqu'à la fermeture de la navigation privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
-        let allowed = await Dialogs.confirm(title: "Autoriser les téléchargements depuis « \(host) » ?", message: message,
-                                            confirm: "Autoriser", cancel: "Refuser") ?? false
-        if allowed { allow(host, in: browser) }
-        return allowed
+        if let pending = asking[host] { return await pending.value }
+        let task = Task { @MainActor in
+            let message = (file.map { "Ce site veut enregistrer « \($0) » dans les fichiers de Void." }
+                ?? "Ce site veut enregistrer un fichier dans les fichiers de Void.")
+                + (browser.isPrivate ? " (Jusqu'à la fermeture de la navigation privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
+            let allowed = await Dialogs.confirm(title: "Autoriser les téléchargements depuis « \(host) » ?", message: message,
+                                                confirm: "Autoriser", cancel: "Refuser") ?? false
+            if allowed { allow(host, in: browser) }
+            return allowed
+        }
+        asking[host] = task
+        defer { asking[host] = nil }
+        return await task.value
     }
     #endif
 }
@@ -250,6 +321,8 @@ private final class DownloadDelegate: NSObject, WKDownloadDelegate {
             guard let item = DownloadManager.shared.item(for: download) else { return }
             item.state = .finished
             item.progress = 1
+            if let progress = item.download?.progress { item.receivedBytes = max(item.receivedBytes, progress.completedUnitCount) }
+            item.bytesPerSecond = 0
             DownloadManager.release(item.destination)
             if let destination = item.destination {
                 let already = DownloadManager.quarantine(destination, source: item.sourceURL)

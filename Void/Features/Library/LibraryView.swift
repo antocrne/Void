@@ -129,8 +129,13 @@ struct DownloadRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.filename).lineLimit(1)
                 switch item.state {
-                case .running: ProgressView(value: item.progress).controlSize(.small)
-                case .finished: Text("Terminé").font(.caption).foregroundStyle(.secondary)
+                case .running:
+                    Group {
+                        if item.totalBytes > 0 { ProgressView(value: item.progress) } else { ProgressView().progressViewStyle(.linear) }
+                    }
+                    .controlSize(.small)
+                    Text(item.statusText).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                case .finished: Text(item.finishedText).font(.caption).foregroundStyle(.secondary)
                 case .cancelled: Text("Annulé").font(.caption).foregroundStyle(.secondary)
                 case .failed(let reason): Text(reason).font(.caption).foregroundStyle(Theme.danger)
                 }

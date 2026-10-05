@@ -40,6 +40,15 @@ struct BrowserWindowView: View {
         // On the centre line of the top bar (44 pt) or of the sidebar's first row (4 + 30 pt).
         .background(TrafficLightsAlignment(centerY: settings.tabLayout == .top ? 22 : 19))
         .onChange(of: tabsKeptHidden) { revealed = false }
+        // Once macOS's transition is over, without animation: changing the bars during it (or
+        // animating them) makes SwiftUI resize the window inside AppKit's layout pass, which
+        // AppKit stops by raising an exception — Void quit on leaving full screen.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            if note.object as? NSWindow === browser.window { browser.isFullScreen = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            if note.object as? NSWindow === browser.window { browser.isFullScreen = false }
+        }
         .onAppear {
             browser.openWindowAction = { openWindow(id: $0) }
             browser.openSettingsAction = { openSettings() }
@@ -141,6 +150,7 @@ struct BrowserWindowView: View {
 
     private func configure(_ window: NSWindow) {
         browser.window = window
+        browser.isFullScreen = window.styleMask.contains(.fullScreen)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
@@ -222,7 +232,8 @@ private struct CompactTitleBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Color.clear.frame(width: 70)
+            // Room for the traffic lights, which full screen hides.
+            if !browser.isFullScreen { Color.clear.frame(width: 70) }
             ChromeButton(symbol: "sidebar.left", help: "Afficher la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
             ChromeButton(symbol: "chevron.left", help: "Précédent", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
             ChromeButton(symbol: "chevron.right", help: "Suivant", disabled: !(browser.selectedTab?.canGoForward ?? false)) { browser.goForward() }

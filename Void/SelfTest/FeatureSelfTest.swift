@@ -58,6 +58,28 @@ final class FeatureSelfTest {
                   all.allSatisfy { abs($0 - expected) < 0.5 },
                   "rouge/jaune/vert \(before) · redim. \(resized) · inactive \(inactive) · active \(active), attendu \(expected)")
         }
+        // Full screen: the traffic lights are gone, the bar starts at the window's edge (capture).
+        // Twice, in both layouts: leaving full screen used to end the app (layout exception).
+        for layout in [TabLayout.sidebar, .top] {
+            settings.tabLayout = layout
+            window.toggleFullScreen(nil)
+            _ = await until(5) { window.styleMask.contains(.fullScreen) }
+            await sleep(1.5)
+            window.toggleFullScreen(nil)
+            _ = await until(5) { !window.styleMask.contains(.fullScreen) }
+            await sleep(1.5)
+        }
+        window.toggleFullScreen(nil)
+        let entered = await until(5) { window.styleMask.contains(.fullScreen) }
+        await sleep(1.5)
+        let inFullScreen = browser.isFullScreen
+        await snapshotWindow("plein-ecran-barre-du-haut")
+        window.toggleFullScreen(nil)
+        let exited = await until(5) { !window.styleMask.contains(.fullScreen) }
+        await sleep(1.5)
+        check("Plein écran : la place des feux est rendue à la barre, puis reprise en sortant",
+              entered && inFullScreen && exited && !browser.isFullScreen,
+              "entré \(entered) · suivi \(inFullScreen) · sorti \(exited) · après \(browser.isFullScreen)")
         (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide) = saved
     }
 
@@ -111,7 +133,46 @@ final class FeatureSelfTest {
         "page-nouvel-onglet": { t, space in await t.testNewTabPage(in: space) },
         "conversion": { t, _ in await t.testConversions() },
         "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
+        "visio": { t, space in await t.testMeetings(in: space) },
+        "fermer-autres": { t, space in await t.testCloseOtherTabs(in: space) },
     ]
+
+    /// Context menu → "Fermer les autres onglets": the tab stays, shown, with the pinned tabs.
+    private func testCloseOtherTabs(in space: Space) async {
+        let tabs = (0..<4).map { browser.openTab(url: URL(string: "https://example.com/?n=\($0)"), in: space, background: true) }
+        let pinned = browser.openTab(url: URL(string: "https://example.com/?pin"), in: space, background: true)
+        browser.togglePin(pinned)
+        browser.closeOtherTabs(than: tabs[2])
+        check("Fermer les autres onglets : seul l'onglet choisi reste, sélectionné, l'épinglé aussi",
+              space.tabs.count == 1 && space.tabs.first === tabs[2] && browser.selectedTab === tabs[2] && space.pinned.contains { $0 === pinned },
+              "onglets \(space.tabs.count) · épinglés \(space.pinned.count)")
+        browser.reopenClosedTab()
+        check("Fermer les autres onglets : ⌘⇧T en rouvre un", space.tabs.count == 2, "\(space.tabs.count)")
+    }
+
+    /// A video call asks for the camera and the micro: the page gets an answer (refused in
+    /// self-test, the camera is never opened) instead of waiting forever. Optionally, real
+    /// sites: -VoidDiagURLs https://meet.jit.si/…,… (text and capture of each, in the report).
+    private func testMeetings(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        let tab = await htmlTab("<!doctype html><body>visio</body>", in: space, base: "https://void-visio.example/")
+        browser.select(tab)
+        // In the page's own world, as a site would.
+        let outcome = try? await tab.webView?.callAsyncJavaScript("""
+            try { await navigator.mediaDevices.getUserMedia({video: true, audio: true}); return 'accordé'; }
+            catch (e) { return e.name; }
+            """, contentWorld: .page) as? String
+        check("Visio : la demande caméra + micro reçoit une réponse", outcome == "NotAllowedError", outcome ?? "aucune réponse en 5 s")
+
+        let urls = UserDefaults.standard.string(forKey: "VoidDiagURLs")?.split(separator: ",") ?? []
+        for (i, u) in urls.enumerated() {
+            let site = browser.openTab(url: URL(string: String(u)), in: space)
+            await sleep(15)
+            let info = await js(site, "return location.href + ' · ' + (document.body ? document.body.innerText : '').slice(0, 400);") as? String
+            check("Visio : \(u)", info != nil, info ?? "nil")
+            await snapshotWindow("visio-\(i)", tab: site)
+        }
+    }
 
     /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and
     /// wakes it up when needed. A woken worker isn't taken for a lost one (reloading the extension
@@ -974,6 +1035,15 @@ final class FeatureSelfTest {
         check("Téléchargement : deux fichiers du même nom en même temps → deux chemins", first != second, second.lastPathComponent)
         DownloadManager.release(first); DownloadManager.release(second)
 
+        // Speed and time left, from WebKit's progress reports.
+        let measured = DownloadItem(filename: "gros.zip", sourceURL: nil, browser: browser)
+        measured.update(received: 0, total: 100_000_000)
+        await sleep(1)
+        measured.update(received: 10_000_000, total: 100_000_000)
+        let status = measured.statusText
+        check("Téléchargement : taille, vitesse et temps restant affichés",
+              measured.bytesPerSecond > 8_000_000 && measured.bytesPerSecond < 11_000_000 && status.contains("/s") && status.contains("restantes"), status)
+
         // A real download through WebKit, into the temporary folder.
         let tab = await htmlTab("<!doctype html><body>dl</body>", in: space, base: "https://void-dl.example/")
         let source = URL(string: "data:application/octet-stream;base64,Vm9pZA==")!
@@ -990,6 +1060,36 @@ final class FeatureSelfTest {
         check("Téléchargement : fichier en quarantaine (Gatekeeper le vérifiera)", item?.state == .finished && quarantined,
               "\(item?.destination?.lastPathComponent ?? "aucun fichier")")
         if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
+
+        // As Google Drive does: a hidden frame whose answer is an attachment the browser could show
+        // (text, PDF), and a link to the file opening a new tab.
+        let body = "Void " + String(repeating: "0123456789", count: 20_000)
+        guard let (listener, port) = await startServer(ports: [8771, 18771, 28771], respond: { request in
+            if request.hasPrefix("GET /fichier") {
+                let name = request.hasPrefix("GET /fichier-lien") ? "lien.txt" : "cadre.txt"
+                return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=\"\(name)\"\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body
+            }
+            let page = "<!doctype html><body style='margin:0;font:40px system-ui'><a id=l href='/fichier-lien' target=_blank style='display:block;padding:40px'>lien</a></body>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
+        }) else { check("Téléchargement : serveur de test", false); return }
+        defer { listener.cancel() }
+        let page = (space.browser ?? browser).openTab(url: URL(string: "http://localhost:\(port)/"), in: space)
+        await waitForLoad(page)
+        _ = await js(page, "const f = document.createElement('iframe'); f.style.display = 'none'; f.src = '/fichier-cadre'; document.body.appendChild(f); return 1;")
+        let framed = await until(8) { DownloadManager.shared.items.contains { $0.filename == "cadre.txt" && $0.state == .finished } }
+        check("Téléchargement : fichier « attachment » demandé par un cadre caché", framed,
+              DownloadManager.shared.items.map { "\($0.filename) \($0.state)" }.joined(separator: ", "))
+        let tabsBefore = space.tabs.count
+        // As a user's click would (simulated clicks need the window in front): a new tab for the file.
+        _ = try? await page.webView?.evaluateJavaScript("window.open('/fichier-lien'); 1")
+        let linked = await until(8) { DownloadManager.shared.items.contains { $0.filename == "lien.txt" && $0.state == .finished } }
+        await sleep(0.5)
+        let done = DownloadManager.shared.items.first { $0.filename == "lien.txt" }
+        check("Téléchargement : lien _blank vers un fichier → téléchargé, onglet vide refermé, taille connue",
+              linked && space.tabs.count == tabsBefore && done?.receivedBytes == Int64(body.utf8.count),
+              "onglets \(tabsBefore) → \(space.tabs.count) · \(done?.finishedText ?? "aucun") · " + DownloadManager.shared.items.map { "\($0.filename) \($0.state)" }.joined(separator: ", "))
+        for item in DownloadManager.shared.items where ["cadre.txt", "lien.txt"].contains(item.filename) { DownloadManager.shared.cancel(item) }
+        DownloadManager.shared.clearFinished()
 
         // Links to other apps.
         check("Liens vers d'autres apps : smb:// refusé", ExternalURLPolicy.decide(scheme: "smb", userClick: true, fromMainFrame: true) == .refuse)
