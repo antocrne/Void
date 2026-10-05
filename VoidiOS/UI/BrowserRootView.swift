@@ -9,6 +9,8 @@ struct BrowserRootView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sheet: BrowserSheet?
+    /// iPhone: the tabs panel over the page (see `TabsDrawer`).
+    @State private var tabsShown = false
 
     private var browser: BrowserModel { windows.active }
     private var compact: Bool { sizeClass == .compact }
@@ -25,6 +27,18 @@ struct BrowserRootView: View {
             // The page keeps its size when the keyboard comes up: WebKit scrolls the field into view.
             .ignoresSafeArea(.keyboard)
 
+            if compact, tabsShown {
+                Theme.scrim
+                    .ignoresSafeArea()
+                    .onTapGesture { tabsShown = false }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                    .zIndex(4)
+                TabsDrawer { tabsShown = false }
+                    .transition(.move(edge: .bottom))
+                    .zIndex(5)
+            }
+
             if let request = browser.commandBar {
                 CommandBarOverlay(request: request)
                     .id(request.id)
@@ -35,15 +49,10 @@ struct BrowserRootView: View {
         .environment(browser)
         .tint(Theme.accent)
         .animation(Theme.quick, value: browser.commandBar)
+        .animation(Theme.spring, value: tabsShown)
         .sheet(item: $sheet) { sheet in
             Group {
                 switch sheet {
-                case .tabs:
-                    TabsPanel(inSheet: true) { self.sheet = nil }
-                        .background((browser.isPrivate ? Theme.privateChrome : Theme.chrome).ignoresSafeArea())
-                        .privateChrome(browser.isPrivate)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
                 case .library:
                     LibraryView()
                 case .settings:
@@ -61,13 +70,13 @@ struct BrowserRootView: View {
             BrowserModel.shared.openWindowAction = { id in if id == WindowID.library { sheet = .library } }
             BrowserModel.shared.openSettingsAction = { sheet = .settings }
         }
-        .onChange(of: compact) { if !compact, sheet == .tabs { sheet = nil } }
+        .onChange(of: compact) { if !compact { tabsShown = false } }
     }
 
     private var compactLayout: some View {
         VStack(spacing: 0) {
             PageView()
-            BottomBar { sheet = .tabs }
+            BottomBar { tabsShown = true }
                 .privateChrome(browser.isPrivate)
         }
     }
@@ -96,6 +105,6 @@ struct BrowserRootView: View {
 }
 
 enum BrowserSheet: String, Identifiable {
-    case tabs, library, settings
+    case library, settings
     var id: String { rawValue }
 }

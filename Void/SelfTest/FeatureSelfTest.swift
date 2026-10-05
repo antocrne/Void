@@ -1595,12 +1595,12 @@ final class FeatureSelfTest {
         defer { settings.downloadFolderPath = savedFolder; try? fm.removeItem(at: folder) }
         let links = await htmlTab("<!doctype html><body style='margin:0'><a id=l href='data:application/octet-stream;base64,Vm9pZA==' style='font:40px system-ui;display:inline-block;margin:40px'>fichier</a></body>", in: space)
         var identifiers: [String] = []
+        var menuTitles: [String] = []
         var picked = false
-        var saveAsFollows = false
         VoidWebView.menuTestHook = { menu in
             identifiers = menu.items.compactMap(\.identifier?.rawValue)
+            menuTitles = menu.items.map(\.title)
             if let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile" }) {
-                saveAsFollows = menu.items.indices.contains(index + 1) && menu.items[index + 1].title == "Télécharger le fichier lié sous…"
                 menu.performActionForItem(at: index)
                 picked = true
             }
@@ -1623,7 +1623,7 @@ final class FeatureSelfTest {
         _ = await until(4) { item?.state == .finished }
         check("Clic droit → Télécharger le fichier lié : le téléchargement démarre et se termine", picked && item?.state == .finished,
               "menu=\(picked ? "ok" : identifiers.joined(separator: ",")) état=\(String(describing: item?.state))")
-        check("Clic droit sur un lien : « Télécharger le fichier lié sous… » juste après", saveAsFollows)
+        check("Clic droit sur un lien : plus de « …sous… » (le réglage décide)", !identifiers.isEmpty && !menuTitles.contains { $0.hasSuffix("sous…") }, menuTitles.joined(separator: ","))
         VoidWebView.menuTestHook = nil
         if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
         browser.close(links)

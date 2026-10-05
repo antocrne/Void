@@ -8,6 +8,9 @@ struct CommandBarOverlay: View {
     @State private var text = ""
     /// Recomputed when the text changes only: it queries the history database.
     @State private var suggestions: [Suggestion] = []
+    /// `TextSelection?` (iOS 18): set by code, the address is highlighted without the handles of a
+    /// selection made by hand, which landed outside the bar when the address was scrolled.
+    @State private var selection: Any?
     @FocusState private var focused: Bool
 
     private static let rowHeight: CGFloat = 50
@@ -61,7 +64,11 @@ struct CommandBarOverlay: View {
             guard !request.text.isEmpty else { return }
             // The current address is selected: typing replaces it.
             try? await Task.sleep(for: .milliseconds(120))
-            UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+            if #available(iOS 18, *) {
+                selection = TextSelection(range: text.startIndex..<text.endIndex)
+            } else {
+                UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+            }
         }
     }
 
@@ -70,7 +77,7 @@ struct CommandBarOverlay: View {
             Image(systemName: browser.isPrivate ? "eye.slash" : (request.mode == .newTab ? "plus.magnifyingglass" : "magnifyingglass"))
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Theme.accent)
-            TextField(placeholder, text: $text)
+            textField
                 .font(.system(size: 17))
                 .foregroundStyle(Theme.primaryText)
                 .keyboardType(.webSearch)
@@ -103,6 +110,15 @@ struct CommandBarOverlay: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 54)
+    }
+
+    @ViewBuilder
+    private var textField: some View {
+        if #available(iOS 18, *) {
+            TextField(placeholder, text: $text, selection: Binding(get: { selection as? TextSelection }, set: { selection = $0 }))
+        } else {
+            TextField(placeholder, text: $text)
+        }
     }
 
     private var placeholder: String {
