@@ -99,7 +99,7 @@ struct VoidCommands: Commands {
             Button("Masquer un élément…") { browser.hideElement() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
             Button("Activer/désactiver le bloqueur sur ce site") { browser.toggleAdBlockForCurrentSite() }
-            Button("Téléchargements") { browser.showLibrary(.downloads) }
+            Button("Téléchargements") { browser.showDownloads() }
                 .keyboardShortcut("l", modifiers: [.command, .option])
             Button(VoidNotes.shared.menuTitle("Envoyer la page vers Void Notes")) { browser.sendPageToNotes() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])

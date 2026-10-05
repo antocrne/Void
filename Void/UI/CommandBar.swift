@@ -87,7 +87,7 @@ enum SuggestionEngine {
         }
 
         let actions: [(keys: [String], symbol: String, title: String, run: () -> Void)] = [
-            (["télécharg", "telecharg", "download"], "arrow.down.circle", "Afficher les téléchargements", { browser.showLibrary(.downloads) }),
+            (["télécharg", "telecharg", "download"], "arrow.down.circle", "Afficher les téléchargements", { browser.showDownloads() }),
             (["histo", "history"], "clock", "Afficher l'historique", { browser.showLibrary(.history) }),
             (["favori", "bookmark", "signet"], "star", "Afficher les favoris", { browser.showLibrary(.bookmarks) }),
             (["réglage", "reglage", "setting", "préf", "pref"], "gearshape", "Ouvrir les réglages", { browser.openSettingsAction?() }),

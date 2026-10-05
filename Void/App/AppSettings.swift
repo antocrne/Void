@@ -184,7 +184,12 @@ final class AppSettings {
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
         onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
+        #if os(macOS)
+        // Mac: the "Enregistrer sous" panel for each file, unless turned off.
+        askDownloadLocation = d.object(forKey: "askDownloadLocation") as? Bool ?? true
+        #else
         askDownloadLocation = d.bool(forKey: "askDownloadLocation")
+        #endif
     }
 
     func searchURL(for query: String) -> URL? {

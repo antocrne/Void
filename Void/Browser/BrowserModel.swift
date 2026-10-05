@@ -77,6 +77,10 @@ final class BrowserModel {
     var toast: Toast?
     var passwordPrompt: PasswordSavePrompt?
     var librarySection: LibrarySection = .history
+    /// The downloads popover, next to the downloads button (⌥⌘L).
+    var showingDownloads = false
+    /// Downloads buttons on screen: none (sidebar hidden) → ⌥⌘L opens the Library window instead.
+    @ObservationIgnored var downloadsButtonsShown = 0
     /// First-launch personalization step shown over the main window (nil = hidden).
     var onboardingStep: Int?
 

@@ -247,18 +247,18 @@ private struct RenameSpaceForm: View {
     }
 }
 
-/// Opens the downloads history — or, in a private window, the list of that window's downloads,
-/// which is never added to the history.
+/// The downloads popover, like Safari's: the history — or, in a private window, that window's
+/// downloads, never added to the history.
 struct DownloadsButton: View {
     @Environment(BrowserModel.self) private var browser
-    @State private var showingPrivateList = false
     @State private var hovering = false
 
     var body: some View {
+        @Bindable var browser = browser
         let progress = DownloadManager.shared.progress(for: browser)
         let speed = DownloadManager.shared.speedText(for: browser)
         Button {
-            if browser.isPrivate { showingPrivateList = true } else { browser.showLibrary(.downloads) }
+            browser.showingDownloads.toggle()
         } label: {
             Group {
                 if let progress {
@@ -270,15 +270,20 @@ struct DownloadsButton: View {
                 }
             }
             .frame(width: 26, height: 26)
-            .background(RoundedRectangle(cornerRadius: 7).fill(hovering ? Theme.hover : .clear))
+            .background(RoundedRectangle(cornerRadius: 7).fill(hovering || browser.showingDownloads ? Theme.hover : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Téléchargements (⌥⌘L)" + (speed.map { " · \($0)" } ?? ""))
         .onHover { hovering = $0 }
         .animation(Theme.quick, value: hovering)
-        .popover(isPresented: $showingPrivateList, arrowEdge: .top) {
-            PrivateDownloadsList(browser: browser)
+        .onAppear { browser.downloadsButtonsShown += 1 }
+        .onDisappear {
+            browser.downloadsButtonsShown -= 1
+            if browser.downloadsButtonsShown == 0 { browser.showingDownloads = false }
+        }
+        .popover(isPresented: $browser.showingDownloads, arrowEdge: .top) {
+            DownloadsPopover(browser: browser)
         }
     }
 }
@@ -322,24 +327,57 @@ private struct DownloadProgressIcon: View {
     }
 }
 
-private struct PrivateDownloadsList: View {
+private struct DownloadsPopover: View {
     let browser: BrowserModel
 
     var body: some View {
-        let items = DownloadManager.shared.items(of: browser)
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Téléchargements de cette fenêtre").font(.headline)
+        let manager = DownloadManager.shared
+        let items = browser.isPrivate ? manager.items(of: browser) : manager.history
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(browser.isPrivate ? "Téléchargements de cette fenêtre" : "Téléchargements").font(.headline)
+                Spacer()
+                if !browser.isPrivate {
+                    Button("Effacer") { manager.clearFinished() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.accent)
+                        .disabled(!items.contains { $0.state != .running && $0.state != .paused })
+                }
+            }
+            .padding([.horizontal, .top], 14)
+            .padding(.bottom, 8)
             if items.isEmpty {
                 Text("Aucun téléchargement.").foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
             } else {
-                ForEach(items) { DownloadRow(item: $0) }
-            }
-            Text("Non ajoutés à l'historique des téléchargements. Les fichiers restent dans le dossier de téléchargement.")
-                .font(.caption).foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(items) { DownloadRow(item: $0) }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 360)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider().padding(.top, 8)
+            if browser.isPrivate {
+                Text("Non ajoutés à l'historique des téléchargements. Les fichiers restent dans le dossier de téléchargement.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(14)
+            } else {
+                Button("Tout afficher…") {
+                    browser.showingDownloads = false
+                    browser.showLibrary(.downloads)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
         }
-        .padding(14)
-        .frame(width: 320)
+        .frame(width: 340)
         .tint(Theme.accent)
     }
 }
