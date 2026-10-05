@@ -527,6 +527,10 @@ final class FeatureSelfTest {
     }
 
     func run() async {
+        // Downloads go straight to the test folder: no "Enregistrer sous" panel waiting for a click.
+        let savedAsk = AppSettings.shared.askDownloadLocation
+        AppSettings.shared.askDownloadLocation = false
+        defer { AppSettings.shared.askDownloadLocation = savedAsk }
         if let only = UserDefaults.standard.string(forKey: "VoidSelfTestOnly") {
             let space = browser.addSpace(name: "Self-test", icon: "hammer")
             for name in only.split(separator: ",").map(String.init) {
@@ -1059,6 +1063,24 @@ final class FeatureSelfTest {
         let quarantined = item?.destination.flatMap { try? $0.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties } != nil
         check("Téléchargement : fichier en quarantaine (Gatekeeper le vérifiera)", item?.state == .finished && quarantined,
               "\(item?.destination?.lastPathComponent ?? "aucun fichier")")
+
+        // ⌥⌘L: the list in a popover next to the downloads button, not in a window.
+        let owner = tab.browser ?? browser
+        owner.window?.makeKeyAndOrderFront(nil)
+        await sleep(0.3)
+        owner.showDownloads()
+        let popover = await until(3) { NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Popover") } }
+        let popoverWindow = NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
+        if let view = popoverWindow?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: NSTemporaryDirectory() + "void-downloads-popover.png"))
+        }
+        check("Téléchargements : ⌥⌘L ouvre la liste en popover à côté du bouton", owner.showingDownloads && popover,
+              "boutons \(owner.downloadsButtonsShown) · fenêtres \(NSApp.windows.filter(\.isVisible).map { String(describing: type(of: $0)) })")
+        owner.showDownloads()
+        let closed = await until(3) { !NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Popover") } }
+        check("Téléchargements : ⌥⌘L de nouveau referme le popover", !owner.showingDownloads && closed)
+
         if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
 
         // As Google Drive does: a hidden frame whose answer is an attachment the browser could show

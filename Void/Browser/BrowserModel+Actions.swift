@@ -128,6 +128,11 @@ extension BrowserModel {
         (openWindowAction ?? BrowserModel.shared.openWindowAction)?(WindowID.library)
     }
 
+    /// The popover next to the downloads button, or the Library window when no button is on screen.
+    func showDownloads() {
+        if downloadsButtonsShown > 0 { showingDownloads.toggle() } else { showLibrary(.downloads) }
+    }
+
     func toggleSidebar() {
         let settings = AppSettings.shared
         withAnimation(Theme.spring) {

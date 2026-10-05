@@ -213,6 +213,8 @@ private struct EdgeRevealSidebar: View {
     private func scheduleHide() {
         hideWork?.cancel()
         let work = DispatchWorkItem {
+            // The downloads popover hangs off the sidebar: stay until it closes.
+            if browser.showingDownloads { scheduleHide(); return }
             // Still over the sidebar (e.g. a context menu took the pointer): stay.
             if let window = browser.window, window.mouseLocationOutsideOfEventStream.x <= width + 4,
                window.frame.contains(NSEvent.mouseLocation) {
