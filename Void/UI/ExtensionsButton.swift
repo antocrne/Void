@@ -117,7 +117,7 @@ private struct ExtensionsMenu: View {
     }
 }
 
-/// A pinned extension in the chrome: its icon and badge; a click runs its action (as its line in
+/// A pinned extension in the chrome: its icon, in one color like the chrome's symbols, and badge; a click runs its action (as its line in
 /// 🧩's menu does), and its popup hangs from it.
 @available(macOS 15.4, *)
 private struct PinnedExtensionButton: View {
@@ -133,7 +133,7 @@ private struct PinnedExtensionButton: View {
         Button { manager.performAction(context, in: browser) } label: {
             Group {
                 if let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16)) {
-                    Image(nsImage: icon).resizable().interpolation(.high).frame(width: 16, height: 16)
+                    Image(nsImage: icon.voidGlyph(side: 15)).renderingMode(.template).foregroundStyle(Theme.secondaryText)
                 } else {
                     Image(systemName: "puzzlepiece").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.secondaryText)
                 }
@@ -285,5 +285,40 @@ extension NSImage {
             self.draw(in: rect)
             return true
         }
+    }
+
+    /// The icon as a one-color glyph, like the chrome's symbols (a template, tinted where shown):
+    /// its dark parts ink, its light parts clear, so a logo on a colored square keeps its drawing.
+    /// An icon with nothing dark (drawn in white for dark bars) gives its shape.
+    func voidGlyph(side: CGFloat) -> NSImage {
+        let px = Int(side * 2)
+        guard let context = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: px * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return self }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+        NSGraphicsContext.restoreGraphicsState()
+
+        let pixels = data.bindMemory(to: UInt8.self, capacity: px * px * 4)
+        // Premultiplied: alpha less luminance is the ink, alpha × darkness.
+        var ink = [Double](repeating: 0, count: px * px)
+        for i in 0..<px * px {
+            let r = Double(pixels[i * 4]), g = Double(pixels[i * 4 + 1]), b = Double(pixels[i * 4 + 2])
+            ink[i] = max(0, Double(pixels[i * 4 + 3]) - (0.2126 * r + 0.7152 * g + 0.0722 * b))
+        }
+        let darkest = ink.max() ?? 0
+        let silhouette = darkest < 64
+        for i in 0..<px * px {
+            // The darkest part, full ink; the half-tones pushed toward it (gradients read flat).
+            let alpha = silhouette ? Double(pixels[i * 4 + 3]) : 255 * (ink[i] / darkest).squareRoot()
+            pixels[i * 4] = 0; pixels[i * 4 + 1] = 0; pixels[i * 4 + 2] = 0
+            pixels[i * 4 + 3] = UInt8(min(255, alpha.rounded()))
+        }
+        guard let glyph = context.makeImage() else { return self }
+        let image = NSImage(cgImage: glyph, size: NSSize(width: side, height: side))
+        image.isTemplate = true
+        return image
     }
 }
