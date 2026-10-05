@@ -166,32 +166,69 @@ private struct DownloadRow: View {
     let preview: (URL) -> Void
 
     var body: some View {
+        let manager = DownloadManager.shared
         HStack(spacing: 12) {
             Image(systemName: "doc").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.filename).lineLimit(1)
                 switch item.state {
-                case .running:
-                    if item.totalBytes > 0 { ProgressView(value: item.progress) } else { ProgressView().progressViewStyle(.linear) }
-                    Text(item.statusText).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                case .running, .paused:
+                    Group {
+                        if item.totalBytes > 0 { ProgressView(value: item.progress) } else { ProgressView().progressViewStyle(.linear) }
+                    }
+                    .opacity(item.state == .paused ? 0.5 : 1)
+                    Text(item.state == .paused ? item.pausedText : item.statusText).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 case .finished: Text(item.finishedText).font(.caption).foregroundStyle(.secondary)
                 case .cancelled: Text("Annulé").font(.caption).foregroundStyle(.secondary)
-                case .failed(let reason): Text(reason).font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
+                case .failed(let reason):
+                    Text(item.canResume ? "Interrompu · \(reason)" : reason).font(.caption).foregroundStyle(Theme.danger).lineLimit(2)
                 }
             }
             Spacer()
-            if item.state == .running {
-                Button("Annuler") { DownloadManager.shared.cancel(item) }
-                    .buttonStyle(.borderless)
-            } else if item.state == .finished, let file = item.destination {
-                ShareLink(item: file) { Image(systemName: "square.and.arrow.up") }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Partager")
+            switch item.state {
+            case .running, .paused:
+                if item.state == .paused {
+                    Button { manager.resume(item) } label: { Image(systemName: "play.circle").font(.title3) }
+                        .disabled(!item.canResume)
+                        .accessibilityLabel("Reprendre")
+                } else if item.canPause {
+                    Button { manager.pause(item) } label: { Image(systemName: "pause.circle").font(.title3) }
+                        .accessibilityLabel("Mettre en pause")
+                }
+                Button { manager.cancel(item) } label: { Image(systemName: "xmark.circle").font(.title3) }
+                    .accessibilityLabel("Annuler")
+            default:
+                if item.canResume {
+                    Button { manager.resume(item) } label: { Image(systemName: "arrow.clockwise.circle").font(.title3) }
+                        .accessibilityLabel("Reprendre")
+                } else if item.state == .finished, let file = item.destination {
+                    ShareLink(item: file) { Image(systemName: "square.and.arrow.up") }
+                        .accessibilityLabel("Partager")
+                }
             }
         }
+        .buttonStyle(.borderless)
         .contentShape(Rectangle())
         .onTapGesture {
             if item.state == .finished, let file = item.destination, FileManager.default.fileExists(atPath: file.path) { preview(file) }
+        }
+        .contextMenu {
+            switch item.state {
+            case .running, .paused:
+                if item.state == .paused {
+                    Button { manager.resume(item) } label: { Label("Reprendre", systemImage: "play") }.disabled(!item.canResume)
+                } else if item.canPause {
+                    Button { manager.pause(item) } label: { Label("Mettre en pause", systemImage: "pause") }
+                }
+                Button(role: .destructive) { manager.cancel(item) } label: { Label("Annuler", systemImage: "xmark") }
+            case .finished:
+                if let file = item.destination {
+                    Button { manager.move(item) } label: { Label("Enregistrer dans…", systemImage: "folder") }
+                    ShareLink(item: file) { Label("Partager…", systemImage: "square.and.arrow.up") }
+                }
+            default:
+                if item.canResume { Button { manager.resume(item) } label: { Label("Reprendre", systemImage: "arrow.clockwise") } }
+            }
         }
     }
 }

@@ -1088,8 +1088,12 @@ final class FeatureSelfTest {
         check("Téléchargement : lien _blank vers un fichier → téléchargé, onglet vide refermé, taille connue",
               linked && space.tabs.count == tabsBefore && done?.receivedBytes == Int64(body.utf8.count),
               "onglets \(tabsBefore) → \(space.tabs.count) · \(done?.finishedText ?? "aucun") · " + DownloadManager.shared.items.map { "\($0.filename) \($0.state)" }.joined(separator: ", "))
+        check("Téléchargement : pas de pause proposée sans reprise possible (ni plages d'octets ni ETag)",
+              done?.canPause == false, "canPause=\(String(describing: done?.canPause))")
         for item in DownloadManager.shared.items where ["cadre.txt", "lien.txt"].contains(item.filename) { DownloadManager.shared.cancel(item) }
         DownloadManager.shared.clearFinished()
+
+        await testDownloadPause(in: space, folder: folder)
 
         // Links to other apps.
         check("Liens vers d'autres apps : smb:// refusé", ExternalURLPolicy.decide(scheme: "smb", userClick: true, fromMainFrame: true) == .refuse)
@@ -1147,6 +1151,94 @@ final class FeatureSelfTest {
     // MARK: - Stability
 
     /// A local HTTP server answering each request with `respond(request)` (a whole response).
+    /// Pause, resume, cancel while paused: a file sent slowly by a server that takes byte ranges.
+    private func testDownloadPause(in space: Space, folder: URL) async {
+        let size = 3 * 1024 * 1024
+        let content = Data((0..<size).map { UInt8($0 % 251) })
+        var ranges: [String] = []
+        let listener: NWListener? = {
+            for port: UInt16 in [8772, 18772, 28772] {
+                guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!) else { continue }
+                return l
+            }
+            return nil
+        }()
+        guard let listener else { check("Pause : serveur de test", false); return }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .main)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
+                let request = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
+                var start = 0
+                if let line = request.components(separatedBy: "\r\n").first(where: { $0.lowercased().hasPrefix("range: bytes=") }) {
+                    start = Int(line.dropFirst("range: bytes=".count).split(separator: "-").first ?? "") ?? 0
+                    MainActor.assumeIsolated { ranges.append(String(start)) }
+                }
+                let head = (start > 0 ? "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes \(start)-\(size - 1)/\(size)\r\n" : "HTTP/1.1 200 OK\r\n")
+                    + "Content-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"pause.bin\"\r\n"
+                    + "Accept-Ranges: bytes\r\nETag: \"v1\"\r\nContent-Length: \(size - start)\r\nConnection: close\r\n\r\n"
+                // ~1,5 Mo/s: long enough to pause in the middle.
+                func send(from offset: Int) {
+                    guard offset < size else { connection.send(content: nil, isComplete: true, completion: .contentProcessed { _ in connection.cancel() }); return }
+                    let end = min(size, offset + 48 * 1024)
+                    connection.send(content: content.subdata(in: offset..<end), completion: .contentProcessed { error in
+                        guard error == nil else { connection.cancel(); return }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { send(from: end) }
+                    })
+                }
+                connection.send(content: Data(head.utf8), completion: .contentProcessed { _ in send(from: start) })
+            }
+        }
+        listener.start(queue: .main)
+        defer { listener.cancel() }
+        await sleep(0.3)
+        guard let port = listener.port?.rawValue,
+              let tab = space.tabs.first(where: { $0.webView != nil }) ?? space.tabs.first else { check("Pause : serveur de test", false); return }
+        let source = URL(string: "http://localhost:\(port)/pause.bin")!
+        let manager = DownloadManager.shared
+
+        func start() async -> DownloadItem? {
+            let before = Set(manager.items.map(\.id))
+            tab.webView?.startDownload(using: URLRequest(url: source)) { manager.adopt($0, from: source, in: tab.browser) }
+            _ = await until(4) { manager.items.contains { !before.contains($0.id) && $0.receivedBytes > 300_000 } }
+            return manager.items.first { !before.contains($0.id) }
+        }
+
+        guard let item = await start() else { check("Pause : téléchargement lancé", false); return }
+        check("Pause : proposée quand le serveur accepte les plages d'octets", item.canPause, "canPause=\(item.canPause)")
+        manager.pause(item)
+        _ = await until(3) { item.resumeData != nil }
+        let partial = item.destination.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
+        let atPause = item.receivedBytes
+        await sleep(0.6)
+        check("Pause : transfert arrêté, fichier partiel conservé",
+              item.state == .paused && item.canResume && partial > 0 && partial < size && item.receivedBytes == atPause && item.pausedText.hasPrefix("En pause"),
+              "état \(item.state) · fichier \(partial) o · reçus \(atPause) → \(item.receivedBytes) · \(item.pausedText)")
+        manager.resume(item)
+        let finished = await until(10) { item.state == .finished }
+        let file = item.destination.flatMap { try? Data(contentsOf: $0) }
+        check("Pause : reprise là où elle s'était arrêtée, fichier complet et intact",
+              finished && file == content && ranges.contains { (Int($0) ?? 0) > 0 },
+              "état \(item.state) · \(file?.count ?? 0)/\(size) o · plages demandées \(ranges)")
+        manager.cancel(item)
+        manager.clearFinished()
+
+        // Cancel while paused: no truncated file left behind.
+        if let second = await start() {
+            manager.pause(second)
+            _ = await until(3) { second.resumeData != nil }
+            let path = second.destination?.path ?? ""
+            let existedPaused = FileManager.default.fileExists(atPath: path)
+            manager.cancel(second)
+            await sleep(0.3)
+            let unfinished = UserDefaults.standard.stringArray(forKey: "unfinishedDownloads") ?? []
+            check("Pause : annuler supprime le fichier incomplet", existedPaused && !FileManager.default.fileExists(atPath: path) && !unfinished.contains(path),
+                  "en pause : \(existedPaused) · après : \(FileManager.default.fileExists(atPath: path))")
+            manager.clearFinished()
+        } else {
+            check("Pause : second téléchargement lancé", false)
+        }
+    }
+
     private func startServer(ports: [UInt16], respond: @escaping @MainActor (String) -> String) async -> (NWListener, UInt16)? {
         for candidate in ports {
             guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: candidate)!) else { continue }
@@ -1318,9 +1410,11 @@ final class FeatureSelfTest {
         let links = await htmlTab("<!doctype html><body style='margin:0'><a id=l href='data:application/octet-stream;base64,Vm9pZA==' style='font:40px system-ui;display:inline-block;margin:40px'>fichier</a></body>", in: space)
         var identifiers: [String] = []
         var picked = false
+        var saveAsFollows = false
         VoidWebView.menuTestHook = { menu in
             identifiers = menu.items.compactMap(\.identifier?.rawValue)
             if let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile" }) {
+                saveAsFollows = menu.items.indices.contains(index + 1) && menu.items[index + 1].title == "Télécharger le fichier lié sous…"
                 menu.performActionForItem(at: index)
                 picked = true
             }
@@ -1343,6 +1437,7 @@ final class FeatureSelfTest {
         _ = await until(4) { item?.state == .finished }
         check("Clic droit → Télécharger le fichier lié : le téléchargement démarre et se termine", picked && item?.state == .finished,
               "menu=\(picked ? "ok" : identifiers.joined(separator: ",")) état=\(String(describing: item?.state))")
+        check("Clic droit sur un lien : « Télécharger le fichier lié sous… » juste après", saveAsFollows)
         VoidWebView.menuTestHook = nil
         if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
         browser.close(links)

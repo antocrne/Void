@@ -104,6 +104,16 @@ final class VoidWebView: WKWebView {
             menu.insertItem(.separator(), at: 1)
         }
 
+        // "…sous…": asks where to save, whatever Settings → Téléchargements says.
+        for (identifier, title, url) in [("WKMenuItemIdentifierDownloadLinkedFile", "Télécharger le fichier lié sous…", contextLinkURL),
+                                         ("WKMenuItemIdentifierDownloadImage", "Enregistrer l'image sous…", contextImageURL)] {
+            guard let url, let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == identifier }) else { continue }
+            let item = NSMenuItem(title: title, action: #selector(downloadAs(_:)), keyEquivalent: "")
+            item.representedObject = url
+            item.target = self
+            menu.insertItem(item, at: index + 1)
+        }
+
         if #available(macOS 15.4, *), let tab, let manager = ExtensionManager.running {
             let items = manager.menuItems(for: tab)
             if !items.isEmpty {
@@ -152,6 +162,20 @@ final class VoidWebView: WKWebView {
     @objc private func openLinkPrivately(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         MainActor.assumeIsolated { _ = BrowserWindows.shared.openPrivateWindow(url: url) }
+    }
+
+    @objc private func downloadAs(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        MainActor.assumeIsolated {
+            var request = URLRequest(url: url)
+            if let page = self.url, ["http", "https"].contains(page.scheme?.lowercased() ?? "") {
+                request.setValue(page.absoluteString, forHTTPHeaderField: "Referer")
+            }
+            let browser = tab?.browser
+            startDownload(using: request) { download in
+                DownloadManager.shared.adopt(download, from: url, in: browser, askingWhere: true)
+            }
+        }
     }
 
     @objc private func togglePiP() {

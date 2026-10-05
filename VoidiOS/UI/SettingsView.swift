@@ -348,10 +348,17 @@ private struct PasswordsSettings: View {
 // MARK: - Downloads
 
 private struct DownloadsSettings: View {
+    @Environment(AppSettings.self) private var settings
     @State private var allowed = DownloadPermission.allowedHosts
 
     var body: some View {
+        @Bindable var settings = settings
         Form {
+            Section {
+                Toggle("Demander où enregistrer", isOn: $settings.askDownloadLocation)
+            } footer: {
+                Text("Une fois le fichier téléchargé, Void propose de le ranger ailleurs dans Fichiers (iCloud Drive, un autre dossier…). Sinon il reste dans le dossier Void ; un appui long sur un téléchargement → « Enregistrer dans… » le range ailleurs.")
+            }
             Section {
                 if allowed.isEmpty { Text("Aucun site").foregroundStyle(.secondary) }
                 ForEach(allowed, id: \.self) { host in
@@ -366,7 +373,7 @@ private struct DownloadsSettings: View {
             } header: {
                 Text("Sites autorisés à télécharger")
             } footer: {
-                Text("Chaque site demande la première fois. Les fichiers sont enregistrés dans le dossier Void de l'app Fichiers (Sur mon iPhone).")
+                Text("Chaque site demande la première fois.")
             }
             Section {
                 Button("Effacer la liste des téléchargements") { DownloadManager.shared.clearFinished() }

@@ -236,6 +236,7 @@ private struct DownloadsSettings: View {
     @State private var allowedHosts = DownloadPermission.allowedHosts
 
     var body: some View {
+        @Bindable var settings = settings
         let folder = settings.downloadFolder
         Form {
             Section {
@@ -252,6 +253,9 @@ private struct DownloadsSettings: View {
                         Button("Revenir au dossier Téléchargements") { settings.downloadFolderPath = nil }
                     }
                 }
+                Toggle("Demander où enregistrer chaque fichier", isOn: $settings.askDownloadLocation)
+                Text("Pour un seul fichier : clic droit sur un lien → « Télécharger le fichier lié sous… ». Un fichier déjà téléchargé se range ailleurs par un clic droit dans la liste des téléchargements → « Déplacer vers… ».")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Sites autorisés à télécharger") {
                 if allowedHosts.isEmpty {
