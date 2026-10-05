@@ -59,6 +59,9 @@ final class Tab: Identifiable {
     @ObservationIgnored var hasUserInput = false
     /// Created by the page (window.open / target=_blank): keeps its opener link, never auto-slept.
     @ObservationIgnored var openedByPage = false
+    /// Site of the page that opened this tab: a tab opened just to fetch a file asks for the
+    /// download permission of that site, not of the file's server (drive.usercontent.google.com…).
+    @ObservationIgnored var openerHost: String?
     /// Back/forward list saved by an automatic sleep, restored at wake-up.
     @ObservationIgnored private var savedInteractionState: Any?
     /// Scroll position read just before an automatic sleep, put back after the wake-up load

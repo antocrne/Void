@@ -71,10 +71,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         var download = !navigationResponse.canShowMIMEType
-        if navigationResponse.isForMainFrame,
-           let http = navigationResponse.response as? HTTPURLResponse,
+        // "attachment" in any frame: Google Drive and others download through a hidden frame,
+        // where a PDF or an image would otherwise be shown to nobody.
+        if let http = navigationResponse.response as? HTTPURLResponse,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.lowercased().hasPrefix("attachment") {
+           disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment") {
             download = true
         }
         guard download else { return .allow }
@@ -84,7 +85,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     /// Asked once per site (DownloadPermission). A refused download leaves no empty tab behind.
     private func mayDownload(_ url: URL?, file: String? = nil, in webView: WKWebView) async -> Bool {
-        let host = (webView.url?.host() ?? url?.host() ?? "").voidNormalizedHost
+        // A tab opened for the file has no page yet: the site is the one that opened it.
+        let opener = webView.backForwardList.currentItem == nil ? tab?.openerHost : nil
+        let host = (opener ?? webView.url?.host() ?? url?.host() ?? "").voidNormalizedHost
         let file = file ?? url?.lastPathComponent
         let allowed = await DownloadPermission.request(host, file: file, in: browser)
         if !allowed {
@@ -102,6 +105,19 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         DownloadManager.shared.adopt(download, from: navigationResponse.response.url, in: browser)
         closeIfEmpty(webView)
+    }
+
+    /// Camera and microphone (video calls), asked once per site.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+        guard isShown else { return .deny }
+        let host = origin.host.voidNormalizedHost
+        let isPrivate = browser.isPrivate
+        return await MediaPermission.decide(host: host, type: type, in: browser) {
+            await Dialogs.confirm(title: "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?",
+                                  message: "Jusqu'à ce que vous quittiez Void" + (isPrivate ? " ou la navigation privée." : "."),
+                                  confirm: "Autoriser", cancel: "Refuser") ?? false
+        }
     }
 
     /// A link opened in a new tab that turned out to be a download leaves an empty tab behind.
@@ -203,6 +219,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let background = flags.contains(.command) && !flags.contains(.shift)
         let newTab = browser.openTab(url: nil, background: background, after: tab, popupConfiguration: configuration)
         newTab.url = navigationAction.request.url
+        newTab.openerHost = webView.url?.host()
         return newTab.ensureWebView()
     }
 

@@ -311,6 +311,11 @@ private struct TabContextMenu: View {
         Button(role: .destructive) { browser.requestClose(tab, force: true) } label: {
             Label(tab.isPinned ? "Fermer (désépingler)" : "Fermer l'onglet", systemImage: "xmark")
         }
+        if !browser.otherTabs(than: tab).isEmpty {
+            Button(role: .destructive) { browser.closeOtherTabs(than: tab) } label: {
+                Label(tab.isPinned ? "Fermer les onglets non épinglés" : "Fermer les autres onglets", systemImage: "xmark.square")
+            }
+        }
     }
 
     private func move(_ tab: Tab, to space: Space) {

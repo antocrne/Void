@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// iPhone: the only chrome on screen. Back, forward, the address, the tabs and a menu.
+/// iPhone: the only chrome on screen. Back, forward, the address, a new tab, the tabs and a menu.
 struct BottomBar: View {
     let showTabs: () -> Void
     @Environment(BrowserModel.self) private var browser
@@ -12,6 +12,7 @@ struct BottomBar: View {
             ChromeButton(symbol: "chevron.right", help: "Suivant", disabled: !(tab?.canGoForward ?? false)) { browser.goForward() }
             AddressPill()
                 .padding(.horizontal, 4)
+            ChromeButton(symbol: "plus", help: browser.isPrivate ? "Nouvel onglet privé" : "Nouvel onglet") { browser.showCommandBar(.newTab) }
             TabsButton(action: showTabs)
             PageMenu()
         }
@@ -45,7 +46,7 @@ struct TopBar: View {
 }
 
 /// The single address field: shows the current site; a tap opens the address bar. A swipe across
-/// it goes to the next or previous tab.
+/// it goes to the next or previous tab; past the last one, to a new tab (as in Safari).
 struct AddressPill: View {
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
@@ -84,7 +85,13 @@ struct AddressPill: View {
         .onTapGesture { browser.showCommandBar(.currentTab) }
         .gesture(DragGesture(minimumDistance: 24).onEnded { value in
             guard abs(value.translation.width) > 60, abs(value.translation.width) > 2 * abs(value.translation.height) else { return }
-            browser.selectAdjacentTab(value.translation.width < 0 ? 1 : -1)
+            let forward = value.translation.width < 0
+            let tabs = browser.currentSpace.allTabs
+            if forward, tab == nil || tab === tabs.last {
+                browser.showCommandBar(.newTab)
+            } else {
+                browser.selectAdjacentTab(forward ? 1 : -1)
+            }
         })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Adresse")
@@ -143,8 +150,11 @@ private struct TabsButton: View {
             if !browser.isPrivate {
                 Button { BrowserWindows.shared.openPrivateWindow() } label: { Label("Navigation privée", systemImage: "eye.slash") }
             }
-            if browser.selectedTab != nil {
+            if let tab = browser.selectedTab {
                 Button(role: .destructive) { browser.closeCurrentTab() } label: { Label("Fermer cet onglet", systemImage: "xmark") }
+                if !browser.otherTabs(than: tab).isEmpty {
+                    Button(role: .destructive) { browser.closeOtherTabs(than: tab) } label: { Label("Fermer les autres onglets", systemImage: "xmark.square") }
+                }
             }
         }
         .accessibilityLabel("Onglets")

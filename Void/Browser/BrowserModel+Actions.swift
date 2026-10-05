@@ -152,6 +152,24 @@ extension BrowserModel {
         }
     }
 
+    /// The tabs of `tab`'s space that `closeOtherTabs` would close (pinned tabs stay).
+    func otherTabs(than tab: Tab) -> [Tab] { tab.space?.tabs.filter { $0 !== tab } ?? [] }
+
+    /// "Fermer les autres onglets": only `tab` stays, shown, with the space's pinned tabs. The
+    /// closed ones can be reopened one by one (⌘⇧T).
+    func closeOtherTabs(than tab: Tab) {
+        let others = otherTabs(than: tab)
+        guard !others.isEmpty else { return }
+        select(tab)
+        others.forEach { close($0, force: true) }
+        #if os(macOS)
+        let reopen = " · ⌘⇧T pour en rouvrir"
+        #else
+        let reopen = ""
+        #endif
+        showToast("xmark.square", (others.count == 1 ? "1 onglet fermé" : "\(others.count) onglets fermés") + reopen)
+    }
+
     #if os(macOS)
     /// Closes the key window when it isn't the browser window (⌘W in Settings/Library).
     func closeTabOrWindow() {

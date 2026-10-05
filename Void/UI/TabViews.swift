@@ -66,6 +66,9 @@ struct TabContextMenu: View {
         }
         Divider()
         Button(tab.isPinned ? "Fermer (désépingler)" : "Fermer l'onglet") { browser.requestClose(tab, force: true) }
+        if !browser.otherTabs(than: tab).isEmpty {
+            Button(tab.isPinned ? "Fermer les onglets non épinglés" : "Fermer les autres onglets") { browser.closeOtherTabs(than: tab) }
+        }
     }
 
     private func move(_ tab: Tab, to space: Space) {

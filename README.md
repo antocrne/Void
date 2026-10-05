@@ -166,7 +166,7 @@ xcodebuild -project Void.xcodeproj -scheme "Void iOS" -destination "platform=iOS
 
 Ce qui change par rapport au Mac :
 
-- **iPhone** : la page, et une seule barre en bas — précédent, suivant, l'adresse (un toucher ouvre la barre d'adresse ; un balayage dessus passe à l'onglet voisin), le nombre d'onglets, et un menu ··· (partager, favori, épingler, mode lecture, rechercher dans la page, bloqueur, masquer un élément, Picture in Picture, Void Notes, imprimer, bibliothèque, réglages).
+- **iPhone** : la page, qui monte sous la barre d'état comme dans Safari, et une seule barre en bas — précédent, suivant, l'adresse (un toucher ouvre la barre d'adresse ; un balayage dessus passe à l'onglet voisin, et après le dernier ouvre un nouvel onglet), ＋ (nouvel onglet), le nombre d'onglets, et un menu ··· (partager, favori, épingler, mode lecture, rechercher dans la page, bloqueur, masquer un élément, Picture in Picture, Void Notes, imprimer, bibliothèque, réglages).
 - **Onglets et espaces** : la barre latérale du Mac devient une feuille (espaces en haut, épinglés en grille, onglets en liste ; balayer un onglet vers la gauche le ferme, le maintenir puis le faire glisser le déplace, toucher longuement ouvre son menu). Sur **iPad**, c'est une vraie barre latérale (⌃⌘S), avec une barre fine au-dessus de la page.
 - **Navigation privée** : pas de fenêtre à part, mais un mode (bouton œil, ou menu ···) avec son propre stockage en mémoire, détruit par « Tout fermer » ou en le quittant sans onglet.
 - **Liens** : toucher longuement un lien → « Ouvrir dans un nouvel onglet », « …en arrière-plan », « …en navigation privée », puis les actions d'iOS.
@@ -223,7 +223,7 @@ Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite,
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé, et parfois l'agrandissement du popup d'extension à la poignée (le test déplace le vrai pointeur) ; ce n'est pas une régression. Le cas « Repli natif WebKit seul » du test PiP échoue toujours : ce niveau n'est pas disponible sur ce WebKit (voir le compte rendu PiP).
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux,notes,nouvel-onglet,conversion` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ,reveil-extensions` (`proton-champ` : Proton Pass installé et connecté ; `reveil-extensions` attend que WebKit décharge les arrière-plans, quelques minutes).
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux,notes,nouvel-onglet,conversion,visio,fermer-autres` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ,reveil-extensions` (`proton-champ` : Proton Pass installé et connecté ; `reveil-extensions` attend que WebKit décharge les arrière-plans, quelques minutes).
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

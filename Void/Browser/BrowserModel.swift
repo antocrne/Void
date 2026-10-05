@@ -79,6 +79,8 @@ final class BrowserModel {
 
     #if os(macOS)
     @ObservationIgnored weak var window: NSWindow?
+    /// The window is (going) full screen: its traffic lights are gone, the bars take their place.
+    var isFullScreen = false
     #endif
     @ObservationIgnored var openWindowAction: ((String) -> Void)?
     @ObservationIgnored var openSettingsAction: (() -> Void)?
