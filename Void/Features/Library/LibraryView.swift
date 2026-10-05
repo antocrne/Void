@@ -124,31 +124,68 @@ struct DownloadRow: View {
     let item: DownloadItem
 
     var body: some View {
+        let manager = DownloadManager.shared
         HStack(spacing: 10) {
             Image(systemName: "doc").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.filename).lineLimit(1)
                 switch item.state {
-                case .running:
+                case .running, .paused:
                     Group {
                         if item.totalBytes > 0 { ProgressView(value: item.progress) } else { ProgressView().progressViewStyle(.linear) }
                     }
                     .controlSize(.small)
-                    Text(item.statusText).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    .opacity(item.state == .paused ? 0.5 : 1)
+                    Text(item.state == .paused ? item.pausedText : item.statusText).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 case .finished: Text(item.finishedText).font(.caption).foregroundStyle(.secondary)
                 case .cancelled: Text("Annulé").font(.caption).foregroundStyle(.secondary)
-                case .failed(let reason): Text(reason).font(.caption).foregroundStyle(Theme.danger)
+                case .failed(let reason):
+                    Text(item.canResume ? "Interrompu · \(reason)" : reason).font(.caption).foregroundStyle(Theme.danger)
                 }
             }
             Spacer()
-            if item.state == .running {
-                Button("Annuler") { DownloadManager.shared.cancel(item) }
-            } else if item.destination != nil {
-                Button { DownloadManager.shared.reveal(item) } label: { Image(systemName: "magnifyingglass") }
-                    .help("Afficher dans le Finder")
+            switch item.state {
+            case .running, .paused:
+                if item.state == .paused {
+                    Button { manager.resume(item) } label: { Image(systemName: "play.circle") }
+                        .help("Reprendre")
+                        .disabled(!item.canResume)
+                } else if item.canPause {
+                    Button { manager.pause(item) } label: { Image(systemName: "pause.circle") }
+                        .help("Mettre en pause")
+                }
+                Button("Annuler") { manager.cancel(item) }
+            default:
+                if item.canResume {
+                    Button("Reprendre") { manager.resume(item) }
+                } else if item.state == .finished, item.destination != nil {
+                    Button { manager.reveal(item) } label: { Image(systemName: "magnifyingglass") }
+                        .help("Afficher dans le Finder")
+                }
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { DownloadManager.shared.open(item) }
+        .onTapGesture(count: 2) { manager.open(item) }
+        .contextMenu {
+            switch item.state {
+            case .running, .paused:
+                if item.state == .paused {
+                    Button("Reprendre") { manager.resume(item) }.disabled(!item.canResume)
+                } else if item.canPause {
+                    Button("Mettre en pause") { manager.pause(item) }
+                }
+                Button("Annuler") { manager.cancel(item) }
+            case .finished:
+                Button("Ouvrir") { manager.open(item) }
+                Button("Afficher dans le Finder") { manager.reveal(item) }
+                Button("Déplacer vers…") { manager.move(item) }
+            default:
+                if item.canResume { Button("Reprendre") { manager.resume(item) } }
+            }
+            if let source = item.sourceURL, ["http", "https"].contains(source.scheme?.lowercased() ?? "") {
+                Divider()
+                Button("Copier l'adresse du fichier") { Clipboard.copy(source.absoluteString) }
+            }
+        }
     }
 }

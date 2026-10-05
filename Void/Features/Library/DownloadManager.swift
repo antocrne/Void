@@ -2,12 +2,14 @@ import Foundation
 import WebKit
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import Observation
 
 @MainActor @Observable
 final class DownloadItem: Identifiable {
-    enum State: Equatable { case running, finished, failed(String), cancelled }
+    enum State: Equatable { case running, paused, finished, failed(String), cancelled }
 
     let id = UUID()
     var filename: String
@@ -21,6 +23,18 @@ final class DownloadItem: Identifiable {
     @ObservationIgnored weak var browser: BrowserModel?
     @ObservationIgnored var download: WKDownload?
     @ObservationIgnored var observation: NSKeyValueObservation?
+    /// The server can send the rest of the file later: it takes byte ranges and tells whether the
+    /// file changed meanwhile (ETag / Last-Modified). Only then is "Pause" offered.
+    var canPause = false
+    /// What WebKit needs to go on from where it stopped: kept while paused, and after a failure
+    /// it can recover from (connection lost). The partial file stays at `destination` meanwhile.
+    var resumeData: Data?
+    /// Asks where to save the file instead of using the download folder (on iOS: once downloaded).
+    @ObservationIgnored var asksDestination = false
+    /// The website data store of the page that started it: a resumed download uses its cookies.
+    @ObservationIgnored var store: WKWebsiteDataStore?
+    /// Runs the download once resumed (the tab it came from may be gone).
+    @ObservationIgnored var resumingWebView: WKWebView?
     /// Bytes received so far, and the file's size when the server gives it (0 otherwise).
     var receivedBytes: Int64 = 0
     var totalBytes: Int64 = 0
@@ -28,8 +42,16 @@ final class DownloadItem: Identifiable {
     var bytesPerSecond: Double = 0
     @ObservationIgnored private var lastSample: (date: Date, bytes: Int64)?
 
+    var canResume: Bool {
+        guard resumeData != nil else { return false }
+        if case .failed = state { return true }
+        return state == .paused
+    }
+
     /// Reads a progress report from WebKit. The speed is measured at most twice a second.
     func update(received: Int64, total: Int64) {
+        // A resumed download first reports 0: the bytes already there still count.
+        guard received >= receivedBytes else { return }
         let now = Date()
         totalBytes = max(0, total)
         guard let last = lastSample else {
@@ -46,12 +68,28 @@ final class DownloadItem: Identifiable {
         if total > 0 { progress = Double(received) / Double(total) }
     }
 
+    /// Speed is measured afresh once resumed.
+    func resetSpeed() {
+        lastSample = nil
+        bytesPerSecond = 0
+    }
+
+    /// "12,4 Mo sur 80 Mo".
+    private var sizeText: String {
+        let size = ByteCountFormatter()
+        size.countStyle = .file
+        return totalBytes > 0 ? "\(size.string(fromByteCount: receivedBytes)) sur \(size.string(fromByteCount: totalBytes))"
+                              : size.string(fromByteCount: receivedBytes)
+    }
+
+    /// "En pause · 12,4 Mo sur 80 Mo".
+    var pausedText: String { receivedBytes > 0 ? "En pause · \(sizeText)" : "En pause" }
+
     /// "12,4 Mo sur 80 Mo · 3,1 Mo/s · 18 s restantes", as much as is known.
     var statusText: String {
         let size = ByteCountFormatter()
         size.countStyle = .file
-        var parts = [totalBytes > 0 ? "\(size.string(fromByteCount: receivedBytes)) sur \(size.string(fromByteCount: totalBytes))"
-                                    : size.string(fromByteCount: receivedBytes)]
+        var parts = [sizeText]
         if bytesPerSecond > 0 {
             parts.append("\(size.string(fromByteCount: Int64(bytesPerSecond)))/s")
             if totalBytes > receivedBytes {
@@ -79,9 +117,10 @@ final class DownloadItem: Identifiable {
     }
 }
 
-/// Downloads go straight to the download folder (Settings → Téléchargements, ~/Downloads by
-/// default; unique names), with progress in the Library. Downloads of a private window are only
-/// shown in that window and forgotten when it closes (the file itself stays in the folder).
+/// Downloads go to the download folder (Settings → Téléchargements, ~/Downloads by default; unique
+/// names) unless the user asks where to save them, with progress in the Library. They can be paused
+/// when the server allows it. Downloads of a private window are only shown in that window and
+/// forgotten when it closes (the file itself stays in the folder).
 @MainActor @Observable
 final class DownloadManager {
     static let shared = DownloadManager()
@@ -89,6 +128,8 @@ final class DownloadManager {
     @ObservationIgnored private let delegate = DownloadDelegate()
 
     var activeCount: Int { items.filter { $0.state == .running }.count }
+    /// Running or paused: lost if Void quits.
+    var unfinishedCount: Int { items.filter { $0.state == .running || $0.state == .paused }.count }
 
     /// The downloads history: everything except private windows' downloads.
     var history: [DownloadItem] { items.filter { !$0.isPrivate } }
@@ -107,24 +148,97 @@ final class DownloadManager {
         return speed > 0 ? "\(count) · \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s" : count
     }
 
-    func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?) {
+    /// `askingWhere`: "Télécharger le fichier lié sous…"; otherwise the setting decides.
+    func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?, askingWhere: Bool = false) {
         let item = DownloadItem(filename: url?.lastPathComponent ?? "Téléchargement", sourceURL: url, browser: browser)
+        item.asksDestination = askingWhere || AppSettings.shared.askDownloadLocation
+        item.store = download.webView?.configuration.websiteDataStore
+        attach(download, to: item)
+        items.insert(item, at: 0)
+        (browser ?? .shared).showToast("arrow.down.circle", "Téléchargement de \(item.filename)")
+    }
+
+    private func attach(_ download: WKDownload, to item: DownloadItem) {
         item.download = download
         item.observation = download.progress.observe(\.completedUnitCount, options: [.initial, .new]) { [weak item] progress, _ in
             let (received, total) = (progress.completedUnitCount, progress.totalUnitCount)
             DispatchQueue.main.async { item?.update(received: received, total: total) }
         }
-        items.insert(item, at: 0)
         download.delegate = delegate
-        (browser ?? .shared).showToast("arrow.down.circle", "Téléchargement de \(item.filename)")
     }
 
     func item(for download: WKDownload) -> DownloadItem? { items.first { $0.download === download } }
 
+    /// Stops the transfer and keeps what's needed to go on later; the partial file stays.
+    func pause(_ item: DownloadItem) {
+        guard item.state == .running, item.canPause, let download = item.download else { return }
+        item.state = .paused
+        item.bytesPerSecond = 0
+        download.cancel { [weak self] data in
+            MainActor.assumeIsolated {
+                item.observation = nil
+                guard item.state == .paused else { self?.discardPartialFile(of: item); return }   // cancelled meanwhile
+                if let data {
+                    item.resumeData = data
+                } else {
+                    self?.discardPartialFile(of: item)
+                    item.state = .failed("Ce site ne permet pas de reprendre le téléchargement")
+                }
+            }
+        }
+    }
+
+    /// Goes on from where it stopped (paused, or interrupted by a lost connection), with the
+    /// cookies of the page it came from.
+    func resume(_ item: DownloadItem) {
+        guard item.canResume, let data = item.resumeData else { return }
+        item.resumeData = nil
+        item.state = .running
+        item.resetSpeed()
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = item.store ?? (item.isPrivate ? .nonPersistent() : .default())
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        item.resumingWebView = webView
+        webView.resumeDownload(fromResumeData: data) { [weak self] download in
+            MainActor.assumeIsolated {
+                guard item.state == .running else { download.cancel { _ in }; return }   // cancelled meanwhile
+                self?.attach(download, to: item)
+            }
+        }
+    }
+
     func cancel(_ item: DownloadItem) {
-        item.download?.cancel { _ in }
-        DownloadManager.release(item.destination)
+        let previous = item.state
         item.state = .cancelled
+        item.bytesPerSecond = 0
+        switch previous {
+        case .finished, .cancelled:
+            DownloadManager.release(item.destination)
+        case .running:
+            // The partial file goes once WebKit has stopped writing it.
+            if let download = item.download {
+                download.cancel { [weak self] _ in MainActor.assumeIsolated { self?.discardPartialFile(of: item) } }
+            } else {
+                discardPartialFile(of: item)
+            }
+        case .paused, .failed:
+            discardPartialFile(of: item)
+        }
+    }
+
+    /// The download asked where to save and the user cancelled: it leaves no trace in the list.
+    fileprivate func remove(_ item: DownloadItem) {
+        items.removeAll { $0 === item }
+    }
+
+    /// A download that won't finish: no truncated file left behind that could pass for the real one.
+    fileprivate func discardPartialFile(of item: DownloadItem) {
+        item.resumeData = nil
+        item.resumingWebView = nil
+        guard let file = item.destination else { return }
+        DownloadManager.release(file)
+        DownloadManager.setUnfinished(file, false)
+        try? FileManager.default.removeItem(at: file)
     }
 
     #if os(macOS)
@@ -137,6 +251,40 @@ final class DownloadManager {
         guard let url = item.destination else { return }
         NSWorkspace.shared.open(url)
     }
+
+    /// "Enregistrer sous", over `window` when there is one. A file chosen to be replaced (the panel
+    /// asked) goes to the Trash: WebKit won't write over an existing file.
+    static func chooseLocation(for filename: String, in folder: URL, window: NSWindow?) async -> URL? {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = filename
+        panel.directoryURL = folder
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.prompt = "Enregistrer"
+        let response = if let window { await panel.beginSheetModal(for: window) } else { await panel.begin() }
+        guard response == .OK, let url = panel.url else { return nil }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        }
+        return url
+    }
+
+    /// Moves a downloaded file elsewhere ("Déplacer vers…").
+    func move(_ item: DownloadItem) {
+        guard item.state == .finished, let file = item.destination, FileManager.default.fileExists(atPath: file.path) else { return }
+        Task {
+            guard let target = await Self.chooseLocation(for: file.lastPathComponent, in: file.deletingLastPathComponent(),
+                                                         window: NSApp.keyWindow),
+                  target.standardizedFileURL != file.standardizedFileURL else { return }
+            do {
+                try FileManager.default.moveItem(at: file, to: target)
+                item.destination = target
+                item.filename = target.lastPathComponent
+            } catch {
+                (item.browser ?? .shared).showToast("exclamationmark.triangle", "Déplacement impossible : \(error.localizedDescription)")
+            }
+        }
+    }
     #else
     func reveal(_ item: DownloadItem) { open(item) }
 
@@ -145,16 +293,61 @@ final class DownloadManager {
         guard item.state == .finished, let url = item.destination, FileManager.default.fileExists(atPath: url.path) else { return }
         BrowserWindows.shared.previewedFile = url
     }
+
+    @ObservationIgnored private var exporter: FileExporter?
+
+    /// Moves a downloaded file to a folder chosen in Files (iCloud Drive, another app's folder…).
+    /// Void keeps access to it there, for Quick Look.
+    func move(_ item: DownloadItem) {
+        guard item.state == .finished, let file = item.destination, FileManager.default.fileExists(atPath: file.path),
+              let presenter = Dialogs.presenter else { return }
+        let picker = UIDocumentPickerViewController(forExporting: [file], asCopy: false)
+        let exporter = FileExporter { [weak self, weak item] urls in
+            self?.exporter = nil
+            guard let item, let target = urls.first else { return }
+            _ = target.startAccessingSecurityScopedResource()
+            item.destination = target
+            item.filename = target.lastPathComponent
+        }
+        picker.delegate = exporter
+        self.exporter = exporter
+        presenter.present(picker, animated: true)
+    }
     #endif
 
     func clearFinished() {
-        items.removeAll { $0.state != .running && !$0.isPrivate }
+        let cleared = items.filter { $0.state != .running && $0.state != .paused && !$0.isPrivate }
+        for item in cleared where item.resumeData != nil { discardPartialFile(of: item) }
+        items.removeAll { item in cleared.contains { $0 === item } }
     }
 
-    /// A private window closed: cancel what's still running and forget its list.
+    /// A private window closed: stop what isn't done and forget its list.
     func forget(browser: BrowserModel) {
-        for item in items(of: browser) where item.state == .running { cancel(item) }
+        for item in items(of: browser) where item.state != .finished && item.state != .cancelled { cancel(item) }
         items.removeAll { $0.browser === browser || ($0.isPrivate && $0.browser == nil) }
+    }
+
+    // MARK: Unfinished files
+
+    /// Paths of downloads that haven't finished (private ones aside: no trace of them is written).
+    /// A paused download can't go on after a relaunch: what's left of these files is removed.
+    private static let unfinishedKey = "unfinishedDownloads"
+
+    fileprivate static func setUnfinished(_ file: URL, _ unfinished: Bool) {
+        var paths = Set(UserDefaults.standard.stringArray(forKey: unfinishedKey) ?? [])
+        if unfinished { paths.insert(file.path) } else { paths.remove(file.path) }
+        UserDefaults.standard.set(Array(paths), forKey: unfinishedKey)
+    }
+
+    /// At launch (left by a crash or a quit) and at quit (running and paused downloads end here).
+    func removeUnfinishedFiles() {
+        for item in items where item.state == .running || item.state == .paused || item.canResume {
+            if let file = item.destination { try? FileManager.default.removeItem(at: file) }
+        }
+        for path in UserDefaults.standard.stringArray(forKey: Self.unfinishedKey) ?? [] {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        UserDefaults.standard.removeObject(forKey: Self.unfinishedKey)
     }
 
     /// A file name that can't pass for something else or hide: no path separators, no control
@@ -304,45 +497,87 @@ enum DownloadPermission {
     #endif
 }
 
+@MainActor
 private final class DownloadDelegate: NSObject, WKDownloadDelegate {
+    /// Not asked again when a paused download resumes: WebKit goes on in the same file.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
-        await MainActor.run {
-            let destination = DownloadManager.uniqueDestination(for: suggestedFilename)
-            if let item = DownloadManager.shared.item(for: download) {
-                item.filename = destination.lastPathComponent
-                item.destination = destination
+        let manager = DownloadManager.shared
+        let item = manager.item(for: download)
+        var destination: URL?
+        #if os(macOS)
+        if let item, item.asksDestination {
+            let window = item.browser?.window ?? NSApp.keyWindow
+            guard let chosen = await DownloadManager.chooseLocation(for: DownloadManager.sanitizedFilename(suggestedFilename),
+                                                                   in: AppSettings.shared.downloadFolder, window: window) else {
+                manager.remove(item)
+                return nil
             }
-            return destination
+            destination = chosen
         }
+        #endif
+        let file = destination ?? DownloadManager.uniqueDestination(for: suggestedFilename)
+        if let item {
+            item.filename = file.lastPathComponent
+            item.destination = file
+            item.canPause = Self.canResume(response, request: download.originalRequest)
+            if !item.isPrivate { DownloadManager.setUnfinished(file, true) }
+        }
+        return file
+    }
+
+    /// What URLSession needs to resume: a GET, byte ranges, and a validator telling the file
+    /// hasn't changed meanwhile.
+    private static func canResume(_ response: URLResponse, request: URLRequest?) -> Bool {
+        guard let http = response as? HTTPURLResponse, [200, 206].contains(http.statusCode),
+              (request?.httpMethod ?? "GET").uppercased() == "GET" else { return false }
+        let ranges = http.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased().contains("bytes") == true
+        return ranges && (http.value(forHTTPHeaderField: "ETag") != nil || http.value(forHTTPHeaderField: "Last-Modified") != nil)
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        MainActor.assumeIsolated {
-            guard let item = DownloadManager.shared.item(for: download) else { return }
-            item.state = .finished
-            item.progress = 1
-            if let progress = item.download?.progress { item.receivedBytes = max(item.receivedBytes, progress.completedUnitCount) }
-            item.bytesPerSecond = 0
-            DownloadManager.release(item.destination)
-            if let destination = item.destination {
-                let already = DownloadManager.quarantine(destination, source: item.sourceURL)
-                NSLog("[Void] téléchargement terminé, quarantaine %@", already ? "déjà posée par WebKit" : "posée par Void")
-            }
-            #if os(macOS)
-            if let path = item.destination?.path {
-                // Makes the Downloads stack in the Dock bounce, like Safari.
-                DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: path)
-            }
-            #endif
-            (item.browser ?? .shared).showToast("checkmark.circle", "\(item.filename) téléchargé")
+        guard let item = DownloadManager.shared.item(for: download) else { return }
+        item.state = .finished
+        item.progress = 1
+        if let progress = item.download?.progress { item.receivedBytes = max(item.receivedBytes, progress.completedUnitCount) }
+        item.bytesPerSecond = 0
+        item.resumingWebView = nil
+        DownloadManager.release(item.destination)
+        if let destination = item.destination {
+            DownloadManager.setUnfinished(destination, false)
+            let already = DownloadManager.quarantine(destination, source: item.sourceURL)
+            NSLog("[Void] téléchargement terminé, quarantaine %@", already ? "déjà posée par WebKit" : "posée par Void")
         }
+        #if os(macOS)
+        if let path = item.destination?.path {
+            // Makes the Downloads stack in the Dock bounce, like Safari.
+            DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: path)
+        }
+        #else
+        // iOS: the file is in Void's folder; now the user picks where it goes.
+        if item.asksDestination { DownloadManager.shared.move(item) }
+        #endif
+        (item.browser ?? .shared).showToast("checkmark.circle", "\(item.filename) téléchargé")
     }
 
+    /// A lost connection: with `resumeData` the download can go on later ("Reprendre").
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        MainActor.assumeIsolated {
-            guard let item = DownloadManager.shared.item(for: download), item.state == .running else { return }
-            DownloadManager.release(item.destination)
-            item.state = .failed(error.localizedDescription)
+        guard let item = DownloadManager.shared.item(for: download), item.state == .running else { return }
+        item.bytesPerSecond = 0
+        if let resumeData {
+            item.resumeData = resumeData
+        } else {
+            DownloadManager.shared.discardPartialFile(of: item)
         }
+        item.state = .failed(error.localizedDescription)
     }
 }
+
+#if os(iOS)
+/// Answers the Files picker of "Enregistrer dans…".
+private final class FileExporter: NSObject, UIDocumentPickerDelegate {
+    let done: ([URL]) -> Void
+    init(done: @escaping ([URL]) -> Void) { self.done = done }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { done(urls) }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { done([]) }
+}
+#endif

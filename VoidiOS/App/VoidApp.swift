@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Before any web view creates its store: folders of spaces deleted earlier.
         Space.removePendingStores(keeping: Set(BrowserModel.shared.spaces.map(\.id)))
+        // Files of downloads the last session didn't finish: iOS may end Void at any time.
+        DownloadManager.shared.removeUnfinishedFiles()
         return true
     }
 

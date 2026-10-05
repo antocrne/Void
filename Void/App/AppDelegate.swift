@@ -11,7 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 selfTest = SelfTestRunner.isRequested   // its session isn't the user's: left alone
                 #endif
                 // Before any web view creates its store: folders of spaces deleted earlier.
-                if !selfTest { Space.removePendingStores(keeping: Set(BrowserModel.shared.spaces.map(\.id))) }
+                if !selfTest {
+                    Space.removePendingStores(keeping: Set(BrowserModel.shared.spaces.map(\.id)))
+                    // Files of downloads the last session didn't finish (crash).
+                    DownloadManager.shared.removeUnfinishedFiles()
+                }
             }
         }
     }
@@ -50,18 +54,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// Quitting stops downloads for good (WebKit keeps no partial file to resume from), and only the
+    /// Quitting stops downloads for good, paused ones too (they can't resume after a relaunch), and only the
     /// main window's tabs come back at the next launch: ask first.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
             #if DEBUG
             if SelfTestRunner.isRequested { return .terminateNow }
             #endif
-            let running = DownloadManager.shared.activeCount
+            let running = DownloadManager.shared.unfinishedCount
             guard running > 0 else { return keepTabsOfOtherWindows() ? .terminateNow : .terminateCancel }
             let alert = NSAlert()
             alert.messageText = running == 1 ? "Un téléchargement est en cours" : "\(running) téléchargements sont en cours"
-            alert.informativeText = "Si vous quittez Void maintenant, \(running == 1 ? "il sera interrompu" : "ils seront interrompus")."
+            alert.informativeText = "Si vous quittez Void maintenant, \(running == 1 ? "il sera interrompu" : "ils seront interrompus") et les fichiers incomplets supprimés."
             alert.addButton(withTitle: "Continuer les téléchargements")
             alert.addButton(withTitle: "Quitter")
             guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
@@ -95,7 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { BrowserModel.shared.saveNow() }
+        MainActor.assumeIsolated {
+            BrowserModel.shared.saveNow()
+            if !SingleInstance.isDuplicate { DownloadManager.shared.removeUnfinishedFiles() }
+        }
     }
 }
 

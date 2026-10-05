@@ -151,6 +151,8 @@ final class AppSettings {
     var onboardingCompleted: Bool { didSet { defaults.set(onboardingCompleted, forKey: "onboardingCompleted") } }
     /// nil = ~/Downloads (on iOS: the app's Documents folder, shown in Files).
     var downloadFolderPath: String? { didSet { defaults.set(downloadFolderPath, forKey: "downloadFolderPath") } }
+    /// Asks where to save each download (on iOS: once downloaded, where to put it in Files).
+    var askDownloadLocation: Bool { didSet { defaults.set(askDownloadLocation, forKey: "askDownloadLocation") } }
 
     static let defaultSidebarWidth: Double = 252
     static let sidebarWidthRange: ClosedRange<Double> = 200...460
@@ -182,6 +184,7 @@ final class AppSettings {
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
         onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
+        askDownloadLocation = d.bool(forKey: "askDownloadLocation")
     }
 
     func searchURL(for query: String) -> URL? {
