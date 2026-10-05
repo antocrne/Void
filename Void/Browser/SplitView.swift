@@ -44,6 +44,7 @@ extension BrowserModel {
             space.split = pair
         } else {
             space.split = SplitPair(left: selected.id, right: tab.id)
+            space.splitRatio = 0.5
         }
         tab.lastAccess = Date()
         tab.ensureWebView()

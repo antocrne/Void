@@ -12,13 +12,17 @@ struct PageView: View {
 
             WebHost(browser: browser)
 
-            if let split = browser.shownSplit {
-                SplitSides(left: split.left, right: split.right)
-            } else if let tab {
-                PageOverlays(tab: tab)
-            } else {
+            if tab == nil {
                 NewTabPage()
                     .transition(.opacity)
+            }
+
+            if let split = browser.shownSplit {
+                SplitSides(left: split.left, right: split.right)
+            }
+
+            if let tab, browser.shownSplit == nil {
+                PageOverlays(tab: tab)
             }
 
             VStack(alignment: .trailing, spacing: 8) {
