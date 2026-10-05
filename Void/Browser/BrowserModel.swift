@@ -63,11 +63,14 @@ final class BrowserModel {
     var spaceTransitionEdge: Edge = .trailing
 
     var commandBar: CommandBarRequest?
-    /// ⌘T on the Mac: the selected tab steps aside for the new-tab page and its field, and comes
+    /// ⌘T (« + » on iOS): the selected tab steps aside for the new-tab page and its field, and comes
     /// back if nothing is opened (Esc, ⌘W). nil when the page shows because the space has no tab.
     @ObservationIgnored weak var tabBeforeNewTabPage: Tab?
     /// Bumped by every ⌘T (or ⌘L on the new-tab page): its field takes the focus again, emptied.
     var newTabFieldRequest = 0
+    /// iOS: the last request the new-tab page's field answered. Its keyboard comes up for a new
+    /// tab asked for, not when the page shows because the last tab was closed (or at launch).
+    @ObservationIgnored var newTabFieldAnswered = 0
     var findBarVisible = false
     /// What the find bar looked for last (⌘G repeats it).
     @ObservationIgnored var lastFindText = ""
@@ -365,13 +368,11 @@ final class BrowserModel {
     // MARK: - Navigation
 
     func showCommandBar(_ mode: CommandBarMode) {
-        #if os(macOS)
         // A new tab is typed on the new-tab page itself, not in the floating bar over it.
         if mode == .newTab || selectedTab == nil {
             showNewTabPage()
             return
         }
-        #endif
         let text = mode == .currentTab ? (selectedTab?.url?.absoluteString ?? "") : ""
         commandBar = CommandBarRequest(mode: mode, text: text)
     }

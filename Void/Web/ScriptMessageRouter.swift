@@ -23,8 +23,11 @@ final class ScriptMessageRouter: NSObject, WKScriptMessageHandler {
             case "voidActivity":
                 switch body["type"] as? String {
                 case "scroll" where message.frameInfo.isMainFrame:
+                    // iOS reads it from the web view's scroll view, at every frame (VoidWebView).
+                    #if os(macOS)
                     let value = min(1, max(0, body["value"] as? Double ?? 0))
                     if abs(value - tab.readingProgress) >= 0.004 || value == 0 || value == 1 { tab.readingProgress = value }
+                    #endif
                 case "input":
                     tab.hasUserInput = true
                 default:
