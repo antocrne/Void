@@ -257,7 +257,7 @@ private struct DownloadsSettings: View {
                     }
                 }
                 Toggle("Demander où enregistrer chaque fichier", isOn: $settings.askDownloadLocation)
-                Text("Pour un seul fichier : clic droit sur un lien → « Télécharger le fichier lié sous… ». Un fichier déjà téléchargé se range ailleurs par un clic droit dans la liste des téléchargements → « Déplacer vers… ».")
+                Text("Un fichier déjà téléchargé se range ailleurs par un clic droit dans la liste des téléchargements → « Déplacer vers… ».")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Sites autorisés à télécharger") {

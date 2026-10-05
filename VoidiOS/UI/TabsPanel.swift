@@ -148,6 +148,70 @@ struct TabsPanel: View {
     }
 }
 
+/// iPhone: the tabs panel, risen from the bottom over half the screen, or all of it when pulled up.
+/// Not a system sheet: at mid-height one floats away from the edges (iOS 26) and the bottom bar
+/// showed around it as a black band. This one stays against the sides and the bottom.
+struct TabsDrawer: View {
+    let close: () -> Void
+    @Environment(BrowserModel.self) private var browser
+    @State private var expanded = false
+    /// Downward drag of the top strip, in points.
+    @State private var drag: CGFloat = 0
+
+    /// The top strip (grabber and spaces) that moves the panel; below it, the list scrolls.
+    private static let handleHeight: CGFloat = 76
+    private static let space = "TabsDrawer"
+
+    var body: some View {
+        GeometryReader { geo in
+            let medium = geo.size.height * 0.52
+            let large = geo.size.height - 8
+            let base = expanded ? large : medium
+            // In the drawer's space, which stays put while the panel grows under the finger.
+            let onHandle = { (value: DragGesture.Value) in value.startLocation.y - (geo.size.height - base) < Self.handleHeight }
+            TabsPanel(inSheet: true, dismiss: close)
+                .overlay(alignment: .top) {
+                    Capsule()
+                        .fill(Theme.secondaryText.opacity(0.5))
+                        .frame(width: 36, height: 5)
+                        .padding(.top, 7)
+                }
+                .frame(height: min(large, max(0, base - drag)))
+                .frame(maxWidth: .infinity)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: 22, topTrailingRadius: 22, style: .continuous)
+                        .fill(browser.isPrivate ? Theme.privateChrome : Theme.chrome)
+                        .shadow(color: Theme.shadow.opacity(0.3), radius: 20, y: -4)
+                        .ignoresSafeArea(edges: .bottom)
+                }
+                .privateChrome(browser.isPrivate)
+                // Alongside the list's scrolling: only a drag that starts on the top strip counts.
+                .simultaneousGesture(DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
+                    .onChanged { value in
+                        guard onHandle(value) else { return }
+                        drag = value.translation.height
+                    }
+                    .onEnded { value in
+                        guard onHandle(value) else { return }
+                        let end = base - value.predictedEndTranslation.height
+                        withAnimation(Theme.spring) {
+                            drag = 0
+                            if end < medium * 0.6 {
+                                close()
+                            } else {
+                                expanded = end > (medium + large) / 2
+                            }
+                        }
+                    })
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .coordinateSpace(name: Self.space)
+        .ignoresSafeArea(.keyboard)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, close)
+    }
+}
+
 /// A space in the row above the tabs: its icon, and its name when it is the current one.
 private struct SpaceChip: View {
     let space: Space

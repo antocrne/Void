@@ -164,10 +164,9 @@ final class DownloadManager {
         return speed > 0 ? "\(count) · \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s" : count
     }
 
-    /// `askingWhere`: "Télécharger le fichier lié sous…"; otherwise the setting decides.
-    func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?, askingWhere: Bool = false) {
+    func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?) {
         let item = DownloadItem(filename: url?.lastPathComponent ?? "Téléchargement", sourceURL: url, browser: browser)
-        item.asksDestination = askingWhere || AppSettings.shared.askDownloadLocation
+        item.asksDestination = AppSettings.shared.askDownloadLocation
         item.store = download.webView?.configuration.websiteDataStore
         attach(download, to: item)
         items.insert(item, at: 0)
