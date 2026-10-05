@@ -764,6 +764,7 @@ private struct ExtensionList: View {
     @State private var pendingRemoval: WKWebExtensionContext?
 
     var body: some View {
+        let _ = manager.actionsRevision   // redrawn when one is pinned
         Section("Installées") {
             ForEach(manager.contexts, id: \.uniqueIdentifier) { context in
                 HStack {
@@ -781,6 +782,9 @@ private struct ExtensionList: View {
                         }
                     }
                     Spacer()
+                    Toggle("Épinglée", isOn: Binding(get: { manager.isPinned(context) }, set: { manager.setPinned($0, context) }))
+                        .toggleStyle(.checkbox)
+                        .help("Afficher son bouton dans la barre, à côté de 🧩")
                     if context.optionsPageURL != nil {
                         Button("Options") { manager.openOptions(context) }
                     }

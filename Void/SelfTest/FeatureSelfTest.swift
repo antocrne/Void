@@ -2195,6 +2195,29 @@ final class FeatureSelfTest {
               "« \(popupTitle) » \(NSStringFromSize(popoverSize)) affiché=\(popover?.isShown ?? false)")
         await testPopupResize(manager.action(context, in: browser), extensionID: context.uniqueIdentifier)
         manager.action(context, in: browser)?.closePopup()
+
+        // Pinned to the toolbar: its own button, remembered in extensions.json, its popup hangs from it.
+        let ownButton = { [browser] in manager.pinnedButton(for: context, in: browser) }
+        manager.setPinned(true, context)
+        var pinnedButton: NSView?
+        for _ in 0..<20 where pinnedButton == nil { await sleep(0.1); pinnedButton = ownButton() }
+        let listURL = StateStore.directory.appendingPathComponent("extensions.json")
+        let saved = (try? JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: listURL)))?
+            .first { $0.id == context.uniqueIdentifier }?.pinned == true
+        await sleep(0.8)   // the previous popup's closing
+        browser.window?.makeKeyAndOrderFront(nil)
+        manager.performAction(context, in: browser)
+        var pinnedPopover: NSPopover?
+        for _ in 0..<40 where pinnedPopover?.isShown != true { await sleep(0.25); pinnedPopover = manager.shownPopover }
+        let popupShown = pinnedPopover?.isShown == true
+        let hangsFromIt = pinnedButton != nil && manager.shownPopoverAnchor === pinnedButton
+        manager.action(context, in: browser)?.closePopup()
+        manager.setPinned(false, context)
+        var unpinnedGone = false
+        for _ in 0..<20 where !unpinnedGone { await sleep(0.1); unpinnedGone = ownButton() == nil }
+        check("Extensions : épinglée, elle a son bouton dans la barre (retenu dans extensions.json), son popup s'y ouvre ; désépinglée, il disparaît",
+              pinnedButton != nil && saved && popupShown && hangsFromIt && unpinnedGone,
+              "bouton=\(pinnedButton != nil) enregistré=\(saved) popup=\(popupShown) ancré=\(hangsFromIt) retiré=\(unpinnedGone)")
         browser.close(under, force: true)
 
         let folder = manager.record(for: context)?.path
