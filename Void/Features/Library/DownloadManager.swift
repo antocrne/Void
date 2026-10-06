@@ -432,12 +432,25 @@ final class DownloadManager {
     }
 }
 
-/// Which sites may save files (asked once per site, as Safari does): without it any page could
-/// fill the download folder, even with no click (a download link clicked by a script, in a loop).
-/// Downloads asked from the context menu ("Télécharger le fichier lié…") never ask.
+/// Which sites may save several files in a row. A download goes ahead without a question, as in
+/// Chrome or Firefox; a site saving more than a few files within seconds (a download link clicked
+/// by a script, in a loop, filling the download folder) is asked once. Downloads asked from the
+/// context menu ("Télécharger le fichier lié…") never ask.
 @MainActor
 enum DownloadPermission {
     private static let key = "downloadAllowedHosts"
+    /// Files a site may save within `burstInterval` before being asked.
+    private static let freeDownloads = 3
+    private static let burstInterval: TimeInterval = 10
+    private static var recent: [String: [Date]] = [:]
+
+    /// Counts this download of `host`: whether it is one too many in a short time.
+    static func isBurst(_ host: String) -> Bool {
+        let now = Date()
+        let list = (recent[host] ?? []).filter { now.timeIntervalSince($0) < burstInterval } + [now]
+        recent[host] = list
+        return list.count > freeDownloads
+    }
 
     static func isAllowed(_ host: String, in browser: BrowserModel) -> Bool {
         if browser.isPrivate { return browser.allowedDownloadHosts.contains(host) }
@@ -472,12 +485,13 @@ enum DownloadPermission {
         #endif
         if host.isEmpty || isAllowed(host, in: browser) { return true }
         if let pending = asking[host] { return await pending.value }
+        guard isBurst(host) else { return true }
         guard let window = window ?? browser.window else { return false }
         let task = Task { @MainActor in
             let alert = NSAlert()
-            alert.messageText = "Autoriser les téléchargements depuis « \(host) » ?"
-            alert.informativeText = (file.map { "Ce site veut enregistrer « \($0) » dans votre dossier de téléchargements." }
-                ?? "Ce site veut enregistrer un fichier dans votre dossier de téléchargements.")
+            alert.messageText = "« \(host) » veut télécharger plusieurs fichiers d'affilée"
+            alert.informativeText = (file.map { "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite ?" }
+                ?? "L'autoriser à enregistrer plusieurs fichiers à la suite ?")
                 + (browser.isPrivate ? " (Jusqu'à la fermeture de cette fenêtre privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
             alert.addButton(withTitle: "Autoriser")
             alert.addButton(withTitle: "Refuser")
@@ -496,11 +510,12 @@ enum DownloadPermission {
     static func request(_ host: String, file: String?, in browser: BrowserModel) async -> Bool {
         if host.isEmpty || isAllowed(host, in: browser) { return true }
         if let pending = asking[host] { return await pending.value }
+        guard isBurst(host) else { return true }
         let task = Task { @MainActor in
-            let message = (file.map { "Ce site veut enregistrer « \($0) » dans les fichiers de Void." }
-                ?? "Ce site veut enregistrer un fichier dans les fichiers de Void.")
+            let message = (file.map { "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite dans les fichiers de Void ?" }
+                ?? "L'autoriser à enregistrer plusieurs fichiers à la suite dans les fichiers de Void ?")
                 + (browser.isPrivate ? " (Jusqu'à la fermeture de la navigation privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
-            let allowed = await Dialogs.confirm(title: "Autoriser les téléchargements depuis « \(host) » ?", message: message,
+            let allowed = await Dialogs.confirm(title: "« \(host) » veut télécharger plusieurs fichiers d'affilée", message: message,
                                                 confirm: "Autoriser", cancel: "Refuser") ?? false
             if allowed { allow(host, in: browser) }
             return allowed

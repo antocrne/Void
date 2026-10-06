@@ -68,7 +68,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         return await mayDownload(response.url, file: response.suggestedFilename, in: webView) ? .download : .cancel
     }
 
-    /// Asked once per site (DownloadPermission). The site is the page's; a tab opened just for the
+    /// Asked only of a site saving several files in a row (DownloadPermission). The site is the page's; a tab opened just for the
     /// file has none yet, then it's the file's. A refused download leaves no empty tab behind.
     private func mayDownload(_ url: URL?, file: String? = nil, in webView: WKWebView) async -> Bool {
         // A tab opened for the file has no page yet: the site is the one that opened it.
@@ -342,9 +342,21 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let alert = NSAlert()
         alert.messageText = "Partager votre écran avec « \(origin.host.voidNormalizedHost) » ?"
         alert.informativeText = "macOS vous laissera ensuite choisir l'écran ou la fenêtre à montrer."
+        // WebKit never captures the sound: Void adds it (ShareAudio).
+        let sound = NSButton(checkboxWithTitle: "Partager aussi le son (vidéos, autres apps)", target: nil, action: nil)
+        sound.state = AppSettings.shared.shareScreenAudio ? .on : .off
+        sound.toolTip = "Le son de vos apps et des autres onglets de Void, sans celui de l'appel."
+        alert.accessoryView = sound
         alert.addButton(withTitle: "Choisir quoi partager…")
         alert.addButton(withTitle: "Refuser")
-        alert.beginSheetModal(for: window) { decisionHandler($0 == .alertFirstButtonReturn ? 1 : 0) }
+        alert.beginSheetModal(for: window) { [weak tab] response in
+            let accepted = response == .alertFirstButtonReturn
+            if accepted {
+                AppSettings.shared.shareScreenAudio = sound.state == .on
+                if sound.state == .on, let tab { ShareAudio.shared.allow(tab) }
+            }
+            decisionHandler(accepted ? 1 : 0)
+        }
     }
 
     // MARK: - File upload

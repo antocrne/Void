@@ -30,6 +30,8 @@
 				Features/Library/LibraryView.swift,
 				Features/Onboarding/OnboardingView.swift,
 				Features/PiP/FloatingPlayer.swift,
+				Features/ScreenShare/ShareAudio.swift,
+				Features/ScreenShare/SystemAudioTap.swift,
 				SelfTest/FeatureSelfTest.swift,
 				SelfTest/PiPSelfTest.swift,
 				Settings/DefaultBrowser.swift,
