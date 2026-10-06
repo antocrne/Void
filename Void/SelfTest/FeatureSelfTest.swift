@@ -139,6 +139,7 @@ final class FeatureSelfTest {
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
+        "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -427,6 +428,30 @@ final class FeatureSelfTest {
         check("Formulaires : un clic puis ↓ Entrée remplissent toujours le champ", listShown && filled == "secret@void.test",
               "liste \(listShown) · champ « \(filled) »")
         browser.close(tab, force: true)
+    }
+
+    /// A page opens tabs only in answer to a click (pop-unders): not at load, not from a timer.
+    private func testPopupBlocking(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        let before = Set(space.tabs.map(\.id))
+        let tab = await htmlTab("""
+            <!doctype html><body>fenêtres<script>
+            window.open('about:blank', '_blank');
+            setTimeout(() => window.open('about:blank', '_blank'), 300);
+            </script></body>
+            """, in: space)
+        browser.select(tab)
+        await sleep(1.2)
+        let unasked = space.tabs.filter { !before.contains($0.id) && $0 !== tab }
+        check("Fenêtres surgissantes : pas d'onglet ouvert sans clic", unasked.isEmpty, "\(unasked.count) onglet(s) ouvert(s)")
+        unasked.forEach { browser.close($0, force: true) }
+
+        // callAsyncJavaScript runs with a user gesture, like a click in the page.
+        let count = space.tabs.count
+        _ = try? await tab.webView?.callAsyncJavaScript("window.open('about:blank', '_blank'); return true;", contentWorld: .page)
+        let opened = await until(3) { space.tabs.count == count + 1 }
+        check("Fenêtres surgissantes : un clic ouvre toujours son onglet", opened, "\(space.tabs.count - count) onglet(s)")
+        for other in space.tabs where !before.contains(other.id) { browser.close(other, force: true) }
     }
 
     /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and
