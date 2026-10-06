@@ -138,6 +138,7 @@ final class FeatureSelfTest {
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
+        "formulaires": { t, space in await t.testFormFillTrust(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -333,6 +334,92 @@ final class FeatureSelfTest {
             check("Visio : \(u)", info != nil, info ?? "nil")
             await snapshotWindow("visio-\(i)", tab: site)
         }
+    }
+
+    /// Remembered form values (formfill.js) answer the user only: a page that focuses a field and
+    /// fakes ↓ and Entrée reads nothing, a hidden field shows nothing, and a page can't plant its
+    /// own values. A real click then ↓ Entrée still fills the field.
+    private func testFormFillTrust(in space: Space) async {
+        let fill = FormAutofill.shared
+        guard fill.isEnabled else {
+            check("Formulaires : remplissage désactivé (gestionnaire de mots de passe en extension), section ignorée", true)
+            return
+        }
+        let saved = fill.selfTestState
+        defer { fill.selfTestState = saved }
+        fill.selfTestState = (["email": ["secret@void.test"], "tel": ["0600000000"]], ["email", "tel"])
+        browser.window?.makeKeyAndOrderFront(nil)
+        let tab = await htmlTab("""
+            <!doctype html><body style="font:16px system-ui;margin:220px 60px">
+            <form id="f" action="javascript:void 0">
+            <input name="email" id="visible" style="width:260px;height:30px">
+            <input name="tel" id="hidden" style="opacity:0;position:absolute;top:0;left:0;width:200px;height:20px">
+            <button id="ok" type="submit">OK</button></form></body>
+            """, in: space)
+        browser.select(tab)
+        await sleep(0.5)
+
+        // As a hostile page would, in its own world: focus, wait for the list, fake the keys, read.
+        func steal(_ id: String) async -> String {
+            let value = try? await tab.webView?.callAsyncJavaScript("""
+                const el = document.getElementById(id);
+                el.focus();
+                await new Promise((r) => setTimeout(r, 600));
+                for (const key of ['ArrowDown', 'Enter']) {
+                  el.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true}));
+                  await new Promise((r) => setTimeout(r, 100));
+                }
+                const value = el.value;
+                el.value = '';
+                el.blur();
+                return value;
+                """, arguments: ["id": id], contentWorld: .page) as? String
+            return value ?? "?"
+        }
+        let visible = await steal("visible")
+        check("Formulaires : une page qui simule ↓ Entrée ne lit pas les valeurs retenues", visible.isEmpty, "lu : « \(visible) »")
+        let hidden = await steal("hidden")
+        check("Formulaires : rien n'est proposé dans un champ invisible", hidden.isEmpty, "lu : « \(hidden) »")
+
+        _ = try? await tab.webView?.callAsyncJavaScript("""
+            const el = document.getElementById('visible');
+            el.value = 'pirate@void.test';
+            el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+            document.getElementById('ok').click();
+            document.getElementById('f').requestSubmit();
+            el.value = '';
+            return true;
+            """, contentWorld: .page)
+        await sleep(0.5)
+        let planted = fill.selfTestState.entries["email"] ?? []
+        check("Formulaires : une page ne peut pas planter ses propres valeurs", !planted.contains("pirate@void.test"), planted.joined(separator: ", "))
+
+        // The user: a click in the field, then ↓ and Entrée (simulated clicks: unlocked screen).
+        NSApp.activate(ignoringOtherApps: true)
+        tab.webView?.window?.makeKeyAndOrderFront(nil)
+        _ = await until(2) { tab.webView?.window?.isKeyWindow == true }
+        await click(tab, selector: "#visible", modifiers: [])
+        var listShown = false
+        for _ in 0..<20 where !listShown {
+            listShown = (await js(tab, "return document.querySelectorAll('body > div').length;") as? Int ?? 0) > 0
+            if !listShown { await sleep(0.1) }
+        }
+        if let window = tab.webView?.window {
+            key(window, code: 125, scalar: NSDownArrowFunctionKey)
+            await sleep(0.2)
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                            isARepeat: false, keyCode: 36) {
+                    window.sendEvent(e)
+                }
+            }
+        }
+        await sleep(0.4)
+        let filled = await js(tab, "return document.getElementById('visible').value;") as? String ?? ""
+        check("Formulaires : un clic puis ↓ Entrée remplissent toujours le champ", listShown && filled == "secret@void.test",
+              "liste \(listShown) · champ « \(filled) »")
+        browser.close(tab, force: true)
     }
 
     /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and
