@@ -134,6 +134,7 @@ final class FeatureSelfTest {
         "conversion": { t, _ in await t.testConversions() },
         "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
         "visio": { t, space in await t.testMeetings(in: space) },
+        "partage-son": { t, space in await t.testShareAudio(in: space) },
         "fermer-autres": { t, space in await t.testCloseOtherTabs(in: space) },
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
@@ -343,6 +344,133 @@ final class FeatureSelfTest {
             check("Visio : \(u)", info != nil, info ?? "nil")
             await snapshotWindow("visio-\(i)", tab: site)
         }
+    }
+
+    /// Screen sharing with its sound: WebKit's getDisplayMedia (its fake screen here) only gives
+    /// the picture; with « Partager aussi le son » ticked, Void adds an audio track carrying the
+    /// sound of another tab, which ends with the sharing. Box unticked, or a page faking the
+    /// request: no sound. The other apps' sound is left out (macOS would ask for the permission).
+    private func testShareAudio(in space: Space) async {
+        let share = ShareAudio.shared
+        let saved = (AppSettings.shared.shareScreenAudio, share.includesOtherApps)
+        share.includesOtherApps = false
+        defer {
+            share.stop()
+            (AppSettings.shared.shareScreenAudio, share.includesOtherApps) = saved
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Another tab plays a 440 Hz tone, from a blob of the page: its sound can be read.
+        let music = await htmlTab("""
+            <!doctype html><body><audio id="a"></audio><script>
+            const rate = 48000, n = rate * 30, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+            const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+            w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+            v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+            v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+            for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(2 * Math.PI * 440 * i / rate) * 12000, true);
+            a.src = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+            </script>
+            """, in: space, base: "https://void-musique.example/")
+        let playing = try? await music.webView?.callAsyncJavaScript(
+            "const a = document.getElementById('a'); a.volume = 0.05; await a.play(); return !a.paused;", contentWorld: .page) as? Bool
+        let eligible = await js(music, """
+            const other = document.createElement('audio'); other.src = 'https://ailleurs.example/son.mp3';
+            const loop = document.createElement('audio'); loop.src = document.getElementById('a').src; loop.loop = true;
+            return [document.getElementById('a'), other, loop].map(__voidShareAudio.eligible).join();
+            """) as? String
+        check("Partage du son : seuls les sons lisibles par la page sont pris (blob de la page oui, autre site sans CORS non, boucle non)",
+              playing == true && eligible == "true,false,false", "lecture \(String(describing: playing)) · éligibles \(eligible ?? "nil")")
+
+        let call = await htmlTab("<!doctype html><body>réunion</body>", in: space, base: "https://void-partage.example/")
+        browser.select(call)
+        guard let webView = call.webView else { check("Partage du son : onglet de réunion", false); return }
+        WebKitSPI.setPreference(webView.configuration.preferences, "mockCaptureDevicesEnabled", true)
+        browser.window?.makeFirstResponder(webView)
+        await sleep(0.5)
+
+        // In the page's world, as a site would: share, keeping an ear on the audio track.
+        func shareScreen(sound: Bool) async -> String {
+            // WebKit refuses to share from a page without focus.
+            for _ in 0..<25 where !(NSApp.isActive && browser.window?.isKeyWindow == true) {
+                NSApp.activate(ignoringOtherApps: true)
+                browser.window?.makeKeyAndOrderFront(nil)
+                await sleep(0.2)
+            }
+            browser.window?.makeFirstResponder(webView)
+            let page = Task { @MainActor in
+                try? await webView.callAsyncJavaScript("""
+                    let s;
+                    try { s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
+                    catch (e) { return e.name + ' ' + e.message; }
+                    window.__shared = s;
+                    const tracks = s.getAudioTracks();
+                    if (tracks.length) {
+                      const ctx = new AudioContext(), analyser = ctx.createAnalyser(), mute = ctx.createGain();
+                      mute.gain.value = 0;
+                      ctx.createMediaStreamSource(new MediaStream([tracks[0]])).connect(analyser);
+                      analyser.connect(mute); mute.connect(ctx.destination);
+                      window.__listen = { ctx, analyser };
+                    }
+                    return 'son ' + tracks.length;
+                    """, contentWorld: .page) as? String
+            }
+            var sheet: NSWindow?
+            for _ in 0..<50 where sheet == nil { await sleep(0.1); sheet = browser.window?.attachedSheet }
+            guard let sheet else { return "pas de question (\(await page.value ?? "nil"))" }
+            func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+            let buttons = (sheet.contentView.map(views) ?? []).compactMap { $0 as? NSButton }
+            buttons.first { $0.title.hasPrefix("Partager aussi le son") }?.state = sound ? .on : .off
+            buttons.first { $0.title == "Choisir quoi partager…" }?.performClick(nil)
+            return await page.value ?? "aucune réponse"
+        }
+
+        let shared = await shareScreen(sound: true)
+        // The user shows the other tab (where the sound comes from); the call keeps listening.
+        browser.select(music)
+        await sleep(3.5)
+        let peak = try? await webView.callAsyncJavaScript("""
+            const { analyser } = window.__listen, data = new Float32Array(analyser.fftSize);
+            let peak = 0;
+            for (let i = 0; i < 20; i++) {
+              await new Promise((r) => setTimeout(r, 100));
+              analyser.getFloatTimeDomainData(data);
+              for (const x of data) peak = Math.max(peak, Math.abs(x));
+            }
+            return peak;
+            """, contentWorld: .page) as? Double
+        let sent = await js(music, "return __voidShareAudio.stats();") as? String ?? "nil"
+        let received = await js(call, "return __voidShareAudio.stats();") as? String ?? "nil"
+        check("Partage du son : case cochée → piste audio qui porte le son de l'autre onglet", shared == "son 1" && (peak ?? 0) > 0.005,
+              "\(shared) · crête \(peak.map { String(format: "%.3f", $0) } ?? "nil") · envoi \(sent) · réception \(received)")
+        browser.select(call)
+        await sleep(0.5)
+        let ended = try? await webView.callAsyncJavaScript(
+            "window.__listen.ctx.close(); window.__shared.getVideoTracks()[0].stop(); await new Promise((r) => setTimeout(r, 2500)); return window.__shared.getAudioTracks()[0].readyState;",
+            contentWorld: .page) as? String
+        check("Partage du son : arrêter l'écran arrête le son", ended == "ended" && !share.isSharing,
+              "piste \(ended ?? "nil") · relais actif \(share.isSharing)")
+
+        let silent = await shareScreen(sound: false)
+        check("Partage du son : case décochée → l'image seule", silent == "son 0", silent)
+        _ = try? await webView.callAsyncJavaScript("window.__shared.getTracks().forEach((t) => t.stop());", contentWorld: .page)
+
+        // A page asks Void directly, with a picture of its own: nothing, the user didn't agree.
+        let faked = try? await webView.callAsyncJavaScript("""
+            const canvas = document.createElement('canvas');
+            const holder = document.createElement('audio');
+            holder.srcObject = canvas.captureStream().getVideoTracks().length ? canvas.captureStream() : null;
+            document.body.append(holder);
+            return await new Promise((resolve) => {
+              holder.addEventListener('voidshareaudioready', () => resolve('son ' + holder.srcObject.getAudioTracks().length), { once: true });
+              holder.dispatchEvent(new Event('voidshareaudio', { bubbles: true }));
+              setTimeout(() => resolve('pas de réponse'), 3000);
+            });
+            """, contentWorld: .page) as? String
+        check("Partage du son : une page qui imite la demande n'obtient rien", faked == "son 0" && !share.isSharing, faked ?? "nil")
+        browser.close(call, force: true)
+        browser.close(music, force: true)
     }
 
     /// Remembered form values (formfill.js) answer the user only: a page that focuses a field and
@@ -1142,6 +1270,7 @@ final class FeatureSelfTest {
 
         await testSideBySide(in: space)
         await testMeetingWindow(in: space)
+        await testShareAudio(in: space)
 
         settings.tabLayout = savedLayout
         settings.theme = savedTheme
@@ -1342,6 +1471,12 @@ final class FeatureSelfTest {
         let savedFolder = settings.downloadFolderPath
         settings.downloadFolderPath = folder.path
         defer { settings.downloadFolderPath = savedFolder; try? fm.removeItem(at: folder) }
+
+        // No question for a download; only for a site saving more than three files within seconds.
+        let site = "rafale-\(UUID().uuidString).example"
+        let burst = (0..<4).map { _ in DownloadPermission.isBurst(site) }
+        check("Téléchargement : pas de question, sauf pour une rafale (4e fichier en quelques secondes)",
+              burst == [false, false, false, true] && !DownloadPermission.isBurst("autre-\(site)"), "\(burst)")
 
         let spoof = DownloadManager.sanitizedFilename("facture\u{202E}fdp.app")
         check("Téléchargement : caractères d'inversion retirés du nom", !spoof.unicodeScalars.contains { $0.value == 0x202E } && spoof == "facturefdp.app", spoof)

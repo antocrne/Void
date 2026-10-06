@@ -371,9 +371,9 @@ private struct DownloadsSettings: View {
                     }
                 }
             } header: {
-                Text("Sites autorisés à télécharger")
+                Text("Sites autorisés à télécharger plusieurs fichiers d'affilée")
             } footer: {
-                Text("Chaque site demande la première fois.")
+                Text("Un téléchargement ne demande rien ; un site qui en enchaîne plus de trois en quelques secondes demande d'abord.")
             }
             Section {
                 Button("Effacer la liste des téléchargements") { DownloadManager.shared.clearFinished() }

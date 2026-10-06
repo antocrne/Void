@@ -83,7 +83,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         return await mayDownload(response.url, file: response.suggestedFilename, in: webView) ? .download : .cancel
     }
 
-    /// Asked once per site (DownloadPermission). A refused download leaves no empty tab behind.
+    /// Asked only of a site saving several files in a row (DownloadPermission). A refused download leaves no empty tab behind.
     private func mayDownload(_ url: URL?, file: String? = nil, in webView: WKWebView) async -> Bool {
         // A tab opened for the file has no page yet: the site is the one that opened it.
         let opener = webView.backForwardList.currentItem == nil ? tab?.openerHost : nil

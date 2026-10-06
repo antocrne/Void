@@ -66,6 +66,17 @@ enum WebKitSPI {
         unsafeBitCast(webView.method(for: sel), to: Setter.self)(webView, sel, muted ? 1 : 0)
     }
 
+    // MARK: Screen sharing
+
+    /// Whether the page is capturing a screen or a window (`_displayCaptureState`: 0 none,
+    /// 1 active, 2 muted); nil when WebKit doesn't tell.
+    static func isCapturingDisplay(_ webView: WKWebView) -> Bool? {
+        let sel = NSSelectorFromString("_displayCaptureState")
+        guard webView.responds(to: sel) else { return nil }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Int
+        return unsafeBitCast(webView.method(for: sel), to: Getter.self)(webView, sel) != 0
+    }
+
     #if os(macOS)
     // MARK: Extensions
 

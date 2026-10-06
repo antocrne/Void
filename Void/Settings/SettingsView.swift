@@ -243,7 +243,12 @@ private struct DownloadsSettings: View {
         let folder = settings.downloadFolder
         Form {
             Section {
-                LabeledContent("Enregistrer dans") {
+                Picker("Pour chaque téléchargement", selection: $settings.askDownloadLocation) {
+                    Text("Demander où l'enregistrer").tag(true)
+                    Text("L'enregistrer directement dans le dossier ci-dessous").tag(false)
+                }
+                .pickerStyle(.radioGroup)
+                LabeledContent(settings.askDownloadLocation ? "Dossier proposé" : "Enregistrer dans") {
                     HStack(spacing: 6) {
                         Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path)).resizable().frame(width: 16, height: 16)
                         Text(FileManager.default.displayName(atPath: folder.path))
@@ -256,13 +261,13 @@ private struct DownloadsSettings: View {
                         Button("Revenir au dossier Téléchargements") { settings.downloadFolderPath = nil }
                     }
                 }
-                Toggle("Demander où enregistrer chaque fichier", isOn: $settings.askDownloadLocation)
                 Text("Un fichier déjà téléchargé se range ailleurs par un clic droit dans la liste des téléchargements → « Déplacer vers… ».")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Sites autorisés à télécharger") {
+            Section("Sites autorisés à télécharger plusieurs fichiers d'affilée") {
                 if allowedHosts.isEmpty {
-                    Text("Aucun site : chacun demande la première fois.").foregroundStyle(.secondary)
+                    Text("Aucun site. Un téléchargement ne demande rien ; un site qui en enchaîne plus de trois en quelques secondes demande d'abord.")
+                        .foregroundStyle(.secondary)
                 }
                 ForEach(allowedHosts, id: \.self) { host in
                     HStack {

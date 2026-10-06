@@ -155,6 +155,8 @@ final class AppSettings {
     var downloadFolderPath: String? { didSet { defaults.set(downloadFolderPath, forKey: "downloadFolderPath") } }
     /// Asks where to save each download (on iOS: once downloaded, where to put it in Files).
     var askDownloadLocation: Bool { didSet { defaults.set(askDownloadLocation, forKey: "askDownloadLocation") } }
+    /// « Partager aussi le son » in the screen sharing question, as last answered (Mac).
+    var shareScreenAudio: Bool { didSet { defaults.set(shareScreenAudio, forKey: "shareScreenAudio") } }
 
     static let defaultSidebarWidth: Double = 252
     static let sidebarWidthRange: ClosedRange<Double> = 200...460
@@ -187,6 +189,7 @@ final class AppSettings {
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
         onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
+        shareScreenAudio = d.bool(forKey: "shareScreenAudio")
         #if os(macOS)
         // Mac: the "Enregistrer sous" panel for each file, unless turned off.
         askDownloadLocation = d.object(forKey: "askDownloadLocation") as? Bool ?? true

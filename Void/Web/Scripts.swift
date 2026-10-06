@@ -11,6 +11,8 @@ enum Scripts {
     static let activity = load("activity")
     static let webstore = load("webstore")
     static let extensionShim = load("extension-shim")
+    static let shareAudio = load("shareaudio")
+    static let shareAudioPage = load("shareaudio-page")
 
     private static func load(_ name: String) -> String {
         guard let url = Bundle.main.url(forResource: name, withExtension: "js"),

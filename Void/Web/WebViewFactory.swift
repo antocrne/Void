@@ -22,6 +22,10 @@ enum WebViewFactory {
         ucc.addUserScript(WKUserScript(source: Scripts.formfill, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         ucc.addUserScript(WKUserScript(source: Scripts.activity, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
         #if os(macOS)
+        // Sound in screen sharing: the page's getDisplayMedia is wrapped in its own world.
+        ucc.addScriptMessageHandler(ShareAudio.shared, contentWorld: world, name: ShareAudio.messageName)
+        ucc.addUserScript(WKUserScript(source: Scripts.shareAudio, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
+        ucc.addUserScript(WKUserScript(source: Scripts.shareAudioPage, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
         if #available(macOS 15.4, *) {
             // "Ajouter à Void" on the Chrome Web Store's extension pages.
             ucc.addUserScript(WKUserScript(source: Scripts.webstore, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
