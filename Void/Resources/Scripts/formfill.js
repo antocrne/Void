@@ -1,5 +1,7 @@
 // Void — form autofill: remembers what's typed in text fields when a form is sent, and suggests it
 // again on fields with the same name (isolated world, every frame). Passwords are not handled here.
+// The page shares the DOM and can fake events: only the user's own (isTrusted) count. Otherwise a
+// page could focus a hidden field, fake ↓ Entrée and read the values, or plant its own.
 (() => {
   if (window.__voidForm) return;
 
@@ -26,9 +28,22 @@
     return key;
   };
 
+  // A field shows suggestions only once visible and pointed at or typed into by the user.
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== 'hidden' && parseFloat(style.opacity) > 0.1;
+  };
+
+  // Fields the user typed into (or filled from the list): only their values are remembered, so
+  // a page submitting a form of its own (requestSubmit) can't plant anything.
+  const typed = new WeakSet();
+
   const capture = (root) => {
     const fields = [];
     for (const el of (root || document).querySelectorAll('input')) {
+      if (!typed.has(el)) continue;
       const key = keyFor(el);
       const value = (el.value || '').trim();
       if (key && value && value.length <= 200) fields.push({ key, value });
@@ -37,11 +52,12 @@
   };
   document.addEventListener('submit', (e) => capture(e.target && e.target.querySelectorAll ? e.target : document), true);
   document.addEventListener('click', (e) => {
+    if (!e.isTrusted) return;
     const b = e.target && e.target.closest && e.target.closest('button, input[type=submit]');
     if (b && b.type === 'submit' && b.form) capture(b.form);
   }, true);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target && e.target.form && keyFor(e.target)) capture(e.target.form);
+    if (e.isTrusted && e.key === 'Enter' && e.target && e.target.form && keyFor(e.target)) capture(e.target.form);
   }, true);
 
   // ---- suggestions -------------------------------------------------------------------------
@@ -61,13 +77,13 @@
 
   const matches = () => {
     if (!current) return [];
-    const typed = current.value.toLowerCase();
-    return (cache.get(keyFor(current)) || []).filter((v) => v.toLowerCase() !== typed && v.toLowerCase().includes(typed)).slice(0, 6);
+    const text = current.value.toLowerCase();
+    return (cache.get(keyFor(current)) || []).filter((v) => v.toLowerCase() !== text && v.toLowerCase().includes(text)).slice(0, 6);
   };
 
   const render = () => {
     const list = matches();
-    if (!current || !list.length || !current.isConnected) { hide(); return; }
+    if (!current || !list.length || !current.isConnected || !visible(current)) { hide(); return; }
     if (!box) {
       const host = document.createElement('div');
       host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;';
@@ -94,7 +110,7 @@
       const d = document.createElement('div');
       d.className = 'i' + (i === index ? ' on' : '');
       d.textContent = v;
-      d.addEventListener('mousedown', (e) => { e.preventDefault(); pick(v); });
+      d.addEventListener('mousedown', (e) => { e.preventDefault(); if (e.isTrusted) pick(v); });
       box.list.appendChild(d);
     });
   };
@@ -102,20 +118,42 @@
   const pick = (value) => {
     const el = current;
     hide();
-    if (el) { el.focus(); setValue(el, value); }
+    if (el) { el.focus(); setValue(el, value); typed.add(el); }
   };
 
-  document.addEventListener('focusin', (e) => {
-    const el = e.target;
+  // The list for `el`: asked for once per key, then drawn.
+  const show = (el) => {
     const key = keyFor(el);
-    if (!key) { current = null; hide(); return; }
+    if (!key || !visible(el)) return;
     current = el;
     if (cache.has(key)) render(); else post({ type: 'suggest', key });
+  };
+
+  // A click on a field shows its list as it takes the focus (pointerdown comes first); a field
+  // reached otherwise (Tab, or a script's focus()) waits for the user's first key in it.
+  let pointed = null;
+  for (const type of ['pointerdown', 'mousedown']) {
+    document.addEventListener(type, (e) => { if (e.isTrusted) pointed = e.target; }, true);
+  }
+  document.addEventListener('focusin', (e) => {
+    current = null;
+    hide();
+    if (e.target === pointed) show(e.target);
+    pointed = null;
   }, true);
   document.addEventListener('focusout', () => { hide(); }, true);
-  document.addEventListener('input', (e) => { if (e.target === current) { index = -1; render(); } }, true);
+  document.addEventListener('input', (e) => {
+    if (!e.isTrusted) return;
+    if (e.target instanceof HTMLInputElement) typed.add(e.target);
+    if (e.target === current) { index = -1; render(); } else if (e.target === document.activeElement) show(e.target);
+  }, true);
   document.addEventListener('scroll', () => { if (box) render(); }, true);
   document.addEventListener('keydown', (e) => {
+    if (!e.isTrusted) return;
+    if (!box && e.key === 'ArrowDown' && e.target === document.activeElement) {
+      show(e.target);
+      return;
+    }
     if (!box || e.target !== current) return;
     const list = matches();
     if (e.key === 'ArrowDown') { index = (index + 1) % list.length; render(); e.preventDefault(); }

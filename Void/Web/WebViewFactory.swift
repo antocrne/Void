@@ -67,6 +67,9 @@ enum WebViewFactory {
         config.mediaTypesRequiringUserActionForPlayback = AppSettings.shared.blockAutoplayWithSound ? .audio : []
         let prefs = config.preferences
         prefs.isElementFullscreenEnabled = true
+        // New windows only in answer to a click, as in Safari (WebKit's default on macOS lets a page
+        // open tabs at load or from a timer: pop-unders).
+        prefs.javaScriptCanOpenWindowsAutomatically = false
         prefs.isFraudulentWebsiteWarningEnabled = true
         #if os(macOS)
         config.defaultWebpagePreferences.preferredContentMode = .desktop

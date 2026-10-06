@@ -108,8 +108,10 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// Camera and microphone (video calls), asked once per site.
-    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+    /// The async name WebKit looks for (WKUIDelegate.h): under any other name it never calls this
+    /// and refuses every request by itself.
+    func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+                 initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
         guard isShown else { return .deny }
         let host = origin.host.voidNormalizedHost
         let isPrivate = browser.isPrivate

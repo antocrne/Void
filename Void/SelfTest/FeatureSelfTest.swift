@@ -138,6 +138,9 @@ final class FeatureSelfTest {
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
+        "formulaires": { t, space in await t.testFormFillTrust(in: space) },
+        "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
+        "favicons": { t, space in await t.testFaviconCookies(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -318,12 +321,19 @@ final class FeatureSelfTest {
         browser.window?.makeKeyAndOrderFront(nil)
         let tab = await htmlTab("<!doctype html><body>visio</body>", in: space, base: "https://void-visio.example/")
         browser.select(tab)
+        // WebKit's fake camera and micro: it then asks Void without first asking macOS (TCC, which
+        // refuses a process started from a terminal) — and no real device is ever opened.
+        if let prefs = tab.webView?.configuration.preferences { WebKitSPI.setPreference(prefs, "mockCaptureDevicesEnabled", true) }
+        let asked = MediaPermission.requests
         // In the page's own world, as a site would.
         let outcome = try? await tab.webView?.callAsyncJavaScript("""
             try { await navigator.mediaDevices.getUserMedia({video: true, audio: true}); return 'accordé'; }
             catch (e) { return e.name; }
             """, contentWorld: .page) as? String
         check("Visio : la demande caméra + micro reçoit une réponse", outcome == "NotAllowedError", outcome ?? "aucune réponse en 5 s")
+        // WebKit refuses by itself when its delegate method isn't found: the answer alone proves nothing.
+        check("Visio : la demande passe par Void (question par site, onglet affiché)", MediaPermission.requests > asked,
+              "\(MediaPermission.requests - asked) demande(s) reçue(s)")
 
         let urls = UserDefaults.standard.string(forKey: "VoidDiagURLs")?.split(separator: ",") ?? []
         for (i, u) in urls.enumerated() {
@@ -333,6 +343,145 @@ final class FeatureSelfTest {
             check("Visio : \(u)", info != nil, info ?? "nil")
             await snapshotWindow("visio-\(i)", tab: site)
         }
+    }
+
+    /// Remembered form values (formfill.js) answer the user only: a page that focuses a field and
+    /// fakes ↓ and Entrée reads nothing, a hidden field shows nothing, and a page can't plant its
+    /// own values. A real click then ↓ Entrée still fills the field.
+    private func testFormFillTrust(in space: Space) async {
+        let fill = FormAutofill.shared
+        guard fill.isEnabled else {
+            check("Formulaires : remplissage désactivé (gestionnaire de mots de passe en extension), section ignorée", true)
+            return
+        }
+        let saved = fill.selfTestState
+        defer { fill.selfTestState = saved }
+        fill.selfTestState = (["email": ["secret@void.test"], "tel": ["0600000000"]], ["email", "tel"])
+        browser.window?.makeKeyAndOrderFront(nil)
+        let tab = await htmlTab("""
+            <!doctype html><body style="font:16px system-ui;margin:220px 60px">
+            <form id="f" action="javascript:void 0">
+            <input name="email" id="visible" style="width:260px;height:30px">
+            <input name="tel" id="hidden" style="opacity:0;position:absolute;top:0;left:0;width:200px;height:20px">
+            <button id="ok" type="submit">OK</button></form></body>
+            """, in: space)
+        browser.select(tab)
+        await sleep(0.5)
+
+        // As a hostile page would, in its own world: focus, wait for the list, fake the keys, read.
+        func steal(_ id: String) async -> String {
+            let value = try? await tab.webView?.callAsyncJavaScript("""
+                const el = document.getElementById(id);
+                el.focus();
+                await new Promise((r) => setTimeout(r, 600));
+                for (const key of ['ArrowDown', 'Enter']) {
+                  el.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true}));
+                  await new Promise((r) => setTimeout(r, 100));
+                }
+                const value = el.value;
+                el.value = '';
+                el.blur();
+                return value;
+                """, arguments: ["id": id], contentWorld: .page) as? String
+            return value ?? "?"
+        }
+        let visible = await steal("visible")
+        check("Formulaires : une page qui simule ↓ Entrée ne lit pas les valeurs retenues", visible.isEmpty, "lu : « \(visible) »")
+        let hidden = await steal("hidden")
+        check("Formulaires : rien n'est proposé dans un champ invisible", hidden.isEmpty, "lu : « \(hidden) »")
+
+        _ = try? await tab.webView?.callAsyncJavaScript("""
+            const el = document.getElementById('visible');
+            el.value = 'pirate@void.test';
+            el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+            document.getElementById('ok').click();
+            document.getElementById('f').requestSubmit();
+            el.value = '';
+            return true;
+            """, contentWorld: .page)
+        await sleep(0.5)
+        let planted = fill.selfTestState.entries["email"] ?? []
+        check("Formulaires : une page ne peut pas planter ses propres valeurs", !planted.contains("pirate@void.test"), planted.joined(separator: ", "))
+
+        // The user: a click in the field, then ↓ and Entrée (simulated clicks: unlocked screen).
+        NSApp.activate(ignoringOtherApps: true)
+        tab.webView?.window?.makeKeyAndOrderFront(nil)
+        _ = await until(2) { tab.webView?.window?.isKeyWindow == true }
+        await click(tab, selector: "#visible", modifiers: [])
+        var listShown = false
+        for _ in 0..<20 where !listShown {
+            listShown = (await js(tab, "return document.querySelectorAll('body > div').length;") as? Int ?? 0) > 0
+            if !listShown { await sleep(0.1) }
+        }
+        if let window = tab.webView?.window {
+            key(window, code: 125, scalar: NSDownArrowFunctionKey)
+            await sleep(0.2)
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                            isARepeat: false, keyCode: 36) {
+                    window.sendEvent(e)
+                }
+            }
+        }
+        await sleep(0.4)
+        let filled = await js(tab, "return document.getElementById('visible').value;") as? String ?? ""
+        check("Formulaires : un clic puis ↓ Entrée remplissent toujours le champ", listShown && filled == "secret@void.test",
+              "liste \(listShown) · champ « \(filled) »")
+        browser.close(tab, force: true)
+    }
+
+    /// A page opens tabs only in answer to a click (pop-unders): not at load, not from a timer.
+    private func testPopupBlocking(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        let before = Set(space.tabs.map(\.id))
+        let tab = await htmlTab("""
+            <!doctype html><body>fenêtres<script>
+            window.open('about:blank', '_blank');
+            setTimeout(() => window.open('about:blank', '_blank'), 300);
+            </script></body>
+            """, in: space)
+        browser.select(tab)
+        await sleep(1.2)
+        let unasked = space.tabs.filter { !before.contains($0.id) && $0 !== tab }
+        check("Fenêtres surgissantes : pas d'onglet ouvert sans clic", unasked.isEmpty, "\(unasked.count) onglet(s) ouvert(s)")
+        unasked.forEach { browser.close($0, force: true) }
+
+        // callAsyncJavaScript runs with a user gesture, like a click in the page.
+        let count = space.tabs.count
+        _ = try? await tab.webView?.callAsyncJavaScript("window.open('about:blank', '_blank'); return true;", contentWorld: .page)
+        let opened = await until(3) { space.tabs.count == count + 1 }
+        check("Fenêtres surgissantes : un clic ouvre toujours son onglet", opened, "\(space.tabs.count - count) onglet(s)")
+        for other in space.tabs where !before.contains(other.id) { browser.close(other, force: true) }
+    }
+
+    /// Favicons are fetched outside WebKit: a cookie set on /favicon.ico must never come back
+    /// (it would tie spaces and private windows together).
+    private func testFaviconCookies(in space: Space) async {
+        var requests: [String] = []
+        guard let (server, port) = await startServer(ports: [8791, 8792, 8793, 8794], respond: { request in
+            if request.hasPrefix("GET /favicon.ico") {
+                requests.append(request)
+                return "HTTP/1.1 404 Not Found\r\nSet-Cookie: voidfav=traceur; Path=/; Max-Age=600\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            }
+            let body = "<!doctype html><title>favicon</title><body>favicon</body>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+        }) else {
+            check("Favicons : serveur local", false, "aucun port libre")
+            return
+        }
+        defer { server.cancel() }
+        let tab = browser.openTab(url: URL(string: "http://127.0.0.1:\(port)/"), in: space)
+        await waitForLoad(tab)
+        let first = await until(4) { requests.count >= 1 }
+        FaviconLoader.clearCache()
+        tab.webView?.reload()
+        await waitForLoad(tab)
+        let second = await until(4) { requests.count >= 2 }
+        let sentBack = requests.dropFirst().contains { $0.lowercased().contains("voidfav=traceur") }
+        check("Favicons : un cookie posé sur l'icône n'est jamais renvoyé", first && second && !sentBack,
+              "\(requests.count) requête(s) d'icône · cookie renvoyé : \(sentBack)")
+        browser.close(tab, force: true)
     }
 
     /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and

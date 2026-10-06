@@ -4,7 +4,17 @@ import WebKit
 /// Finds the page's icon (link rel=icon, else /favicon.ico) and stores a 32 px PNG on the tab.
 @MainActor
 enum FaviconLoader {
-    nonisolated private static let session = URLSession(configuration: .ephemeral)
+    /// Shared by every space and private window: no cookies and no cache, which would let a site
+    /// recognize the same user across them (an ephemeral session keeps both while Void runs).
+    nonisolated private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
     private static var cache: [String: (PlatformImage, Data)] = [:]
 
     static func clearCache() { cache = [:] }

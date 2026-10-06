@@ -314,8 +314,10 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: - Camera, microphone, screen
 
-    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+    /// The async name WebKit looks for (WKUIDelegate.h): under any other name it never calls this
+    /// and refuses every request by itself.
+    func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+                 initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
         guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return .deny }
         let host = origin.host.voidNormalizedHost
         return await MediaPermission.decide(host: host, type: type, in: browser) {
@@ -331,10 +333,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// Screen sharing (getDisplayMedia) in a video call (WKUIDelegatePrivate). The answer opens the
-    /// system's picker of screens and windows (1); 0 refuses.
+    /// system's picker of screens and windows (1); 0 refuses. WebKit calls it by its selector: its
+    /// Swift name stays apart from the public delegate's, which it would otherwise seem to misspell.
     @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
-    func webView(_ webView: WKWebView, requestDisplayCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
-                 withSystemAudio: Bool, decisionHandler: @escaping (Int) -> Void) {
+    func webViewRequestDisplayCapture(_ webView: WKWebView, for origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                                      withSystemAudio: Bool, decisionHandler: @escaping (Int) -> Void) {
         guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return decisionHandler(0) }
         let alert = NSAlert()
         alert.messageText = "Partager votre écran avec « \(origin.host.voidNormalizedHost) » ?"

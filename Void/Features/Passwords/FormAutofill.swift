@@ -49,6 +49,14 @@ final class FormAutofill {
         }
     }
 
+    #if DEBUG
+    /// Self-test: what is remembered, and in which order.
+    var selfTestState: (entries: [String: [String]], order: [String]) {
+        get { (entries, keyOrder) }
+        set { entries = newValue.entries; keyOrder = newValue.order; persist() }
+    }
+    #endif
+
     private func remember(_ value: String, for key: String) {
         var values = entries[key] ?? []
         values.removeAll { $0 == value }

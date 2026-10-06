@@ -33,9 +33,16 @@
     }
   };
 
+  // Password fields the user typed (or pasted) into: a page faking a sign-in can't bring up
+  // "Enregistrer le mot de passe ?" with values of its choosing.
+  const typed = new WeakSet();
+  document.addEventListener('input', (e) => {
+    if (e.isTrusted && e.target instanceof HTMLInputElement && e.target.type === 'password') typed.add(e.target);
+  }, true);
+
   let lastCapture = 0;
   const capture = () => {
-    const pw = passwordFields().find((p) => p.value);
+    const pw = passwordFields().find((p) => p.value && typed.has(p));
     if (!pw) return;
     const now = Date.now();
     if (now - lastCapture < 1500) return;
@@ -46,13 +53,14 @@
 
   document.addEventListener('submit', capture, true);
   document.addEventListener('click', (e) => {
+    if (!e.isTrusted) return;
     const button = e.target && e.target.closest && e.target.closest('button, input[type=submit], [role=button]');
     if (!button) return;
     const text = (button.textContent || button.value || '') + ' ' + (button.id || '') + ' ' + (button.name || '');
     if (button.type === 'submit' || /log ?in|sign ?in|connexion|se connecter|continuer|continue|next|suivant/i.test(text)) capture();
   }, true);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target && e.target.type === 'password') capture();
+    if (e.isTrusted && e.key === 'Enter' && e.target && e.target.type === 'password') capture();
   }, true);
 
   const setValue = (el, value) => {

@@ -22,9 +22,17 @@ enum MediaPermission {
         }
     }
 
+    #if DEBUG
+    /// Requests that reached Void (self-test: WebKit refuses on its own when its delegate isn't found).
+    private(set) static var requests = 0
+    #endif
+
     /// `ask` shows the question ("Autoriser … ?") and returns the answer.
     static func decide(host: String, type: WKMediaCaptureType, in browser: BrowserModel,
                        ask: @escaping @MainActor () async -> Bool) async -> WKPermissionDecision {
+        #if DEBUG
+        requests += 1
+        #endif
         #if os(macOS) && DEBUG
         // Self-tests never open the camera, but the page gets its answer.
         if SelfTestRunner.isRequested { return .deny }

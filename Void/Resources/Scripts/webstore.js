@@ -43,7 +43,8 @@
       ours.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (state !== "adding") post(state === "remove" ? "remove" : "add");
+        // The user's click only: not one the page's scripts make.
+        if (event.isTrusted && state !== "adding") post(state === "remove" ? "remove" : "add");
       }, true);
       theirs.style.display = "none";
       theirs.after(ours);
