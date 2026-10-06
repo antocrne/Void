@@ -319,12 +319,19 @@ final class FeatureSelfTest {
         browser.window?.makeKeyAndOrderFront(nil)
         let tab = await htmlTab("<!doctype html><body>visio</body>", in: space, base: "https://void-visio.example/")
         browser.select(tab)
+        // WebKit's fake camera and micro: it then asks Void without first asking macOS (TCC, which
+        // refuses a process started from a terminal) — and no real device is ever opened.
+        if let prefs = tab.webView?.configuration.preferences { WebKitSPI.setPreference(prefs, "mockCaptureDevicesEnabled", true) }
+        let asked = MediaPermission.requests
         // In the page's own world, as a site would.
         let outcome = try? await tab.webView?.callAsyncJavaScript("""
             try { await navigator.mediaDevices.getUserMedia({video: true, audio: true}); return 'accordé'; }
             catch (e) { return e.name; }
             """, contentWorld: .page) as? String
         check("Visio : la demande caméra + micro reçoit une réponse", outcome == "NotAllowedError", outcome ?? "aucune réponse en 5 s")
+        // WebKit refuses by itself when its delegate method isn't found: the answer alone proves nothing.
+        check("Visio : la demande passe par Void (question par site, onglet affiché)", MediaPermission.requests > asked,
+              "\(MediaPermission.requests - asked) demande(s) reçue(s)")
 
         let urls = UserDefaults.standard.string(forKey: "VoidDiagURLs")?.split(separator: ",") ?? []
         for (i, u) in urls.enumerated() {
