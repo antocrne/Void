@@ -140,6 +140,7 @@ final class FeatureSelfTest {
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
+        "favicons": { t, space in await t.testFaviconCookies(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -452,6 +453,35 @@ final class FeatureSelfTest {
         let opened = await until(3) { space.tabs.count == count + 1 }
         check("Fenêtres surgissantes : un clic ouvre toujours son onglet", opened, "\(space.tabs.count - count) onglet(s)")
         for other in space.tabs where !before.contains(other.id) { browser.close(other, force: true) }
+    }
+
+    /// Favicons are fetched outside WebKit: a cookie set on /favicon.ico must never come back
+    /// (it would tie spaces and private windows together).
+    private func testFaviconCookies(in space: Space) async {
+        var requests: [String] = []
+        guard let (server, port) = await startServer(ports: [8791, 8792, 8793, 8794], respond: { request in
+            if request.hasPrefix("GET /favicon.ico") {
+                requests.append(request)
+                return "HTTP/1.1 404 Not Found\r\nSet-Cookie: voidfav=traceur; Path=/; Max-Age=600\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            }
+            let body = "<!doctype html><title>favicon</title><body>favicon</body>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+        }) else {
+            check("Favicons : serveur local", false, "aucun port libre")
+            return
+        }
+        defer { server.cancel() }
+        let tab = browser.openTab(url: URL(string: "http://127.0.0.1:\(port)/"), in: space)
+        await waitForLoad(tab)
+        let first = await until(4) { requests.count >= 1 }
+        FaviconLoader.clearCache()
+        tab.webView?.reload()
+        await waitForLoad(tab)
+        let second = await until(4) { requests.count >= 2 }
+        let sentBack = requests.dropFirst().contains { $0.lowercased().contains("voidfav=traceur") }
+        check("Favicons : un cookie posé sur l'icône n'est jamais renvoyé", first && second && !sentBack,
+              "\(requests.count) requête(s) d'icône · cookie renvoyé : \(sentBack)")
+        browser.close(tab, force: true)
     }
 
     /// Extensions keep working long after launch: WebKit unloads an idle background after 30 s and
