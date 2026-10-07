@@ -359,6 +359,31 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    // MARK: - Location
+
+    /// navigator.geolocation (WKUIDelegatePrivate): on the Mac, WebKit refuses every request by
+    /// itself unless its delegate answers this (on iOS it asks on its own).
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    func webViewRequestGeolocation(_ webView: WKWebView, for origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                                   decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return decisionHandler(.deny) }
+        let host = origin.host.voidNormalizedHost
+        let isPrivate = browser.isPrivate
+        Task {
+            let decision = await MediaPermission.decideLocation(host: host, in: browser) {
+                let alert = NSAlert()
+                alert.messageText = "Autoriser « \(host) » à connaître votre position ?"
+                alert.informativeText = "Jusqu'à ce que vous quittiez Void" + (isPrivate ? " ou fermiez cette fenêtre privée." : ".")
+                alert.addButton(withTitle: "Autoriser")
+                alert.addButton(withTitle: "Refuser")
+                return await withCheckedContinuation { continuation in
+                    alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+                }
+            }
+            decisionHandler(decision)
+        }
+    }
+
     // MARK: - File upload
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo) async -> [URL]? {

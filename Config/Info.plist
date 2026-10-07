@@ -37,6 +37,10 @@
 	<string>Un site web demande l'accès à la caméra.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Un site web demande l'accès au micro.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Un site web demande votre position.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Un site web demande votre position.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Pour que le son de vos apps accompagne l'écran que vous partagez dans un appel.</string>
 	<key>NSSupportsAutomaticTermination</key>

@@ -158,6 +158,8 @@ struct DownloadRow: View {
             default:
                 if item.canResume {
                     Button("Reprendre") { manager.resume(item) }
+                } else if item.canRetry {
+                    Button("Réessayer") { manager.retry(item) }
                 } else if item.state == .finished, item.destination != nil {
                     Button { manager.reveal(item) } label: { Image(systemName: "magnifyingglass") }
                         .help("Afficher dans le Finder")
@@ -181,6 +183,7 @@ struct DownloadRow: View {
                 Button("Déplacer vers…") { manager.move(item) }
             default:
                 if item.canResume { Button("Reprendre") { manager.resume(item) } }
+                if item.canRetry { Button(item.canResume ? "Recommencer depuis le début" : "Réessayer") { manager.retry(item) } }
             }
             if let source = item.sourceURL, ["http", "https"].contains(source.scheme?.lowercased() ?? "") {
                 Divider()

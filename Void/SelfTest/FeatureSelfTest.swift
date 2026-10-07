@@ -336,6 +336,15 @@ final class FeatureSelfTest {
         check("Visio : la demande passe par Void (question par site, onglet affiché)", MediaPermission.requests > asked,
               "\(MediaPermission.requests - asked) demande(s) reçue(s)")
 
+        // Location (Google Maps "Votre position"…): WebKit used to refuse it without asking anyone.
+        let askedLocation = MediaPermission.requests
+        let position = try? await tab.webView?.callAsyncJavaScript("""
+            return await new Promise(r => navigator.geolocation.getCurrentPosition(() => r('accordé'), e => r('code ' + e.code), {timeout: 4000}));
+            """, contentWorld: .page) as? String
+        check("Position : la demande reçoit une réponse (refusée en auto-test)", position == "code 1", position ?? "aucune réponse")
+        check("Position : la demande passe par Void (question par site, onglet affiché)", MediaPermission.requests > askedLocation,
+              "\(MediaPermission.requests - askedLocation) demande(s) reçue(s)")
+
         let urls = UserDefaults.standard.string(forKey: "VoidDiagURLs")?.split(separator: ",") ?? []
         for (i, u) in urls.enumerated() {
             let site = browser.openTab(url: URL(string: String(u)), in: space)
@@ -1564,6 +1573,7 @@ final class FeatureSelfTest {
         DownloadManager.shared.clearFinished()
 
         await testDownloadPause(in: space, folder: folder)
+        await testDownloadRetry(in: space)
 
         // Links to other apps.
         check("Liens vers d'autres apps : smb:// refusé", ExternalURLPolicy.decide(scheme: "smb", userClick: true, fromMainFrame: true) == .refuse)
@@ -1737,6 +1747,56 @@ final class FeatureSelfTest {
     /// A page element goes fullscreen (a video's button): WebKit moves the web view into its own
     /// window. A media change meanwhile (the video starts: keep-alive tabs change, the page area
     /// re-syncs) must leave it there, and it must come back to the page area on exit.
+    /// A connection cut by a server that can't send the rest (no byte ranges): nothing to resume
+    /// from, "Réessayer" starts again from the beginning, in the same file.
+    private func testDownloadRetry(in space: Space) async {
+        let size = 1024 * 1024
+        let content = Data((0..<size).map { UInt8($0 % 241) })
+        var attempts = 0
+        let listener: NWListener? = {
+            for port: UInt16 in [8773, 18773, 28773] {
+                guard let l = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!) else { continue }
+                return l
+            }
+            return nil
+        }()
+        guard let listener else { check("Réessayer : serveur de test", false); return }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .main)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { _, _, _, _ in
+                let attempt = MainActor.assumeIsolated { attempts += 1; return attempts }
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"reessai.bin\"\r\n"
+                    + "Content-Length: \(size)\r\nConnection: close\r\n\r\n"
+                // The first attempt stops halfway: the connection is lost.
+                let body = attempt == 1 ? content.prefix(size / 2) : content
+                connection.send(content: Data(head.utf8) + body, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        listener.start(queue: .main)
+        defer { listener.cancel() }
+        await sleep(0.3)
+        guard let port = listener.port?.rawValue,
+              let tab = space.tabs.first(where: { $0.webView != nil }) ?? space.tabs.first else { check("Réessayer : serveur de test", false); return }
+        let source = URL(string: "http://localhost:\(port)/reessai.bin")!
+        let manager = DownloadManager.shared
+        let before = Set(manager.items.map(\.id))
+        tab.webView?.startDownload(using: URLRequest(url: source)) { manager.adopt($0, from: source, in: tab.browser) }
+        _ = await until(5) { manager.items.contains { !before.contains($0.id) && $0.state != .running } }
+        guard let item = manager.items.first(where: { !before.contains($0.id) }) else { check("Réessayer : téléchargement lancé", false); return }
+        let firstName = item.filename
+        let partialGone = item.destination.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
+        check("Réessayer : proposé après une erreur sans reprise possible, sans fichier tronqué laissé",
+              item.canRetry && !item.canResume && partialGone, "état \(item.state) · canRetry \(item.canRetry) · canResume \(item.canResume) · fichier supprimé \(partialGone)")
+        manager.retry(item)
+        let finished = await until(10) { item.state == .finished }
+        let file = item.destination.flatMap { try? Data(contentsOf: $0) }
+        check("Réessayer : recommencé depuis le début, fichier complet sous le même nom",
+              finished && file == content && item.filename == firstName && attempts == 2,
+              "état \(item.state) · \(file?.count ?? 0)/\(size) o · \(firstName) → \(item.filename) · \(attempts) requêtes")
+        manager.cancel(item)
+        manager.clearFinished()
+    }
+
     private func testElementFullscreen(in space: Space) async {
         let tab = await htmlTab("<!doctype html><body><div id=v style='width:320px;height:180px;background:#000'></div></body>", in: space)
         guard let webView = tab.webView else { check("Plein écran : vue web", false); return }

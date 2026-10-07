@@ -201,6 +201,9 @@ private struct DownloadRow: View {
                 if item.canResume {
                     Button { manager.resume(item) } label: { Image(systemName: "arrow.clockwise.circle").font(.title3) }
                         .accessibilityLabel("Reprendre")
+                } else if item.canRetry {
+                    Button { manager.retry(item) } label: { Image(systemName: "arrow.clockwise.circle").font(.title3) }
+                        .accessibilityLabel("Réessayer")
                 } else if item.state == .finished, let file = item.destination {
                     ShareLink(item: file) { Image(systemName: "square.and.arrow.up") }
                         .accessibilityLabel("Partager")
@@ -228,6 +231,11 @@ private struct DownloadRow: View {
                 }
             default:
                 if item.canResume { Button { manager.resume(item) } label: { Label("Reprendre", systemImage: "arrow.clockwise") } }
+                if item.canRetry {
+                    Button { manager.retry(item) } label: {
+                        Label(item.canResume ? "Recommencer depuis le début" : "Réessayer", systemImage: "arrow.counterclockwise")
+                    }
+                }
             }
         }
     }
