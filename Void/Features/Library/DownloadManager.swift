@@ -14,6 +14,8 @@ final class DownloadItem: Identifiable {
     let id = UUID()
     var filename: String
     let sourceURL: URL?
+    /// What the page asked for, to start again after a failure WebKit can't recover from.
+    @ObservationIgnored var request: URLRequest?
     var destination: URL?
     var progress: Double = 0
     var state: State = .running
@@ -33,7 +35,7 @@ final class DownloadItem: Identifiable {
     @ObservationIgnored var asksDestination = false
     /// The website data store of the page that started it: a resumed download uses its cookies.
     @ObservationIgnored var store: WKWebsiteDataStore?
-    /// Runs the download once resumed (the tab it came from may be gone).
+    /// Runs the download once resumed or retried (the tab it came from may be gone).
     @ObservationIgnored var resumingWebView: WKWebView?
     /// Bytes received so far, and the file's size when the server gives it (0 otherwise).
     var receivedBytes: Int64 = 0
@@ -46,6 +48,14 @@ final class DownloadItem: Identifiable {
         guard resumeData != nil else { return false }
         if case .failed = state { return true }
         return state == .paused
+    }
+
+    /// A failed download that can start again from the beginning: a plain GET of a web address
+    /// (a form sent again, or a blob: of a page that may be gone, could do something else).
+    var canRetry: Bool {
+        guard case .failed = state, let url = request?.url ?? sourceURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }
+        return (request?.httpMethod ?? "GET").uppercased() == "GET"
     }
 
     /// Reads a progress report from WebKit. The speed is measured at most twice a second.
@@ -167,6 +177,7 @@ final class DownloadManager {
     func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?) {
         let item = DownloadItem(filename: url?.lastPathComponent ?? "Téléchargement", sourceURL: url, browser: browser)
         item.asksDestination = AppSettings.shared.askDownloadLocation
+        item.request = download.originalRequest
         item.store = download.webView?.configuration.websiteDataStore
         attach(download, to: item)
         items.insert(item, at: 0)
@@ -210,16 +221,41 @@ final class DownloadManager {
         item.resumeData = nil
         item.state = .running
         item.resetSpeed()
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = item.store ?? (item.isPrivate ? .nonPersistent() : .default())
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        item.resumingWebView = webView
-        webView.resumeDownload(fromResumeData: data) { [weak self] download in
+        hiddenWebView(for: item).resumeDownload(fromResumeData: data) { [weak self] download in
             MainActor.assumeIsolated {
                 guard item.state == .running else { download.cancel { _ in }; return }   // cancelled meanwhile
                 self?.attach(download, to: item)
             }
         }
+    }
+
+    /// Starts a failed download again from the beginning, when going on from where it stopped
+    /// isn't possible (or didn't work): same folder and name, cookies of the page it came from.
+    func retry(_ item: DownloadItem) {
+        guard item.canRetry, let url = item.request?.url ?? item.sourceURL else { return }
+        let request = item.request ?? URLRequest(url: url)
+        discardPartialFile(of: item)
+        item.state = .running
+        item.progress = 0
+        item.receivedBytes = 0
+        item.totalBytes = 0
+        item.canPause = false
+        item.resetSpeed()
+        hiddenWebView(for: item).startDownload(using: request) { [weak self] download in
+            MainActor.assumeIsolated {
+                guard item.state == .running else { download.cancel { _ in }; return }   // cancelled meanwhile
+                self?.attach(download, to: item)
+            }
+        }
+    }
+
+    /// A web view of the download's own website data store, kept until it ends.
+    private func hiddenWebView(for item: DownloadItem) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = item.store ?? (item.isPrivate ? .nonPersistent() : .default())
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        item.resumingWebView = webView
+        return webView
     }
 
     func cancel(_ item: DownloadItem) {
@@ -529,13 +565,17 @@ enum DownloadPermission {
 
 @MainActor
 private final class DownloadDelegate: NSObject, WKDownloadDelegate {
-    /// Not asked again when a paused download resumes: WebKit goes on in the same file.
+    /// Not asked again when a paused download resumes: WebKit goes on in the same file. A retried
+    /// one goes where the first attempt went, without asking again.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
         let manager = DownloadManager.shared
         let item = manager.item(for: download)
         var destination: URL?
+        if let previous = item?.destination {
+            destination = DownloadManager.uniqueDestination(for: previous.lastPathComponent, in: previous.deletingLastPathComponent())
+        }
         #if os(macOS)
-        if let item, item.asksDestination {
+        if destination == nil, let item, item.asksDestination {
             let window = item.browser?.window ?? NSApp.keyWindow
             guard let chosen = await DownloadManager.chooseLocation(for: DownloadManager.sanitizedFilename(suggestedFilename),
                                                                    in: AppSettings.shared.downloadFolder, window: window) else {
