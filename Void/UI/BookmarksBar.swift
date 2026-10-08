@@ -102,7 +102,7 @@ private struct BookmarkChip: View {
         .onHover { hovering = $0 }
         .help(bookmark.url.absoluteString)
         .contextMenu {
-            Button("Ouvrir dans un nouvel onglet") { browser.openTab(url: bookmark.url, after: browser.selectedTab) }
+            Button("Ouvrir dans un nouvel onglet") { browser.openTab(url: bookmark.url, background: true, after: browser.selectedTab) }
             Button("Copier le lien") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(bookmark.url.absoluteString, forType: .string)

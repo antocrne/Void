@@ -223,8 +223,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         let flags = navigationAction.modifierFlags
-        // ⌘-click or middle click on a target=_blank link: behind, like any other link.
-        let background = (flags.contains(.command) || navigationAction.buttonNumber == Self.middleButton) && !flags.contains(.shift)
+        // ⌘-click or middle click on a target=_blank link: behind, like any other link. The
+        // context menu's "Ouvrir … dans un nouvel onglet" too: the page stays on screen.
+        let fromContextMenu = (webView as? VoidWebView)?.consumeContextMenuOpen() == true
+        let background = fromContextMenu
+            || ((flags.contains(.command) || navigationAction.buttonNumber == Self.middleButton) && !flags.contains(.shift))
         let newTab = browser.openTab(url: nil, background: background, after: tab, popupConfiguration: configuration)
         newTab.url = navigationAction.request.url
         newTab.openerHost = webView.url?.host()

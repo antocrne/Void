@@ -9,6 +9,9 @@ final class VoidWebView: WKWebView {
     var contextImageURL: URL?
     /// Text selected in the frame of the last right-click (same report).
     var contextSelection = ""
+    /// Set when one of WebKit's "Ouvrir … dans un nouvel onglet" items is chosen: the tab it
+    /// creates (createWebViewWith, a moment later) opens behind, the page stays on screen.
+    private var contextMenuOpenDate: Date?
     /// Key-downs given to WebKit: one of them coming back is WebKit re-sending an event the
     /// page didn't handle (see keyDown). The page answers late when it is busy (a video
     /// seeking), so several can be waiting at once (keys pressed in a row, a key held down).
@@ -82,8 +85,17 @@ final class VoidWebView: WKWebView {
         contextSelection = ""
     }
 
+    /// True once per context-menu "Ouvrir … dans un nouvel onglet": the new tab stays behind.
+    /// A page that never asks for the window leaves the flag, so it expires.
+    func consumeContextMenuOpen() -> Bool {
+        defer { contextMenuOpenDate = nil }
+        guard let date = contextMenuOpenDate else { return false }
+        return Date().timeIntervalSince(date) < 2
+    }
+
     @MainActor
     private func customize(_ menu: NSMenu) {
+        forwardedActions.removeAll()
         var linkItemIndex: Int?
         for (index, item) in menu.items.enumerated() {
             switch item.identifier?.rawValue {
@@ -91,35 +103,35 @@ final class VoidWebView: WKWebView {
                 // WebKit's action calls createWebViewWith → BrowserModel opens a tab.
                 item.title = "Ouvrir le lien dans un nouvel onglet"
                 linkItemIndex = index
+                openBehind(item)
             case "WKMenuItemIdentifierOpenImageInNewWindow":
                 item.title = "Ouvrir l'image dans un nouvel onglet"
+                openBehind(item)
             case "WKMenuItemIdentifierOpenFrameInNewWindow":
                 item.title = "Ouvrir le cadre dans un nouvel onglet"
+                openBehind(item)
             case "WKMenuItemIdentifierOpenMediaInNewWindow":
                 item.title = "Ouvrir la vidéo dans un nouvel onglet"
+                openBehind(item)
             default:
                 break
             }
         }
 
         if let linkItemIndex, let link = contextLinkURL {
-            let background = NSMenuItem(title: "Ouvrir dans un onglet en arrière-plan", action: #selector(openLinkInBackground(_:)), keyEquivalent: "")
-            background.representedObject = link
-            background.target = self
-            menu.insertItem(background, at: linkItemIndex + 1)
             let side = NSMenuItem(title: "Ouvrir le lien côte à côte", action: #selector(openLinkSideBySide(_:)), keyEquivalent: "")
             side.representedObject = link
             side.target = self
-            menu.insertItem(side, at: linkItemIndex + 2)
+            menu.insertItem(side, at: linkItemIndex + 1)
             if tab?.isPrivate == false {
                 let privateItem = NSMenuItem(title: "Ouvrir dans une fenêtre privée", action: #selector(openLinkPrivately(_:)), keyEquivalent: "")
                 privateItem.representedObject = link
                 privateItem.target = self
-                menu.insertItem(privateItem, at: linkItemIndex + 3)
+                menu.insertItem(privateItem, at: linkItemIndex + 2)
             }
         } else if linkItemIndex == nil, let link = contextLinkURL {
             // Some menus (e.g. link inside an image) lack WebKit's item: add ours.
-            let item = NSMenuItem(title: "Ouvrir le lien dans un nouvel onglet", action: #selector(openLinkInForeground(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: "Ouvrir le lien dans un nouvel onglet", action: #selector(openLinkInBackground(_:)), keyEquivalent: "")
             item.representedObject = link
             item.target = self
             menu.insertItem(item, at: 0)
@@ -161,17 +173,28 @@ final class VoidWebView: WKWebView {
         menu.addItem(hide)
     }
 
+    /// WebKit's own items keep their action (it carries the opener and the referrer), routed
+    /// through forwardOpenBehind so the tab it creates is marked to open behind.
+    private func openBehind(_ item: NSMenuItem) {
+        guard let action = item.action, action != #selector(forwardOpenBehind(_:)) else { return }
+        forwardedActions[ObjectIdentifier(item)] = (item.target, action)
+        item.target = self
+        item.action = #selector(forwardOpenBehind(_:))
+    }
+
+    private var forwardedActions: [ObjectIdentifier: (target: AnyObject?, action: Selector)] = [:]
+
+    @objc private func forwardOpenBehind(_ sender: NSMenuItem) {
+        guard let original = forwardedActions[ObjectIdentifier(sender)] else { return }
+        forwardedActions.removeAll()
+        contextMenuOpenDate = Date()
+        NSApp.sendAction(original.action, to: original.target, from: sender)
+    }
+
     @objc private func openLinkInBackground(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         MainActor.assumeIsolated {
             _ = (tab?.browser ?? .shared).openTab(url: url, background: true, after: tab)
-        }
-    }
-
-    @objc private func openLinkInForeground(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        MainActor.assumeIsolated {
-            _ = (tab?.browser ?? .shared).openTab(url: url, after: tab)
         }
     }
 
