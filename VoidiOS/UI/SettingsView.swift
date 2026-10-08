@@ -6,6 +6,7 @@ import WebKit
 struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
+    @State private var language = AppLanguage.current
 
     var body: some View {
         @Bindable var settings = settings
@@ -20,6 +21,15 @@ struct SettingsView: View {
                         ForEach(TabIconStyle.allCases) { Text($0.label).tag($0) }
                     }
                     Toggle("Progression de lecture dans la barre d'adresse", isOn: $settings.showReadingProgress)
+                }
+
+                Section {
+                    Picker("Langue", selection: $language) {
+                        ForEach(AppLanguage.allCases) { Text($0.label).tag($0) }
+                    }
+                    .onChange(of: language) { AppLanguage.choose(language) }
+                } footer: {
+                    if language.needsRelaunch { Text("La nouvelle langue s'appliquera au prochain lancement de Void.") }
                 }
 
                 Section {
@@ -283,7 +293,7 @@ private struct PasswordsSettings: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(login.host).fontWeight(.medium).foregroundStyle(Theme.primaryText)
-                                    Text(login.account.isEmpty ? "(sans identifiant)" : login.account).font(.caption).foregroundStyle(.secondary)
+                                    Text(login.account.isEmpty ? String(localized: "(sans identifiant)") : login.account).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if let password = revealed[login.id] {

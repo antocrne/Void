@@ -18,9 +18,9 @@ enum MediaPermission {
     /// "la caméra", "le micro", "la caméra et le micro".
     static func devices(_ type: WKMediaCaptureType) -> String {
         switch type {
-        case .camera: "la caméra"
-        case .microphone: "le micro"
-        default: "la caméra et le micro"
+        case .camera: String(localized: "la caméra")
+        case .microphone: String(localized: "le micro")
+        default: String(localized: "la caméra et le micro")
         }
     }
 
@@ -42,7 +42,7 @@ enum MediaPermission {
         guard await siteAllows(host, "\(type.rawValue)", in: browser, ask: ask) else { return .deny }
         // The system's own permission for Void, asked the first time.
         for media in mediaTypes(type) where await !systemAllows(media) {
-            browser.showToast("video.slash", systemRefusal(media))
+            browser.showToast("video.slash", verbatim: systemRefusal(media))
             return .deny
         }
         return .grant
@@ -106,11 +106,12 @@ enum MediaPermission {
     }
 
     private static func systemRefusal(_ media: AVMediaType) -> String {
-        let device = media == .video ? "la caméra" : "le micro"
         #if os(macOS)
-        return "Void n'a pas accès à \(device) : Réglages Système → Confidentialité et sécurité"
+        return media == .video ? String(localized: "Void n'a pas accès à la caméra : Réglages Système → Confidentialité et sécurité")
+                               : String(localized: "Void n'a pas accès au micro : Réglages Système → Confidentialité et sécurité")
         #else
-        return "Void n'a pas accès à \(device) : Réglages → Void"
+        return media == .video ? String(localized: "Void n'a pas accès à la caméra : Réglages → Void")
+                               : String(localized: "Void n'a pas accès au micro : Réglages → Void")
         #endif
     }
 }

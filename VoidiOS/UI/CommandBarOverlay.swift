@@ -124,7 +124,7 @@ struct CommandBarOverlay: View {
     private var placeholder: String {
         switch request.mode {
         case .currentTab: Tab.addressPlaceholder
-        case .newTab: browser.isPrivate ? "Nouvel onglet privé" : "Nouvel onglet"
+        case .newTab: browser.isPrivate ? String(localized: "Nouvel onglet privé") : String(localized: "Nouvel onglet")
         }
     }
 

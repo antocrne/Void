@@ -4,7 +4,7 @@
 (() => {
   if (location.hostname !== "chromewebstore.google.com") return;
 
-  const labels = { add: "Ajouter à Void", adding: "Ajout en cours…", remove: "Retirer de Void" };
+  const labels = __VOID_STORE_LABELS__;   // filled in by Scripts.swift, in Void's language
   let state = "add";
   let askedFor = null;
 

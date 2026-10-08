@@ -88,12 +88,12 @@ final class DownloadItem: Identifiable {
     private var sizeText: String {
         let size = ByteCountFormatter()
         size.countStyle = .file
-        return totalBytes > 0 ? "\(size.string(fromByteCount: receivedBytes)) sur \(size.string(fromByteCount: totalBytes))"
+        return totalBytes > 0 ? String(localized: "\(size.string(fromByteCount: receivedBytes)) sur \(size.string(fromByteCount: totalBytes))")
                               : size.string(fromByteCount: receivedBytes)
     }
 
     /// "En pause · 12,4 Mo sur 80 Mo".
-    var pausedText: String { receivedBytes > 0 ? "En pause · \(sizeText)" : "En pause" }
+    var pausedText: String { receivedBytes > 0 ? String(localized: "En pause · \(sizeText)") : String(localized: "En pause") }
 
     /// "12,4 Mo sur 80 Mo · 3,1 Mo/s · 18 s restantes", as much as is known.
     var statusText: String {
@@ -108,7 +108,7 @@ final class DownloadItem: Identifiable {
                 time.unitsStyle = .abbreviated
                 time.maximumUnitCount = remaining >= 3600 ? 2 : 1
                 time.allowedUnits = [.hour, .minute, .second]
-                if let text = time.string(from: max(1, remaining.rounded())) { parts.append("\(text) restantes") }
+                if let text = time.string(from: max(1, remaining.rounded())) { parts.append(String(localized: "\(text) restantes")) }
             }
         }
         return parts.joined(separator: " · ")
@@ -116,7 +116,7 @@ final class DownloadItem: Identifiable {
 
     /// "Terminé · 80 Mo".
     var finishedText: String {
-        receivedBytes > 0 ? "Terminé · \(ByteCountFormatter.string(fromByteCount: receivedBytes, countStyle: .file))" : "Terminé"
+        receivedBytes > 0 ? String(localized: "Terminé · \(ByteCountFormatter.string(fromByteCount: receivedBytes, countStyle: .file))") : String(localized: "Terminé")
     }
 
     init(filename: String, sourceURL: URL?, browser: BrowserModel?) {
@@ -170,12 +170,12 @@ final class DownloadManager {
         let running = (browser.isPrivate ? items(of: browser) : history).filter { $0.state == .running }
         guard !running.isEmpty else { return nil }
         let speed = running.reduce(0) { $0 + $1.bytesPerSecond }
-        let count = running.count == 1 ? "1 en cours" : "\(running.count) en cours"
+        let count = running.count == 1 ? String(localized: "1 en cours") : String(localized: "\(running.count) en cours")
         return speed > 0 ? "\(count) · \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s" : count
     }
 
     func adopt(_ download: WKDownload, from url: URL?, in browser: BrowserModel?) {
-        let item = DownloadItem(filename: url?.lastPathComponent ?? "Téléchargement", sourceURL: url, browser: browser)
+        let item = DownloadItem(filename: url?.lastPathComponent ?? String(localized: "Téléchargement"), sourceURL: url, browser: browser)
         item.asksDestination = AppSettings.shared.askDownloadLocation
         item.request = download.originalRequest
         item.store = download.webView?.configuration.websiteDataStore
@@ -208,7 +208,7 @@ final class DownloadManager {
                     item.resumeData = data
                 } else {
                     self?.discardPartialFile(of: item)
-                    item.state = .failed("Ce site ne permet pas de reprendre le téléchargement")
+                    item.state = .failed(String(localized: "Ce site ne permet pas de reprendre le téléchargement"))
                 }
             }
         }
@@ -311,7 +311,7 @@ final class DownloadManager {
         panel.directoryURL = folder
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        panel.prompt = "Enregistrer"
+        panel.prompt = String(localized: "Enregistrer")
         let response = if let window { await panel.beginSheetModal(for: window) } else { await panel.begin() }
         guard response == .OK, let url = panel.url else { return nil }
         if FileManager.default.fileExists(atPath: url.path) {
@@ -418,7 +418,7 @@ final class DownloadManager {
             let keep = ext.isEmpty || ext.count > 20 ? "" : "." + ext
             name = String(name.prefix(200 - keep.count)) + keep
         }
-        return name.isEmpty ? "Téléchargement" : name
+        return name.isEmpty ? String(localized: "Téléchargement") : name
     }
 
     /// Destinations of downloads still running: two downloads of the same name must not get the
@@ -525,12 +525,14 @@ enum DownloadPermission {
         guard let window = window ?? browser.window else { return false }
         let task = Task { @MainActor in
             let alert = NSAlert()
-            alert.messageText = "« \(host) » veut télécharger plusieurs fichiers d'affilée"
-            alert.informativeText = (file.map { "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite ?" }
-                ?? "L'autoriser à enregistrer plusieurs fichiers à la suite ?")
-                + (browser.isPrivate ? " (Jusqu'à la fermeture de cette fenêtre privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
-            alert.addButton(withTitle: "Autoriser")
-            alert.addButton(withTitle: "Refuser")
+            alert.messageText = String(localized: "« \(host) » veut télécharger plusieurs fichiers d'affilée")
+            let question = file.map { String(localized: "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite ?") }
+                ?? String(localized: "L'autoriser à enregistrer plusieurs fichiers à la suite ?")
+            let scope = browser.isPrivate ? String(localized: "(Jusqu'à la fermeture de cette fenêtre privée.)")
+                                          : String(localized: "Réglages → Téléchargements permet de revenir sur ce choix.")
+            alert.informativeText = question + " " + scope
+            alert.addButton(withTitle: String(localized: "Autoriser"))
+            alert.addButton(withTitle: String(localized: "Refuser"))
             let allowed = await withCheckedContinuation { continuation in
                 alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
             }
@@ -548,11 +550,13 @@ enum DownloadPermission {
         if let pending = asking[host] { return await pending.value }
         guard isBurst(host) else { return true }
         let task = Task { @MainActor in
-            let message = (file.map { "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite dans les fichiers de Void ?" }
-                ?? "L'autoriser à enregistrer plusieurs fichiers à la suite dans les fichiers de Void ?")
-                + (browser.isPrivate ? " (Jusqu'à la fermeture de la navigation privée.)" : " Réglages → Téléchargements permet de revenir sur ce choix.")
-            let allowed = await Dialogs.confirm(title: "« \(host) » veut télécharger plusieurs fichiers d'affilée", message: message,
-                                                confirm: "Autoriser", cancel: "Refuser") ?? false
+            let question = file.map { String(localized: "Le dernier : « \($0) ». L'autoriser à en enregistrer plusieurs à la suite dans les fichiers de Void ?") }
+                ?? String(localized: "L'autoriser à enregistrer plusieurs fichiers à la suite dans les fichiers de Void ?")
+            let scope = browser.isPrivate ? String(localized: "(Jusqu'à la fermeture de la navigation privée.)")
+                                          : String(localized: "Réglages → Téléchargements permet de revenir sur ce choix.")
+            let allowed = await Dialogs.confirm(title: String(localized: "« \(host) » veut télécharger plusieurs fichiers d'affilée"),
+                                                message: question + " " + scope,
+                                                confirm: String(localized: "Autoriser"), cancel: String(localized: "Refuser")) ?? false
             if allowed { allow(host, in: browser) }
             return allowed
         }

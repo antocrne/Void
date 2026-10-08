@@ -101,17 +101,17 @@ final class VoidWebView: WKWebView {
             switch item.identifier?.rawValue {
             case "WKMenuItemIdentifierOpenLinkInNewWindow":
                 // WebKit's action calls createWebViewWith → BrowserModel opens a tab.
-                item.title = "Ouvrir le lien dans un nouvel onglet"
+                item.title = String(localized: "Ouvrir le lien dans un nouvel onglet")
                 linkItemIndex = index
                 openBehind(item)
             case "WKMenuItemIdentifierOpenImageInNewWindow":
-                item.title = "Ouvrir l'image dans un nouvel onglet"
+                item.title = String(localized: "Ouvrir l'image dans un nouvel onglet")
                 openBehind(item)
             case "WKMenuItemIdentifierOpenFrameInNewWindow":
-                item.title = "Ouvrir le cadre dans un nouvel onglet"
+                item.title = String(localized: "Ouvrir le cadre dans un nouvel onglet")
                 openBehind(item)
             case "WKMenuItemIdentifierOpenMediaInNewWindow":
-                item.title = "Ouvrir la vidéo dans un nouvel onglet"
+                item.title = String(localized: "Ouvrir la vidéo dans un nouvel onglet")
                 openBehind(item)
             default:
                 break
@@ -119,19 +119,19 @@ final class VoidWebView: WKWebView {
         }
 
         if let linkItemIndex, let link = contextLinkURL {
-            let side = NSMenuItem(title: "Ouvrir le lien côte à côte", action: #selector(openLinkSideBySide(_:)), keyEquivalent: "")
+            let side = NSMenuItem(title: String(localized: "Ouvrir le lien côte à côte"), action: #selector(openLinkSideBySide(_:)), keyEquivalent: "")
             side.representedObject = link
             side.target = self
             menu.insertItem(side, at: linkItemIndex + 1)
             if tab?.isPrivate == false {
-                let privateItem = NSMenuItem(title: "Ouvrir dans une fenêtre privée", action: #selector(openLinkPrivately(_:)), keyEquivalent: "")
+                let privateItem = NSMenuItem(title: String(localized: "Ouvrir dans une fenêtre privée"), action: #selector(openLinkPrivately(_:)), keyEquivalent: "")
                 privateItem.representedObject = link
                 privateItem.target = self
                 menu.insertItem(privateItem, at: linkItemIndex + 2)
             }
         } else if linkItemIndex == nil, let link = contextLinkURL {
             // Some menus (e.g. link inside an image) lack WebKit's item: add ours.
-            let item = NSMenuItem(title: "Ouvrir le lien dans un nouvel onglet", action: #selector(openLinkInBackground(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "Ouvrir le lien dans un nouvel onglet"), action: #selector(openLinkInBackground(_:)), keyEquivalent: "")
             item.representedObject = link
             item.target = self
             menu.insertItem(item, at: 0)
@@ -148,7 +148,7 @@ final class VoidWebView: WKWebView {
 
         menu.addItem(.separator())
         if tab?.isInCall == true {
-            let pip = NSMenuItem(title: "Réunion en fenêtre flottante", action: #selector(togglePiP), keyEquivalent: "")
+            let pip = NSMenuItem(title: String(localized: "Réunion en fenêtre flottante"), action: #selector(togglePiP), keyEquivalent: "")
             pip.target = self
             menu.addItem(pip)
         } else if tab?.hasVideo == true {
@@ -168,7 +168,7 @@ final class VoidWebView: WKWebView {
         send.isEnabled = notes.isInstalled
         if !notes.isInstalled { send.toolTip = VoidNotes.missingHint }
         menu.addItem(send)
-        let hide = NSMenuItem(title: "Masquer un élément…", action: #selector(hideElement), keyEquivalent: "")
+        let hide = NSMenuItem(title: String(localized: "Masquer un élément…"), action: #selector(hideElement), keyEquivalent: "")
         hide.target = self
         menu.addItem(hide)
     }

@@ -80,7 +80,7 @@ struct OnboardingView: View {
         .padding(.vertical, 14)
     }
 
-    private var primaryTitle: String {
+    private var primaryTitle: LocalizedStringKey {
         switch step {
         case 0: "Personnaliser"
         case Self.stepCount - 1: "Commencer à naviguer"
@@ -116,7 +116,7 @@ private struct AppearanceStep: View {
             StepHeader(title: "Apparence", subtitle: "Le thème de l'interface et la couleur d'accent (onglet actif, interrupteurs, boutons).")
             HStack(spacing: 12) {
                 ForEach(ThemeChoice.allCases) { choice in
-                    OptionCard(title: choice.label, selected: settings.theme == choice) {
+                    OptionCard(title: Text(choice.label), selected: settings.theme == choice) {
                         withAnimation(Theme.quick) { settings.theme = choice }
                     } preview: {
                         switch choice {
@@ -148,16 +148,16 @@ private struct TabsStep: View {
         VStack(alignment: .leading, spacing: 18) {
             StepHeader(title: "Onglets", subtitle: "Où les ranger, et ce qu'ils montrent à côté du titre.")
             HStack(spacing: 12) {
-                OptionCard(title: "Barre latérale, à gauche", selected: settings.tabLayout == .sidebar) {
+                OptionCard(title: Text("Barre latérale, à gauche"), selected: settings.tabLayout == .sidebar) {
                     withAnimation(Theme.spring) { settings.tabLayout = .sidebar }
                 } preview: { MiniBrowser(layout: .sidebar) }
-                OptionCard(title: "Barre d'onglets en haut", selected: settings.tabLayout == .top) {
+                OptionCard(title: Text("Barre d'onglets en haut"), selected: settings.tabLayout == .top) {
                     withAnimation(Theme.spring) { settings.tabLayout = .top }
                 } preview: { MiniBrowser(layout: .top) }
             }
             HStack(spacing: 12) {
                 ForEach(TabIconStyle.allCases) { style in
-                    OptionCard(title: style.label, selected: settings.tabIconStyle == style, height: 44) {
+                    OptionCard(title: Text(style.label), selected: settings.tabIconStyle == style, height: 44) {
                         settings.tabIconStyle = style
                     } preview: { SampleTab(style: style) }
                 }
@@ -175,10 +175,10 @@ private struct SidebarStep: View {
             if settings.tabLayout == .sidebar {
                 StepHeader(title: "Barre latérale", subtitle: "Toujours là, ou cachée pour laisser toute la place à la page.")
                 HStack(spacing: 12) {
-                    OptionCard(title: "Toujours visible", selected: !settings.sidebarAutoHide) {
+                    OptionCard(title: Text("Toujours visible"), selected: !settings.sidebarAutoHide) {
                         withAnimation(Theme.spring) { settings.sidebarAutoHide = false; settings.sidebarVisible = true }
                     } preview: { MiniBrowser(layout: .sidebar) }
-                    OptionCard(title: "Masquée jusqu'au bord", selected: settings.sidebarAutoHide) {
+                    OptionCard(title: Text("Masquée jusqu'au bord"), selected: settings.sidebarAutoHide) {
                         withAnimation(Theme.spring) { settings.sidebarAutoHide = true; settings.sidebarVisible = true }
                     } preview: { MiniBrowser(layout: .sidebar, tabsHidden: true) }
                 }
@@ -210,9 +210,9 @@ private struct ReadyStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 SummaryRow(symbol: "circle.lefthalf.filled", text: "Thème \(settings.theme.label.lowercased()), couleur \(settings.accent.label.lowercased())")
                 SummaryRow(symbol: settings.tabLayout == .sidebar ? "sidebar.left" : "rectangle.topthird.inset.filled",
-                           text: settings.tabLayout == .sidebar
-                               ? "Onglets dans une barre latérale" + (settings.sidebarAutoHide ? ", masquée jusqu'au bord" : "")
-                               : "Onglets en haut")
+                           text: settings.tabLayout != .sidebar ? "Onglets en haut"
+                               : settings.sidebarAutoHide ? "Onglets dans une barre latérale, masquée jusqu'au bord"
+                               : "Onglets dans une barre latérale")
                 SummaryRow(symbol: "textformat", text: "Les onglets affichent : \(settings.tabIconStyle.label.lowercased())")
                 if settings.showBookmarksBar { SummaryRow(symbol: "star", text: "Barre de favoris affichée") }
             }
@@ -240,8 +240,8 @@ private struct ReadyStep: View {
 // MARK: - Building blocks
 
 private struct StepHeader: View {
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 20, weight: .bold))
@@ -252,7 +252,7 @@ private struct StepHeader: View {
 
 private struct SummaryRow: View {
     let symbol: String
-    let text: String
+    let text: LocalizedStringKey
     var body: some View {
         Label { Text(text) } icon: { Image(systemName: symbol).foregroundStyle(Theme.accent).frame(width: 18) }
             .font(.system(size: 13))
@@ -261,7 +261,7 @@ private struct SummaryRow: View {
 
 /// A selectable card with a small illustration; the choice is outlined with the accent.
 private struct OptionCard<Preview: View>: View {
-    let title: String
+    let title: Text
     let selected: Bool
     var height: CGFloat = 96
     let action: () -> Void
@@ -277,7 +277,7 @@ private struct OptionCard<Preview: View>: View {
                 HStack(spacing: 5) {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selected ? Theme.accent : Theme.secondaryText)
-                    Text(title).font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                    title.font(.system(size: 12.5, weight: selected ? .semibold : .regular))
                         .foregroundStyle(Theme.primaryText)
                         .lineLimit(1)
                 }

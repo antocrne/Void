@@ -28,9 +28,9 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .bookmarks: "Favoris"
-        case .history: "Historique"
-        case .downloads: "Téléchargements"
+        case .bookmarks: String(localized: "Favoris")
+        case .history: String(localized: "Historique")
+        case .downloads: String(localized: "Téléchargements")
         }
     }
 }
@@ -108,7 +108,7 @@ final class BrowserModel {
         self.kind = kind
         switch kind {
         case .privateWindow:
-            let space = Space(name: "Navigation privée", icon: "eye.slash", isEphemeral: true)
+            let space = Space(name: String(localized: "Navigation privée"), icon: "eye.slash", isEphemeral: true)
             currentSpaceID = space.id
             spaces = [space]
             isEphemeralSession = true
@@ -125,7 +125,7 @@ final class BrowserModel {
         case .main:
             break
         }
-        let fallback = Space(name: "Personnel", icon: "circle")
+        let fallback = Space(name: String(localized: "Personnel"), icon: "circle")
         currentSpaceID = fallback.id
         if SingleInstance.isDuplicate {
             // Quits as soon as its links are passed on: never reads or writes the session.
@@ -146,7 +146,7 @@ final class BrowserModel {
         if let saved = StateStore.load(), !saved.spaces.isEmpty {
             restore(saved)
         } else {
-            spaces = [fallback, Space(name: "Travail", icon: "briefcase")]
+            spaces = [fallback, Space(name: String(localized: "Travail"), icon: "briefcase")]
             currentSpaceID = fallback.id
         }
         // Property observers don't run during init.
@@ -470,7 +470,7 @@ final class BrowserModel {
     @discardableResult
     func addSpace(name: String, icon: String) -> Space {
         precondition(managesSpaces, "Spaces are managed from the main window")
-        let space = Space(name: name.isEmpty ? "Espace \(spaces.count + 1)" : name, icon: icon)
+        let space = Space(name: name.isEmpty ? String(localized: "Espace \(spaces.count + 1)") : name, icon: icon)
         spaces.append(space)
         switchSpace(to: space)
         setNeedsSave()
@@ -511,7 +511,12 @@ final class BrowserModel {
 
     // MARK: - Toasts
 
-    func showToast(_ symbol: String, _ message: String) {
+    func showToast(_ symbol: String, _ message: LocalizedStringResource) {
+        showToast(symbol, verbatim: String(localized: message))
+    }
+
+    /// A message already localized, or one that needs no translation.
+    func showToast(_ symbol: String, verbatim message: String) {
         withAnimation(Theme.spring) { toast = Toast(symbol: symbol, message: message) }
         toastWork?.cancel()
         let work = DispatchWorkItem { [weak self] in withAnimation(Theme.spring) { self?.toast = nil } }

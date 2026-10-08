@@ -5,7 +5,8 @@ import SwiftUI
 import WebKit
 
 /// Automated checks of Void's other features, through the real app code.
-///   Void.app/Contents/MacOS/Void -VoidSelfTest features [-VoidSelfTestOut /path/report.md]
+///   Void.app/Contents/MacOS/Void -VoidSelfTest features -AppleLanguages '(fr)' [-VoidSelfTestOut /path/report.md]
+/// The checks read the French interface: `-AppleLanguages '(fr)'` keeps it whatever the system's language.
 /// Uses a throw-away space; settings it changes are restored; nothing is left on disk.
 @MainActor
 final class FeatureSelfTest {

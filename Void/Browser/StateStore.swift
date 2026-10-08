@@ -70,7 +70,7 @@ extension SavedSpace {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        name = ((try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil) ?? "Espace"
+        name = ((try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil) ?? String(localized: "Espace")
         icon = ((try? c.decodeIfPresent(String.self, forKey: .icon)) ?? nil) ?? "circle"
         pinned = c.lossyArray(SavedTab.self, forKey: .pinned)
         tabs = c.lossyArray(SavedTab.self, forKey: .tabs)

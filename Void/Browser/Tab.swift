@@ -117,12 +117,12 @@ final class Tab: Identifiable {
         }
         #endif
         if let host = url?.host() { return host.voidNormalizedHost }
-        return "Nouvel onglet"
+        return String(localized: "Nouvel onglet")
     }
 
     var isAsleep: Bool { webView == nil }
 
-    static let addressPlaceholder = "Rechercher ou saisir une adresse"
+    static var addressPlaceholder: String { String(localized: "Rechercher ou saisir une adresse") }
 
     /// What the address field shows: the site's host, or the whole URL when it has none.
     var addressText: String {

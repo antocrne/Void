@@ -26,7 +26,11 @@ final class ElementHider {
         webView.window?.makeFirstResponder(webView)
         #endif
         Task {
-            _ = await webView.voidCall("return (\n\(Scripts.hider)\n);", arguments: ["voidAccent": Theme.accentCSS.light])
+            _ = await webView.voidCall("return (\n\(Scripts.hider)\n);", arguments: [
+                "voidAccent": Theme.accentCSS.light,
+                "voidTipTouch": String(localized: "Touchez un élément pour le masquer — touchez ici pour annuler"),
+                "voidTipPointer": String(localized: "Cliquez sur un élément pour le masquer — Échap pour annuler"),
+            ])
         }
     }
 

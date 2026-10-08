@@ -13,7 +13,7 @@ import UIKit
 final class VoidNotes {
     static let shared = VoidNotes()
     static let scheme = "voidnotes"
-    static let missingHint = "Nécessite Void Notes"
+    static var missingHint: String { String(localized: "Nécessite Void Notes") }
     /// The note travels in a URL: a long page is cut rather than refused by LaunchServices.
     static let maxTextLength = 20_000
 
@@ -54,8 +54,9 @@ final class VoidNotes {
     }
 
     /// Menu title: says why the item is disabled when Void Notes is missing.
-    func menuTitle(_ title: String) -> String {
-        isInstalled ? title : "\(title) — \(Self.missingHint.prefix(1).lowercased() + Self.missingHint.dropFirst())"
+    func menuTitle(_ title: LocalizedStringResource) -> String {
+        let title = String(localized: title)
+        return isInstalled ? title : String(localized: "\(title) — nécessite Void Notes")
     }
 
     /// Every value is fully percent-encoded (`&`, `=`, `+`, line breaks…), so the receiver
@@ -86,7 +87,7 @@ final class VoidNotes {
         }
         refresh()
         guard isInstalled else {
-            tab.browser?.showToast("note.text", Self.missingHint)
+            tab.browser?.showToast("note.text", verbatim: Self.missingHint)
             return
         }
         let title = title(of: tab)
@@ -105,7 +106,7 @@ final class VoidNotes {
         let browser = tab.browser ?? BrowserWindows.shared.active
         refresh()
         guard isInstalled else {
-            browser.showToast("note.text", Self.missingHint)
+            browser.showToast("note.text", verbatim: Self.missingHint)
             return
         }
         guard let note = Self.noteURL(title: title, text: text, url: url) else {

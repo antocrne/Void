@@ -174,24 +174,24 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         let port = [80, 443].contains(space.port) ? "" : ":\(space.port)"
         let alert = NSAlert()
-        alert.messageText = "Connexion à \(space.host)\(port)"
-        var info = space.realm.map { "« \($0) » demande un nom d'utilisateur et un mot de passe." }
-            ?? "Ce site demande un nom d'utilisateur et un mot de passe."
-        if challenge.previousFailureCount > 0 { info = "Nom d'utilisateur ou mot de passe incorrect. " + info }
-        if !space.receivesCredentialSecurely { info += "\n\nLa connexion n'est pas chiffrée : le mot de passe sera envoyé en clair." }
+        alert.messageText = String(localized: "Connexion à \(space.host)\(port)")
+        var info = space.realm.map { String(localized: "« \($0) » demande un nom d'utilisateur et un mot de passe.") }
+            ?? String(localized: "Ce site demande un nom d'utilisateur et un mot de passe.")
+        if challenge.previousFailureCount > 0 { info = String(localized: "Nom d'utilisateur ou mot de passe incorrect.") + " " + info }
+        if !space.receivesCredentialSecurely { info += "\n\n" + String(localized: "La connexion n'est pas chiffrée : le mot de passe sera envoyé en clair.") }
         alert.informativeText = info
         let user = NSTextField(string: challenge.proposedCredential?.user ?? "")
-        user.placeholderString = "Nom d'utilisateur"
+        user.placeholderString = String(localized: "Nom d'utilisateur")
         let password = NSSecureTextField(string: "")
-        password.placeholderString = "Mot de passe"
+        password.placeholderString = String(localized: "Mot de passe")
         let fields = NSStackView(views: [user, password])
         fields.orientation = .vertical
         fields.spacing = 8
         fields.frame = NSRect(x: 0, y: 0, width: 280, height: 56)
         for field in [user, password] { field.widthAnchor.constraint(equalToConstant: 280).isActive = true }
         alert.accessoryView = fields
-        alert.addButton(withTitle: "Se connecter")
-        alert.addButton(withTitle: "Annuler")
+        alert.addButton(withTitle: String(localized: "Se connecter"))
+        alert.addButton(withTitle: String(localized: "Annuler"))
         alert.window.initialFirstResponder = user.stringValue.isEmpty ? user : password
         let response = await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
@@ -211,7 +211,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         if let last = lastCrashReload, Date().timeIntervalSince(last) < 30 {
             // Crashed again right away: stop here instead of looping.
             tab.isLoading = false
-            tab.loadError = "La page a cessé de fonctionner."
+            tab.loadError = String(localized: "La page a cessé de fonctionner.")
             return
         }
         lastCrashReload = Date()
@@ -253,7 +253,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         alert.messageText = frame.securityOrigin.host
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Annuler")
+        alert.addButton(withTitle: String(localized: "Annuler"))
         return await present(alert, in: webView) == .alertFirstButtonReturn
     }
 
@@ -265,7 +265,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = field
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Annuler")
+        alert.addButton(withTitle: String(localized: "Annuler"))
         return await present(alert, in: webView) == .alertFirstButtonReturn ? field.stringValue : nil
     }
 
@@ -282,11 +282,13 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         tab.isAskingToStay = true
         let alert = NSAlert()
-        alert.messageText = "Quitter cette page ?"
+        alert.messageText = String(localized: "Quitter cette page ?")
         let host = frame.securityOrigin.host
-        alert.informativeText = (host.isEmpty ? "Cette page" : host) + " indique que les modifications que vous avez faites pourraient ne pas être enregistrées."
-        alert.addButton(withTitle: "Quitter la page")
-        alert.addButton(withTitle: "Rester")
+        alert.informativeText = host.isEmpty
+            ? String(localized: "Cette page indique que les modifications que vous avez faites pourraient ne pas être enregistrées.")
+            : String(localized: "\(host) indique que les modifications que vous avez faites pourraient ne pas être enregistrées.")
+        alert.addButton(withTitle: String(localized: "Quitter la page"))
+        alert.addButton(withTitle: String(localized: "Rester"))
         alert.beginSheetModal(for: window) { [weak tab] response in
             let leave = response == .alertFirstButtonReturn
             tab?.isAskingToStay = false
@@ -303,7 +305,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// invisible tab would block all of Void) or when the page keeps opening dialogs.
     private func present(_ alert: NSAlert, in webView: WKWebView) async -> NSApplication.ModalResponse? {
         guard let tab, tab.browser?.selectedTab === tab, let window = webView.window else {
-            let host = alert.messageText.isEmpty ? "Un onglet" : alert.messageText
+            let host = alert.messageText.isEmpty ? String(localized: "Un onglet") : alert.messageText
             tab?.browser?.showToast("exclamationmark.bubble", "\(host) a voulu afficher une alerte en arrière-plan")
             return nil
         }
@@ -325,10 +327,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let host = origin.host.voidNormalizedHost
         return await MediaPermission.decide(host: host, type: type, in: browser) {
             let alert = NSAlert()
-            alert.messageText = "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?"
-            alert.informativeText = "Jusqu'à ce que vous quittiez Void" + (self.browser.isPrivate ? " ou fermiez cette fenêtre privée." : ".")
-            alert.addButton(withTitle: "Autoriser")
-            alert.addButton(withTitle: "Refuser")
+            alert.messageText = String(localized: "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?")
+            alert.informativeText = self.browser.isPrivate ? String(localized: "Jusqu'à ce que vous quittiez Void ou fermiez cette fenêtre privée.")
+                                                           : String(localized: "Jusqu'à ce que vous quittiez Void.")
+            alert.addButton(withTitle: String(localized: "Autoriser"))
+            alert.addButton(withTitle: String(localized: "Refuser"))
             return await withCheckedContinuation { continuation in
                 alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
             }
@@ -343,15 +346,15 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
                                       withSystemAudio: Bool, decisionHandler: @escaping (Int) -> Void) {
         guard let tab, tab.browser?.selectedTab === tab, let window = webView.window ?? browser.window else { return decisionHandler(0) }
         let alert = NSAlert()
-        alert.messageText = "Partager votre écran avec « \(origin.host.voidNormalizedHost) » ?"
-        alert.informativeText = "macOS vous laissera ensuite choisir l'écran ou la fenêtre à montrer."
+        alert.messageText = String(localized: "Partager votre écran avec « \(origin.host.voidNormalizedHost) » ?")
+        alert.informativeText = String(localized: "macOS vous laissera ensuite choisir l'écran ou la fenêtre à montrer.")
         // WebKit never captures the sound: Void adds it (ShareAudio).
-        let sound = NSButton(checkboxWithTitle: "Partager aussi le son (vidéos, autres apps)", target: nil, action: nil)
+        let sound = NSButton(checkboxWithTitle: String(localized: "Partager aussi le son (vidéos, autres apps)"), target: nil, action: nil)
         sound.state = AppSettings.shared.shareScreenAudio ? .on : .off
-        sound.toolTip = "Le son de vos apps et des autres onglets de Void, sans celui de l'appel."
+        sound.toolTip = String(localized: "Le son de vos apps et des autres onglets de Void, sans celui de l'appel.")
         alert.accessoryView = sound
-        alert.addButton(withTitle: "Choisir quoi partager…")
-        alert.addButton(withTitle: "Refuser")
+        alert.addButton(withTitle: String(localized: "Choisir quoi partager…"))
+        alert.addButton(withTitle: String(localized: "Refuser"))
         alert.beginSheetModal(for: window) { [weak tab] response in
             let accepted = response == .alertFirstButtonReturn
             if accepted {
@@ -375,10 +378,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         Task {
             let decision = await MediaPermission.decideLocation(host: host, in: browser) {
                 let alert = NSAlert()
-                alert.messageText = "Autoriser « \(host) » à connaître votre position ?"
-                alert.informativeText = "Jusqu'à ce que vous quittiez Void" + (isPrivate ? " ou fermiez cette fenêtre privée." : ".")
-                alert.addButton(withTitle: "Autoriser")
-                alert.addButton(withTitle: "Refuser")
+                alert.messageText = String(localized: "Autoriser « \(host) » à connaître votre position ?")
+                alert.informativeText = isPrivate ? String(localized: "Jusqu'à ce que vous quittiez Void ou fermiez cette fenêtre privée.")
+                                                  : String(localized: "Jusqu'à ce que vous quittiez Void.")
+                alert.addButton(withTitle: String(localized: "Autoriser"))
+                alert.addButton(withTitle: String(localized: "Refuser"))
                 return await withCheckedContinuation { continuation in
                     alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
                 }

@@ -66,7 +66,7 @@ struct AddressPill: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.secondaryText)
                 .frame(width: 18)
-            Text(tab?.url == nil ? "Recherche ou adresse" : tab?.addressText ?? "")
+            Text(tab?.url == nil ? String(localized: "Recherche ou adresse") : tab?.addressText ?? "")
                 .font(.system(size: 15.5))
                 .foregroundStyle(tab?.url == nil ? Theme.secondaryText : Theme.primaryText.opacity(0.92))
                 .lineLimit(1)
@@ -108,7 +108,7 @@ struct AddressPill: View {
         if !tab.loginAccounts.isEmpty {
             Menu {
                 ForEach(tab.loginAccounts, id: \.self) { account in
-                    Button(account.isEmpty ? "(sans identifiant)" : account) {
+                    Button(account.isEmpty ? String(localized: "(sans identifiant)") : account) {
                         Task { await PasswordManager.shared.fill(tab, account: account) }
                     }
                 }

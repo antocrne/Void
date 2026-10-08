@@ -96,7 +96,8 @@ struct ImportResult {
     var notes: [String] = []
 
     var summary: String {
-        var parts = ["\(bookmarks) favoris", "\(history) pages d'historique", "\(passwords) mots de passe"]
+        var parts = [String(localized: "\(bookmarks) favoris"), String(localized: "\(history) pages d'historique"),
+                     String(localized: "\(passwords) mots de passe")]
         parts.append(contentsOf: notes)
         return parts.joined(separator: " · ")
     }
@@ -131,7 +132,7 @@ enum BrowserImporter {
         defer { removeTemporaryCopies() }
         var loaded = Loaded()
         guard let profile = browser.profileFolder else {
-            loaded.result.notes.append("\(browser.name) introuvable")
+            loaded.result.notes.append(String(localized: "\(browser.name) introuvable"))
             return loaded
         }
         if bookmarks {
@@ -146,7 +147,7 @@ enum BrowserImporter {
                 loaded.result.passwords = count
                 if let note { loaded.result.notes.append(note) }
             } else {
-                loaded.result.notes.append("Firefox chiffre ses mots de passe avec NSS : exportez-les en CSV (about:logins → ⋯ → Exporter) puis utilisez « Importer un CSV »")
+                loaded.result.notes.append(String(localized: "Firefox chiffre ses mots de passe avec NSS : exportez-les en CSV (about:logins → ⋯ → Exporter) puis utilisez « Importer un CSV »"))
             }
         }
         return loaded
@@ -210,9 +211,9 @@ enum BrowserImporter {
     nonisolated private static func chromiumPasswords(_ profile: URL, browser: SourceBrowser) -> (Int, String?) {
         guard let service = browser.safeStorageService else { return (0, nil) }
         guard let key = ChromiumCrypto.key(service: service) else {
-            return (0, "Accès refusé à « \(service) » dans le trousseau")
+            return (0, String(localized: "Accès refusé à « \(service) » dans le trousseau"))
         }
-        guard let db = openCopy(profile.appendingPathComponent("Login Data")) else { return (0, "Base « Login Data » illisible") }
+        guard let db = openCopy(profile.appendingPathComponent("Login Data")) else { return (0, String(localized: "Base « Login Data » illisible")) }
         var count = 0
         var failures = 0
         db.query("SELECT origin_url, username_value, password_value FROM logins WHERE blacklisted_by_user = 0") { row in
@@ -220,7 +221,7 @@ enum BrowserImporter {
             guard let password = ChromiumCrypto.decrypt(row.data(2), key: key), !password.isEmpty else { failures += 1; return }
             if KeychainStore.save(host: host.voidNormalizedHost, account: row.string(1), password: password) { count += 1 }
         }
-        return (count, failures > 0 ? "\(failures) mots de passe non déchiffrables" : nil)
+        return (count, failures > 0 ? String(localized: "\(failures) mots de passe non déchiffrables") : nil)
     }
 
     // MARK: - Firefox
@@ -234,7 +235,8 @@ enum BrowserImporter {
         """) { row in
             guard let url = URL(string: row.string(1)) else { return }
             // Firefox's own roots have internal names: the toolbar is the top level.
-            let roots = ["toolbar": "", "menu": "Menu des marque-pages", "unfiled": "Autres marque-pages", "mobile": "Marque-pages mobiles"]
+            let roots = ["toolbar": "", "menu": String(localized: "Menu des marque-pages"), "unfiled": String(localized: "Autres marque-pages"),
+                         "mobile": String(localized: "Marque-pages mobiles")]
             let folder = roots[row.string(2)] ?? row.string(2)
             out.append(Bookmark(title: row.string(0).isEmpty ? row.string(1) : row.string(0), url: url, folder: folder.isEmpty ? nil : folder))
         }

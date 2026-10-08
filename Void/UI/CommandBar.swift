@@ -48,18 +48,18 @@ enum SuggestionEngine {
         }
 
         if let url = URLResolver.url(from: text) {
-            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: "Ouvrir", kind: .go(url)))
+            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: String(localized: "Ouvrir"), kind: .go(url)))
             seen.insert(url.absoluteString)
         }
         let engine = AppSettings.shared.searchEngine.name
-        out.append(Suggestion(symbol: "magnifyingglass", title: text, subtitle: "Rechercher avec \(engine)", kind: .search(text)))
+        out.append(Suggestion(symbol: "magnifyingglass", title: text, subtitle: String(localized: "Rechercher avec \(engine)"), kind: .search(text)))
         // « 10 km en miles », « 100 usd en eur »: the answer, right under the search (↩ still searches).
         switch QuickConverter.answer(for: text) {
         case .result(let result):
             out.append(Suggestion(symbol: "equal.circle", title: result.text,
-                                  subtitle: [result.note, "Copier"].compactMap { $0 }.joined(separator: " · "), kind: .copy(result.value)))
+                                  subtitle: [result.note, String(localized: "Copier")].compactMap { $0 }.joined(separator: " · "), kind: .copy(result.value)))
         case .loading:
-            out.append(Suggestion(symbol: "equal.circle", title: "Conversion…", subtitle: "Taux de change en cours de chargement", kind: .action({})))
+            out.append(Suggestion(symbol: "equal.circle", title: String(localized: "Conversion…"), subtitle: String(localized: "Taux de change en cours de chargement"), kind: .action({})))
         case nil:
             break
         }
@@ -69,7 +69,7 @@ enum SuggestionEngine {
             let hay = (tab.title + " " + (tab.url?.absoluteString ?? "")).lowercased()
             if hay.contains(lower) {
                 out.append(Suggestion(symbol: "square.on.square", title: tab.displayTitle,
-                                      subtitle: "Aller à l'onglet · \(tab.space?.name ?? "")", kind: .switchTo(tab)))
+                                      subtitle: String(localized: "Aller à l'onglet · \(tab.space?.name ?? "")"), kind: .switchTo(tab)))
             }
         }
         for bookmark in BookmarkStore.shared.search(text, limit: 4) where !seen.contains(bookmark.url.absoluteString) {
@@ -83,14 +83,14 @@ enum SuggestionEngine {
         }
         let downloads = browser.isPrivate ? DownloadManager.shared.items(of: browser) : DownloadManager.shared.history
         for item in downloads where item.filename.lowercased().contains(lower) {
-            out.append(Suggestion(symbol: "arrow.down.doc", title: item.filename, subtitle: "Téléchargement", kind: .download(item)))
+            out.append(Suggestion(symbol: "arrow.down.doc", title: item.filename, subtitle: String(localized: "Téléchargement"), kind: .download(item)))
         }
 
         let actions: [(keys: [String], symbol: String, title: String, run: () -> Void)] = [
-            (["télécharg", "telecharg", "download"], "arrow.down.circle", "Afficher les téléchargements", { browser.showDownloads() }),
-            (["histo", "history"], "clock", "Afficher l'historique", { browser.showLibrary(.history) }),
-            (["favori", "bookmark", "signet"], "star", "Afficher les favoris", { browser.showLibrary(.bookmarks) }),
-            (["réglage", "reglage", "setting", "préf", "pref"], "gearshape", "Ouvrir les réglages", { browser.openSettingsAction?() }),
+            (["télécharg", "telecharg", "download"], "arrow.down.circle", String(localized: "Afficher les téléchargements"), { browser.showDownloads() }),
+            (["histo", "history"], "clock", String(localized: "Afficher l'historique"), { browser.showLibrary(.history) }),
+            (["favori", "bookmark", "signet"], "star", String(localized: "Afficher les favoris"), { browser.showLibrary(.bookmarks) }),
+            (["réglage", "reglage", "setting", "préf", "pref"], "gearshape", String(localized: "Ouvrir les réglages"), { browser.openSettingsAction?() }),
         ]
         for action in actions where action.keys.contains(where: { lower.hasPrefix($0) || $0.hasPrefix(lower) && lower.count >= 4 }) {
             out.append(Suggestion(symbol: action.symbol, title: action.title, subtitle: "Void", kind: .action(action.run)))
@@ -203,8 +203,9 @@ struct CommandBarOverlay: View {
 
     private var placeholder: String {
         switch request.mode {
-        case .currentTab: "Rechercher ou saisir une adresse"
-        case .newTab: browser.isPrivate ? "Nouvel onglet privé — rechercher ou saisir une adresse" : "Nouvel onglet — rechercher ou saisir une adresse"
+        case .currentTab: Tab.addressPlaceholder
+        case .newTab: browser.isPrivate ? String(localized: "Nouvel onglet privé — rechercher ou saisir une adresse")
+                                        : String(localized: "Nouvel onglet — rechercher ou saisir une adresse")
         }
     }
 

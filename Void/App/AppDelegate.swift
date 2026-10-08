@@ -64,10 +64,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let running = DownloadManager.shared.unfinishedCount
             guard running > 0 else { return keepTabsOfOtherWindows() ? .terminateNow : .terminateCancel }
             let alert = NSAlert()
-            alert.messageText = running == 1 ? "Un téléchargement est en cours" : "\(running) téléchargements sont en cours"
-            alert.informativeText = "Si vous quittez Void maintenant, \(running == 1 ? "il sera interrompu" : "ils seront interrompus") et les fichiers incomplets supprimés."
-            alert.addButton(withTitle: "Continuer les téléchargements")
-            alert.addButton(withTitle: "Quitter")
+            alert.messageText = running == 1 ? String(localized: "Un téléchargement est en cours")
+                                             : String(localized: "\(running) téléchargements sont en cours")
+            alert.informativeText = running == 1
+                ? String(localized: "Si vous quittez Void maintenant, il sera interrompu et le fichier incomplet supprimé.")
+                : String(localized: "Si vous quittez Void maintenant, ils seront interrompus et les fichiers incomplets supprimés.")
+            alert.addButton(withTitle: String(localized: "Continuer les téléchargements"))
+            alert.addButton(withTitle: String(localized: "Quitter"))
             guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
             return keepTabsOfOtherWindows() ? .terminateNow : .terminateCancel
         }
@@ -81,12 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let tabs = others.flatMap(\.allTabs).filter { $0.url != nil }
         guard !tabs.isEmpty, AppSettings.shared.restoreTabs else { return true }
         let alert = NSAlert()
-        alert.messageText = tabs.count == 1 ? "Un onglet d'une autre fenêtre ne sera pas rouvert"
-                                            : "\(tabs.count) onglets d'autres fenêtres ne seront pas rouverts"
-        alert.informativeText = "Au prochain lancement, Void ne rouvre que les onglets de la fenêtre principale."
-        alert.addButton(withTitle: "Les garder dans la fenêtre principale")
-        alert.addButton(withTitle: "Quitter sans eux")
-        alert.addButton(withTitle: "Annuler")
+        alert.messageText = tabs.count == 1 ? String(localized: "Un onglet d'une autre fenêtre ne sera pas rouvert")
+                                            : String(localized: "\(tabs.count) onglets d'autres fenêtres ne seront pas rouverts")
+        alert.informativeText = String(localized: "Au prochain lancement, Void ne rouvre que les onglets de la fenêtre principale.")
+        alert.addButton(withTitle: String(localized: "Les garder dans la fenêtre principale"))
+        alert.addButton(withTitle: String(localized: "Quitter sans eux"))
+        alert.addButton(withTitle: String(localized: "Annuler"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             main.adoptForNextLaunch(tabs)
@@ -102,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             BrowserModel.shared.saveNow()
             if !SingleInstance.isDuplicate { DownloadManager.shared.removeUnfinishedFiles() }
+            AppLanguage.relaunchIfRequested()
         }
     }
 }

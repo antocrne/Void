@@ -12,13 +12,13 @@ enum BiometricGate {
 
     /// `reuseRecent`: a success less than a minute old is enough (filling a form again). Showing
     /// or copying a password always asks: someone else at the Mac must not get them for free.
-    static func authenticate(reason: String, reuseRecent: Bool = true) async -> Bool {
+    static func authenticate(reason: LocalizedStringResource, reuseRecent: Bool = true) async -> Bool {
         if reuseRecent, let lastSuccess, Date().timeIntervalSince(lastSuccess) < 60 { return true }
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
         do {
-            let ok = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+            let ok = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: String(localized: reason))
             if ok { lastSuccess = Date() }
             return ok
         } catch {

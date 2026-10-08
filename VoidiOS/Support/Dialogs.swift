@@ -14,7 +14,7 @@ enum Dialogs {
     }
 
     /// nil when the alert couldn't be shown.
-    static func confirm(title: String, message: String, confirm: String = "OK", cancel: String? = "Annuler",
+    static func confirm(title: String, message: String, confirm: String = "OK", cancel: String? = String(localized: "Annuler"),
                         destructive: Bool = false) async -> Bool? {
         guard let presenter else { return nil }
         return await withCheckedContinuation { continuation in
@@ -49,7 +49,7 @@ enum Dialogs {
                     textField.autocorrectionType = .no
                 }
             }
-            alert.addAction(UIAlertAction(title: "Annuler", style: .cancel) { _ in continuation.resume(returning: nil) })
+            alert.addAction(UIAlertAction(title: String(localized: "Annuler"), style: .cancel) { _ in continuation.resume(returning: nil) })
             let action = UIAlertAction(title: confirm, style: .default) { [weak alert] _ in
                 continuation.resume(returning: (alert?.textFields ?? []).map { $0.text ?? "" })
             }

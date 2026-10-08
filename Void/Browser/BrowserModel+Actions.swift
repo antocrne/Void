@@ -168,11 +168,11 @@ extension BrowserModel {
         select(tab)
         others.forEach { close($0, force: true) }
         #if os(macOS)
-        let reopen = " · ⌘⇧T pour en rouvrir"
+        showToast("xmark.square", others.count == 1 ? "1 onglet fermé · ⌘⇧T pour en rouvrir"
+                                                    : "\(others.count) onglets fermés · ⌘⇧T pour en rouvrir")
         #else
-        let reopen = ""
+        showToast("xmark.square", others.count == 1 ? "1 onglet fermé" : "\(others.count) onglets fermés")
         #endif
-        showToast("xmark.square", (others.count == 1 ? "1 onglet fermé" : "\(others.count) onglets fermés") + reopen)
     }
 
     #if os(macOS)

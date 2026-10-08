@@ -284,7 +284,7 @@ struct TopTabPill: View {
         .onHover { hovering = $0 }
         .animation(Theme.quick, value: hovering)
         .contextMenu { TabContextMenu(tab: tab) }
-        .help(selected ? "\(tab.displayTitle) — rechercher ou saisir une adresse (⌘L)" : tab.displayTitle)
+        .help(selected ? String(localized: "\(tab.displayTitle) — rechercher ou saisir une adresse (⌘L)") : tab.displayTitle)
     }
 }
 

@@ -5,7 +5,7 @@ import WebKit
 /// Automated Picture-in-Picture check, run against the real app code paths
 /// (BrowserModel, WebHost, PiPController, FloatingPlayer). Debug builds only.
 ///
-///   Void.app/Contents/MacOS/Void -VoidSelfTest pip [-VoidSelfTestOut /path/report.md] [-VoidSelfTestOnly html5,youtube]
+///   Void.app/Contents/MacOS/Void -VoidSelfTest pip -AppleLanguages '(fr)' [-VoidSelfTestOut /path/report.md] [-VoidSelfTestOnly html5,youtube]
 ///
 /// Uses a throw-away space with private (in-memory) tabs; never touches the saved session.
 /// Videos play at 2 % volume.

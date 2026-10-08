@@ -59,7 +59,7 @@ struct AddressTools: View {
             if !tab.loginAccounts.isEmpty {
                 Menu {
                     ForEach(tab.loginAccounts, id: \.self) { account in
-                        Button(account.isEmpty ? "(sans identifiant)" : account) {
+                        Button(account.isEmpty ? String(localized: "(sans identifiant)") : account) {
                             Task { await PasswordManager.shared.fill(tab, account: account) }
                         }
                     }

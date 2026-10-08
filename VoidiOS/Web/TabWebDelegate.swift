@@ -38,9 +38,10 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
                 _ = await UIApplication.shared.open(url)
             case .ask:
                 let host = navigationAction.sourceFrame.securityOrigin.host
-                if isShown, await Dialogs.confirm(title: "Ouvrir dans une autre app ?",
-                                                  message: "\(host.isEmpty ? "Cette page" : host) veut ouvrir un lien « \(scheme): » dans une autre app.",
-                                                  confirm: "Ouvrir") == true {
+                let message = host.isEmpty ? String(localized: "Cette page veut ouvrir un lien « \(scheme): » dans une autre app.")
+                                           : String(localized: "\(host) veut ouvrir un lien « \(scheme): » dans une autre app.")
+                if isShown, await Dialogs.confirm(title: String(localized: "Ouvrir dans une autre app ?"), message: message,
+                                                  confirm: String(localized: "Ouvrir")) == true {
                     if await !UIApplication.shared.open(url) {
                         browser.showToast("exclamationmark.triangle", "Aucune app pour ouvrir ce lien")
                     }
@@ -116,9 +117,10 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let host = origin.host.voidNormalizedHost
         let isPrivate = browser.isPrivate
         return await MediaPermission.decide(host: host, type: type, in: browser) {
-            await Dialogs.confirm(title: "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?",
-                                  message: "Jusqu'à ce que vous quittiez Void" + (isPrivate ? " ou la navigation privée." : "."),
-                                  confirm: "Autoriser", cancel: "Refuser") ?? false
+            await Dialogs.confirm(title: String(localized: "Autoriser « \(host) » à utiliser \(MediaPermission.devices(type)) ?"),
+                                  message: isPrivate ? String(localized: "Jusqu'à ce que vous quittiez Void ou la navigation privée.")
+                                                     : String(localized: "Jusqu'à ce que vous quittiez Void."),
+                                  confirm: String(localized: "Autoriser"), cancel: String(localized: "Refuser")) ?? false
         }
     }
 
@@ -186,13 +188,14 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
             return (.performDefaultHandling, nil)
         }
         let port = [80, 443].contains(space.port) ? "" : ":\(space.port)"
-        var info = space.realm.map { "« \($0) » demande un nom d'utilisateur et un mot de passe." }
-            ?? "Ce site demande un nom d'utilisateur et un mot de passe."
-        if challenge.previousFailureCount > 0 { info = "Nom d'utilisateur ou mot de passe incorrect. " + info }
-        if !space.receivesCredentialSecurely { info += "\n\nLa connexion n'est pas chiffrée : le mot de passe sera envoyé en clair." }
-        let fields = [Dialogs.Field(placeholder: "Nom d'utilisateur", text: challenge.proposedCredential?.user ?? ""),
-                      Dialogs.Field(placeholder: "Mot de passe", secure: true)]
-        guard let answer = await Dialogs.prompt(title: "Connexion à \(space.host)\(port)", message: info, fields: fields, confirm: "Se connecter"),
+        var info = space.realm.map { String(localized: "« \($0) » demande un nom d'utilisateur et un mot de passe.") }
+            ?? String(localized: "Ce site demande un nom d'utilisateur et un mot de passe.")
+        if challenge.previousFailureCount > 0 { info = String(localized: "Nom d'utilisateur ou mot de passe incorrect.") + " " + info }
+        if !space.receivesCredentialSecurely { info += "\n\n" + String(localized: "La connexion n'est pas chiffrée : le mot de passe sera envoyé en clair.") }
+        let fields = [Dialogs.Field(placeholder: String(localized: "Nom d'utilisateur"), text: challenge.proposedCredential?.user ?? ""),
+                      Dialogs.Field(placeholder: String(localized: "Mot de passe"), secure: true)]
+        guard let answer = await Dialogs.prompt(title: String(localized: "Connexion à \(space.host)\(port)"), message: info, fields: fields,
+                                                confirm: String(localized: "Se connecter")),
               answer.count == 2 else { return (.performDefaultHandling, nil) }
         return (.useCredential, URLCredential(user: answer[0], password: answer[1], persistence: .forSession))
     }
@@ -206,7 +209,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard isShown else { tab.sleepAfterCrash(); return }
         if let last = lastCrashReload, Date().timeIntervalSince(last) < 30 {
             tab.isLoading = false
-            tab.loadError = "La page a cessé de fonctionner."
+            tab.loadError = String(localized: "La page a cessé de fonctionner.")
             return
         }
         lastCrashReload = Date()
@@ -238,18 +241,18 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
                 return UIMenu(children: suggested)
             }
             var actions: [UIMenuElement] = [
-                UIAction(title: "Ouvrir dans un nouvel onglet", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
+                UIAction(title: String(localized: "Ouvrir dans un nouvel onglet"), image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in
                     guard let self else { return }
                     self.browser.openTab(url: link, after: self.tab)
                 },
-                UIAction(title: "Ouvrir en arrière-plan", image: UIImage(systemName: "square.stack")) { [weak self] _ in
+                UIAction(title: String(localized: "Ouvrir en arrière-plan"), image: UIImage(systemName: "square.stack")) { [weak self] _ in
                     guard let self else { return }
                     self.browser.openTab(url: link, background: true, after: self.tab)
                     self.browser.showToast("square.stack", "Onglet ouvert en arrière-plan")
                 },
             ]
             if self.tab?.isPrivate == false {
-                actions.append(UIAction(title: "Ouvrir en navigation privée", image: UIImage(systemName: "eye.slash")) { _ in
+                actions.append(UIAction(title: String(localized: "Ouvrir en navigation privée"), image: UIImage(systemName: "eye.slash")) { _ in
                     BrowserWindows.shared.openPrivateWindow(url: link)
                 })
             }
@@ -289,9 +292,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         tab.isAskingToStay = true
         let host = frame.securityOrigin.host
         Task { [weak tab] in
-            let leave = await Dialogs.confirm(title: "Quitter cette page ?",
-                                              message: (host.isEmpty ? "Cette page" : host) + " indique que les modifications que vous avez faites pourraient ne pas être enregistrées.",
-                                              confirm: "Quitter la page", cancel: "Rester") ?? true
+            let message = host.isEmpty
+                ? String(localized: "Cette page indique que les modifications que vous avez faites pourraient ne pas être enregistrées.")
+                : String(localized: "\(host) indique que les modifications que vous avez faites pourraient ne pas être enregistrées.")
+            let leave = await Dialogs.confirm(title: String(localized: "Quitter cette page ?"), message: message,
+                                              confirm: String(localized: "Quitter la page"), cancel: String(localized: "Rester")) ?? true
             tab?.isAskingToStay = false
             if !leave { tab?.closeRequested = false }
             completionHandler(leave)
@@ -306,7 +311,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func mayShowDialog(from frame: WKFrameInfo) -> Bool {
         guard isShown else {
             let host = frame.securityOrigin.host
-            tab?.browser?.showToast("exclamationmark.bubble", "\(host.isEmpty ? "Un onglet" : host) a voulu afficher une alerte en arrière-plan")
+            tab?.browser?.showToast("exclamationmark.bubble", "\(host.isEmpty ? String(localized: "Un onglet") : host) a voulu afficher une alerte en arrière-plan")
             return false
         }
         let now = Date()

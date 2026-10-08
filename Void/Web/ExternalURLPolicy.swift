@@ -28,10 +28,11 @@ enum ExternalURLPolicy: Equatable {
         guard let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
         let alert = NSAlert()
-        alert.messageText = "Ouvrir « \(name) » ?"
-        alert.informativeText = "\(host.isEmpty ? "Cette page" : host) veut ouvrir un lien dans l'app \(name)."
-        alert.addButton(withTitle: "Ouvrir")
-        alert.addButton(withTitle: "Annuler")
+        alert.messageText = String(localized: "Ouvrir « \(name) » ?")
+        alert.informativeText = host.isEmpty ? String(localized: "Cette page veut ouvrir un lien dans l'app \(name).")
+                                             : String(localized: "\(host) veut ouvrir un lien dans l'app \(name).")
+        alert.addButton(withTitle: String(localized: "Ouvrir"))
+        alert.addButton(withTitle: String(localized: "Annuler"))
         let open = { (response: NSApplication.ModalResponse) in
             if response == .alertFirstButtonReturn { NSWorkspace.shared.open(url) }
         }
