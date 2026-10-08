@@ -737,7 +737,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                   after: parent?.browser === browser ? parent : nil)
         // `index` counts every tab of the window (see extensionTabs): keep it within the tab's space.
         if let space = tab.space, let offset = browser.extensionTabs.firstIndex(where: { $0 === space.allTabs.first }) {
-            let target = configuration.index - offset - space.pinned.count
+            let target = configuration.index - offset - (space.allTabs.count - space.tabs.count)
             if space.tabs.indices.contains(target) { browser.moveTab(tab, to: target) }
         }
         if configuration.shouldBePinned, browser.managesSpaces { browser.togglePin(tab) }

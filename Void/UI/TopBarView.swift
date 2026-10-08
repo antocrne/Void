@@ -83,7 +83,14 @@ struct TopBarView: View {
             if !space.pinned.isEmpty {
                 Divider().frame(height: 16).padding(.horizontal, 2)
             }
-            if space.selectedTab?.isPinned != false {
+            ForEach(space.folders) { folder in
+                TopFolderMenu(folder: folder, space: space)
+            }
+            if !space.folders.isEmpty {
+                Divider().frame(height: 16).padding(.horizontal, 2)
+            }
+            // A pinned tab or a folder's tab has no pill to carry the address.
+            if space.selectedTab.map({ selected in !space.tabs.contains { $0 === selected } }) ?? true {
                 TopAddressField(tab: space.selectedTab)
             }
             ForEach(space.tabs) { tab in
@@ -99,5 +106,39 @@ struct TopBarView: View {
         .coordinateSpace(.named(pinnedReorder.coordinateSpace))
         .id(space.id)
         .transition(.push(from: browser.spaceTransitionEdge))
+    }
+}
+
+/// A folder in the top bar: a menu of its tabs, to wake one up.
+private struct TopFolderMenu: View {
+    let folder: TabFolder
+    let space: Space
+    @Environment(BrowserModel.self) private var browser
+
+    var body: some View {
+        let holdsSelected = folder.tabs.contains { $0.id == space.selectedTabID }
+        Menu {
+            ForEach(folder.tabs) { tab in
+                Toggle(tab.displayTitle, isOn: Binding(get: { tab.id == space.selectedTabID }, set: { _ in browser.select(tab) }))
+            }
+            if folder.tabs.isEmpty {
+                Text("Vide · clic droit sur un onglet → Ranger dans un dossier")
+            }
+            Divider()
+            Button("Renommer…") { browser.renamingFolderID = folder.id }
+            Button("Supprimer le dossier, garder les onglets") { browser.deleteFolder(folder, keepingTabs: true) }
+        } label: {
+            Label(folder.name, systemImage: holdsSelected ? "folder.fill" : "folder")
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(holdsSelected ? Theme.accent : Theme.secondaryText)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .tint(Theme.secondaryText)
+        .fixedSize()
+        .padding(.horizontal, 4)
+        .help(folder.tabs.count == 1 ? "\(folder.name) · 1 onglet" : "\(folder.name) · \(folder.tabs.count) onglets")
+        .renameFolderPopover(folder, arrowEdge: .bottom)
     }
 }

@@ -241,6 +241,38 @@
         }
       }
     },
+    "%@ · %lld onglets" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld tabs"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld onglets"
+          }
+        }
+      }
+    },
+    "%@ · 1 onglet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 1 tab"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 1 onglet"
+          }
+        }
+      }
+    },
     "%@ — nécessite Void Notes" : {
       "localizations" : {
         "en" : {
@@ -3033,6 +3065,22 @@
         }
       }
     },
+    "Dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dossier"
+          }
+        }
+      }
+    },
     "Dossier proposé" : {
       "localizations" : {
         "en" : {
@@ -3125,6 +3173,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Déplacer vers…"
+          }
+        }
+      }
+    },
+    "Déplier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplier"
+          }
+        }
+      }
+    },
+    "Déplier le dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand the folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplier le dossier"
           }
         }
       }
@@ -3865,6 +3945,22 @@
         }
       }
     },
+    "Fermer %lld onglets et supprimer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close %lld Tabs and Delete"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer %lld onglets et supprimer"
+          }
+        }
+      }
+    },
     "Fermer (désépingler)" : {
       "localizations" : {
         "en" : {
@@ -3877,6 +3973,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fermer (désépingler)"
+          }
+        }
+      }
+    },
+    "Fermer 1 onglet et supprimer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close 1 Tab and Delete"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer 1 onglet et supprimer"
           }
         }
       }
@@ -3973,6 +4085,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fermer les autres onglets"
+          }
+        }
+      }
+    },
+    "Fermer les onglets hors dossiers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Tabs Outside Folders"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer les onglets hors dossiers"
           }
         }
       }
@@ -5452,6 +5580,22 @@
         }
       }
     },
+    "Mettre les onglets en veille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put Tabs to Sleep"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre les onglets en veille"
+          }
+        }
+      }
+    },
     "Mio" : {
       "comment" : "Symbol of the mebibyte unit",
       "localizations" : {
@@ -5802,6 +5946,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non ajoutés à l'historique des téléchargements. Les fichiers restent dans le dossier de téléchargement."
+          }
+        }
+      }
+    },
+    "Nouveau dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau dossier"
+          }
+        }
+      }
+    },
+    "Nouveau dossier, pour ranger des onglets à voir plus tard (⌃⌘N)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New folder, to keep tabs for later (⌃⌘N)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau dossier, pour ranger des onglets à voir plus tard (⌃⌘N)"
+          }
+        }
+      }
+    },
+    "Nouveau dossier…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Folder…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau dossier…"
           }
         }
       }
@@ -7246,6 +7438,22 @@
         }
       }
     },
+    "Ranger dans un dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ranger dans un dossier"
+          }
+        }
+      }
+    },
     "Recharger" : {
       "localizations" : {
         "en" : {
@@ -7582,6 +7790,38 @@
         }
       }
     },
+    "Replier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replier"
+          }
+        }
+      }
+    },
+    "Replier le dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse the folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replier le dossier"
+          }
+        }
+      }
+    },
     "Reprendre" : {
       "localizations" : {
         "en" : {
@@ -7690,6 +7930,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer des favoris"
+          }
+        }
+      }
+    },
+    "Retirer du dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer du dossier"
           }
         }
       }
@@ -8478,6 +8734,54 @@
         }
       }
     },
+    "Supprimer le dossier et ses onglets…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Folder and Its Tabs…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer le dossier et ses onglets…"
+          }
+        }
+      }
+    },
+    "Supprimer le dossier « %@ » et ses onglets ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the folder “%@” and its tabs?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer le dossier « %@ » et ses onglets ?"
+          }
+        }
+      }
+    },
+    "Supprimer le dossier, garder les onglets" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Folder, Keep Tabs"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer le dossier, garder les onglets"
+          }
+        }
+      }
+    },
     "Supprimer le favori" : {
       "localizations" : {
         "en" : {
@@ -9227,6 +9531,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vert"
+          }
+        }
+      }
+    },
+    "Vide · clic droit sur un onglet → Ranger dans un dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty · right-click a tab → Move to Folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vide · clic droit sur un onglet → Ranger dans un dossier"
+          }
+        }
+      }
+    },
+    "Vide · glissez-y un onglet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty · drag a tab here"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vide · glissez-y un onglet"
           }
         }
       }
@@ -10352,6 +10688,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌘T pour ouvrir un onglet · ⌘⇧N pour une fenêtre privée"
+          }
+        }
+      }
+    },
+    "⌘⇧T rouvre les onglets fermés un par un." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘⇧T reopens closed tabs one by one."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘⇧T rouvre les onglets fermés un par un."
           }
         }
       }

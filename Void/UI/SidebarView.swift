@@ -68,6 +68,15 @@ private struct SpaceTabList: View {
                     Text(space.name).font(.system(size: 11.5, weight: .semibold))
                 }
                 Spacer()
+                if browser.managesSpaces {
+                    Button { browser.addFolder(in: space) } label: {
+                        Image(systemName: "folder.badge.plus").font(.system(size: 11.5, weight: .medium))
+                            .frame(width: 20, height: 18)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Nouveau dossier, pour ranger des onglets à voir plus tard (⌃⌘N)")
+                }
             }
             .foregroundStyle(Theme.secondaryText)
             .padding(.horizontal, 9)
@@ -93,6 +102,31 @@ private struct SpaceTabList: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 2) {
+                    ForEach(space.folders) { folder in
+                        TabFolderRow(folder: folder, reorder: reorder)
+                        if folder.isExpanded && folder.tabs.isEmpty {
+                            Text("Vide · glissez-y un onglet")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Theme.secondaryText.opacity(0.8))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 34)
+                                .frame(height: 24)
+                        }
+                        ForEach(folder.shownTabs(selectedID: space.selectedTabID)) { tab in
+                            SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace, indent: 16)
+                                .tabReorderable(tab, with: reorder)
+                                .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                        }
+                    }
+                    if !space.folders.isEmpty {
+                        // Where the space's own tabs begin: a folder's tab released below comes out of it.
+                        Divider()
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(reorder.coordinateSpace)).midY } action: {
+                                reorder.recordLooseTop($0)
+                            }
+                    }
                     ForEach(space.tabs) { tab in
                         SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace)
                             .tabReorderable(tab, with: reorder)
@@ -101,6 +135,79 @@ private struct SpaceTabList: View {
                 }
                 .coordinateSpace(.named(reorder.coordinateSpace))
             }
+        }
+    }
+}
+
+/// A folder's header: a click folds or unfolds it; a tab dragged onto it goes in.
+private struct TabFolderRow: View {
+    let folder: TabFolder
+    let reorder: TabReorder
+    @Environment(BrowserModel.self) private var browser
+    @State private var hovering = false
+    @State private var confirmingDeletion = false
+
+    var body: some View {
+        let target = reorder.dropTarget == folder.id
+        HStack(spacing: 9) {
+            Image(systemName: target ? "folder.fill" : "folder")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(target ? Theme.accent : Theme.secondaryText)
+                .frame(width: 16)
+            Text(folder.name)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Theme.primaryText.opacity(0.85))
+                .lineLimit(1)
+            Spacer(minLength: 2)
+            if !folder.isExpanded || hovering {
+                Text("\(folder.tabs.count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.secondaryText)
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(Theme.secondaryText)
+                .rotationEffect(.degrees(folder.isExpanded ? 90 : 0))
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 32)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(target ? Theme.accentSoft : (hovering ? Theme.hover : .clear))
+        }
+        .overlay {
+            if target {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accent.opacity(0.75), lineWidth: 1.5)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { browser.toggleFolder(folder) }
+        .onHover { hovering = $0 }
+        .animation(Theme.quick, value: hovering)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(reorder.coordinateSpace)) } action: {
+            reorder.recordFolder($0, for: folder.id)
+        }
+        .help(folder.isExpanded ? "Replier le dossier" : "Déplier le dossier")
+        .contextMenu {
+            Button("Renommer…") { browser.renamingFolderID = folder.id }
+            Button(folder.isExpanded ? "Replier" : "Déplier") { browser.toggleFolder(folder) }
+            if folder.tabs.contains(where: { !$0.isAsleep }) {
+                Button("Mettre les onglets en veille") { for tab in folder.tabs { browser.sleepTab(tab) } }
+            }
+            Divider()
+            Button("Supprimer le dossier, garder les onglets") { browser.deleteFolder(folder, keepingTabs: true) }
+            Button("Supprimer le dossier et ses onglets…", role: .destructive) {
+                if folder.tabs.isEmpty { browser.deleteFolder(folder, keepingTabs: false) } else { confirmingDeletion = true }
+            }
+        }
+        .renameFolderPopover(folder)
+        .confirmationDialog("Supprimer le dossier « \(folder.name) » et ses onglets ?", isPresented: $confirmingDeletion) {
+            Button(folder.tabs.count == 1 ? "Fermer 1 onglet et supprimer" : "Fermer \(folder.tabs.count) onglets et supprimer", role: .destructive) {
+                browser.deleteFolder(folder, keepingTabs: false)
+            }
+        } message: {
+            Text("⌘⇧T rouvre les onglets fermés un par un.")
         }
     }
 }

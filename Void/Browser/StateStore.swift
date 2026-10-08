@@ -1,6 +1,6 @@
 import Foundation
 
-/// On-disk session: spaces, pinned tabs and (optionally) regular tabs.
+/// On-disk session: spaces, pinned tabs, folders of tabs and (optionally) regular tabs.
 /// Decoding is tolerant (see the extensions below): a missing or unknown field, or one bad tab,
 /// must never cost the whole session — website data is stored per space identifier, so losing
 /// the spaces would also sign the user out of every site.
@@ -19,6 +19,14 @@ struct SavedSpace: Codable {
     var pinned: [SavedTab]
     var tabs: [SavedTab]
     var selectedTabID: UUID?
+    var folders: [SavedFolder] = []
+}
+
+struct SavedFolder: Codable {
+    var id: UUID
+    var name: String
+    var isExpanded: Bool
+    var tabs: [SavedTab]
 }
 
 struct SavedTab: Codable {
@@ -75,6 +83,17 @@ extension SavedSpace {
         pinned = c.lossyArray(SavedTab.self, forKey: .pinned)
         tabs = c.lossyArray(SavedTab.self, forKey: .tabs)
         selectedTabID = (try? c.decodeIfPresent(UUID.self, forKey: .selectedTabID)) ?? nil
+        folders = c.lossyArray(SavedFolder.self, forKey: .folders)
+    }
+}
+
+extension SavedFolder {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = ((try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil) ?? UUID()
+        name = ((try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil) ?? String(localized: "Dossier")
+        isExpanded = ((try? c.decodeIfPresent(Bool.self, forKey: .isExpanded)) ?? nil) ?? true
+        tabs = c.lossyArray(SavedTab.self, forKey: .tabs)
     }
 }
 
