@@ -284,22 +284,24 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         #if DEBUG
         if SelfTestRunner.isRequested { return true }
         #endif
-        let name = ext.displayName ?? "Cette extension"
+        let name = ext.displayName ?? String(localized: "Cette extension")
         let alert = NSAlert()
-        alert.messageText = isUpdate ? "« \(name) » demande de nouvelles autorisations" : "Ajouter « \(name) » à Void ?"
+        alert.messageText = isUpdate ? String(localized: "« \(name) » demande de nouvelles autorisations") : String(localized: "Ajouter « \(name) » à Void ?")
         var lines: [String] = []
         let everywhere = grant.sites.contains { $0 == "<all_urls>" || $0.hasPrefix("*://*/") || $0.hasPrefix("http://*/") || $0.hasPrefix("https://*/") }
         if everywhere {
-            lines.append("• Lire et modifier vos données sur tous les sites")
+            lines.append("• " + String(localized: "Lire et modifier vos données sur tous les sites"))
         } else if !grant.sites.isEmpty {
             let hosts = grant.sites.sorted()
-            lines.append("• Lire et modifier vos données sur : " + hosts.prefix(6).joined(separator: ", ") + (hosts.count > 6 ? "…" : ""))
+            let list = hosts.prefix(6).joined(separator: ", ") + (hosts.count > 6 ? "…" : "")
+            lines.append("• " + String(localized: "Lire et modifier vos données sur : \(list)"))
         }
         let permissions = grant.permissions.sorted()
-        if !permissions.isEmpty { lines.append("• Autorisations : " + permissions.joined(separator: ", ")) }
-        alert.informativeText = lines.isEmpty ? "Elle ne demande aucune autorisation particulière." : "Elle pourra :\n" + lines.joined(separator: "\n")
-        alert.addButton(withTitle: isUpdate ? "Autoriser" : "Ajouter")
-        alert.addButton(withTitle: "Annuler")
+        if !permissions.isEmpty { lines.append("• " + String(localized: "Autorisations : \(permissions.joined(separator: ", "))")) }
+        alert.informativeText = lines.isEmpty ? String(localized: "Elle ne demande aucune autorisation particulière.")
+                                              : String(localized: "Elle pourra :") + "\n" + lines.joined(separator: "\n")
+        alert.addButton(withTitle: isUpdate ? String(localized: "Autoriser") : String(localized: "Ajouter"))
+        alert.addButton(withTitle: String(localized: "Annuler"))
         guard let window = BrowserWindows.shared.active.window, window.isVisible else {
             return alert.runModal() == .alertFirstButtonReturn
         }
@@ -773,30 +775,31 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void) {
         let list = permissions.map(\.rawValue).sorted().joined(separator: ", ")
-        confirm(extensionContext, asks: "des autorisations supplémentaires : \(list)") { completionHandler($0 ? permissions : [], nil) }
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande des autorisations supplémentaires : \(list).") }) { completionHandler($0 ? permissions : [], nil) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionToAccess urls: Set<URL>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<URL>, Date?) -> Void) {
         let hosts = Set(urls.compactMap { $0.host() }).sorted().joined(separator: ", ")
-        confirm(extensionContext, asks: "l'accès à \(hosts)") { completionHandler($0 ? urls : [], nil) }
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(hosts).") }) { completionHandler($0 ? urls : [], nil) }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionMatchPatterns matchPatterns: Set<WKWebExtension.MatchPattern>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void) {
         let sites = matchPatterns.map(\.description).sorted().joined(separator: ", ")
-        confirm(extensionContext, asks: "l'accès à \(sites)") { completionHandler($0 ? matchPatterns : [], nil) }
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(sites).") }) { completionHandler($0 ? matchPatterns : [], nil) }
     }
 
     /// A sheet over the frontmost browser window: an app-wide modal loop inside WebKit's callback
     /// would run WebKit's other callbacks re-entrantly.
-    private func confirm(_ context: WKWebExtensionContext, asks what: String, _ answer: @escaping (Bool) -> Void) {
+    /// `message`: the question, given the extension's name.
+    private func confirm(_ context: WKWebExtensionContext, message: (String) -> String, _ answer: @escaping (Bool) -> Void) {
         let alert = NSAlert()
-        alert.messageText = "« \(context.webExtension.displayName ?? "Une extension") » demande \(what)."
-        alert.addButton(withTitle: "Autoriser")
-        alert.addButton(withTitle: "Refuser")
+        alert.messageText = message(context.webExtension.displayName ?? String(localized: "Une extension"))
+        alert.addButton(withTitle: String(localized: "Autoriser"))
+        alert.addButton(withTitle: String(localized: "Refuser"))
         guard let window = BrowserWindows.shared.active.window, window.isVisible else {
             answer(alert.runModal() == .alertFirstButtonReturn)
             return

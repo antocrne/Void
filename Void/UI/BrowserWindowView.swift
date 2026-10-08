@@ -162,7 +162,7 @@ struct BrowserWindowView: View {
             window.setFrameAutosaveName("VoidMainWindow")
             ExternalLinks.shared.takeOver()
         case .secondary: window.title = "Void"
-        case .privateWindow: window.title = "Void — Navigation privée"
+        case .privateWindow: window.title = String(localized: "Void — Navigation privée")
         }
     }
 }

@@ -9,13 +9,13 @@ import UIKit
 enum TabLayout: String, CaseIterable, Identifiable {
     case sidebar, top
     var id: String { rawValue }
-    var label: String { self == .sidebar ? "Barre latérale" : "Barre d'onglets en haut" }
+    var label: String { self == .sidebar ? String(localized: "Barre latérale") : String(localized: "Barre d'onglets en haut") }
 }
 
 enum TabIconStyle: String, CaseIterable, Identifiable {
     case letters, favicons
     var id: String { rawValue }
-    var label: String { self == .letters ? "Lettres" : "Icônes de sites" }
+    var label: String { self == .letters ? String(localized: "Lettres") : String(localized: "Icônes de sites") }
 }
 
 /// Who offers to save and fill passwords: Void (macOS keychain) or another password manager.
@@ -25,14 +25,14 @@ enum PasswordManagerChoice: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .automatic: "Automatique"
+        case .automatic: String(localized: "Automatique")
         case .void:
             #if os(macOS)
-            "Void (trousseau macOS)"
+            String(localized: "Void (trousseau macOS)")
             #else
-            "Void (trousseau de l'appareil)"
+            String(localized: "Void (trousseau de l'appareil)")
             #endif
-        case .other: "Un autre gestionnaire"
+        case .other: String(localized: "Un autre gestionnaire")
         }
     }
 }
@@ -43,10 +43,10 @@ enum HistoryRetention: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var label: String {
         switch self {
-        case .year: "1 an"
-        case .sixMonths: "6 mois"
-        case .ninetyDays: "90 jours"
-        case .thirtyDays: "30 jours"
+        case .year: String(localized: "1 an")
+        case .sixMonths: String(localized: "6 mois")
+        case .ninetyDays: String(localized: "90 jours")
+        case .thirtyDays: String(localized: "30 jours")
         }
     }
 }
@@ -56,9 +56,9 @@ enum ThemeChoice: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .dark: "Sombre"
-        case .light: "Clair"
-        case .system: "Système"
+        case .dark: String(localized: "Sombre")
+        case .light: String(localized: "Clair")
+        case .system: String(localized: "Système")
         }
     }
 }
@@ -76,7 +76,7 @@ enum SearchEngine: String, CaseIterable, Identifiable {
         case .qwant: "Qwant"
         case .startpage: "Startpage"
         case .kagi: "Kagi"
-        case .custom: "Personnalisé"
+        case .custom: String(localized: "Personnalisé")
         }
     }
 

@@ -25,6 +25,7 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @Environment(AppSettings.self) private var settings
     @State private var isDefault = DefaultBrowser.isDefault
+    @State private var language = AppLanguage.current
 
     var body: some View {
         @Bindable var settings = settings
@@ -39,6 +40,19 @@ private struct GeneralSettings: View {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { isDefault = DefaultBrowser.isDefault }
                             }
                         }
+                    }
+                }
+            }
+            Section {
+                Picker("Langue", selection: $language) {
+                    ForEach(AppLanguage.allCases) { Text($0.label).tag($0) }
+                }
+                .onChange(of: language) { AppLanguage.choose(language) }
+                if language.needsRelaunch {
+                    HStack {
+                        Text("Void doit redémarrer pour changer de langue.").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Redémarrer Void") { AppLanguage.relaunch() }
                     }
                 }
             }
@@ -300,7 +314,7 @@ private struct DownloadsSettings: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.directoryURL = settings.downloadFolder
-        panel.prompt = "Choisir"
+        panel.prompt = String(localized: "Choisir")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         settings.downloadFolderPath = url.path
     }
@@ -317,7 +331,7 @@ private struct AboutSettings: View {
             VoidLogo(size: 72)
             Text("Void").font(.system(size: 24, weight: .bold))
             Text("Un navigateur qui s'efface.").foregroundStyle(.secondary)
-            Text("Version \(version) (\(build))" + (webKit.map { " · WebKit \($0)" } ?? ""))
+            Text(webKit.map { "Version \(version) (\(build)) · WebKit \($0)" } ?? "Version \(version) (\(build))")
                 .font(.callout).foregroundStyle(.secondary)
                 .textSelection(.enabled)
             Button("Afficher les données de Void dans le Finder") {
@@ -453,7 +467,7 @@ private struct PasswordsSettings: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(login.host).fontWeight(.medium)
-                            Text(login.account.isEmpty ? "(sans identifiant)" : login.account).font(.caption).foregroundStyle(.secondary)
+                            Text(login.account.isEmpty ? String(localized: "(sans identifiant)") : login.account).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if let password = revealed[login.id] {
@@ -480,7 +494,7 @@ private struct PasswordsSettings: View {
                         logins = KeychainStore.logins()
                     }
                 } message: { login in
-                    Text("Le compte \(login.account.isEmpty ? "sans identifiant" : "« \(login.account) »") est retiré du trousseau.")
+                    Text(login.account.isEmpty ? "Le compte sans identifiant est retiré du trousseau." : "Le compte « \(login.account) » est retiré du trousseau.")
                 }
             }
         }
@@ -524,14 +538,14 @@ private struct PasswordsSettings: View {
         switch settings.passwordManager {
         case .automatic:
             if let other, appOnly {
-                return "\(other) est installé sur ce Mac, mais sans son extension il ne remplit rien dans Void : Void continue d'enregistrer et de remplir vos mots de passe. Ajoutez son extension pour lui laisser la main."
+                return String(localized: "\(other) est installé sur ce Mac, mais sans son extension il ne remplit rien dans Void : Void continue d'enregistrer et de remplir vos mots de passe. Ajoutez son extension pour lui laisser la main.")
             }
-            return other.map { "\($0) est installé : Void le laisse enregistrer et remplir vos mots de passe." }
-                ?? "Void enregistre et remplit vos mots de passe, sauf si l’extension d’un autre gestionnaire est installée dans Void."
+            return other.map { String(localized: "\($0) est installé : Void le laisse enregistrer et remplir vos mots de passe.") }
+                ?? String(localized: "Void enregistre et remplit vos mots de passe, sauf si l’extension d’un autre gestionnaire est installée dans Void.")
         case .void:
-            return "Void propose d'enregistrer vos mots de passe dans le trousseau macOS et les remplit."
+            return String(localized: "Void propose d'enregistrer vos mots de passe dans le trousseau macOS et les remplit.")
         case .other:
-            return "Void ne propose plus d'enregistrer ni de remplir : votre gestionnaire (extension ou app) s'en charge."
+            return String(localized: "Void ne propose plus d'enregistrer ni de remplir : votre gestionnaire (extension ou app) s'en charge.")
         }
     }
 
@@ -571,7 +585,7 @@ private struct ImportSection: View {
             Section("Importer depuis un autre navigateur") {
                 Picker("Depuis", selection: $source) {
                     ForEach(SourceBrowser.allCases) { browser in
-                        Text(browser.name + (browser.isInstalled ? "" : " (introuvable)")).tag(browser)
+                        Text(browser.isInstalled ? browser.name : String(localized: "\(browser.name) (introuvable)")).tag(browser)
                     }
                 }
                 Toggle("Favoris", isOn: $bookmarks)
@@ -605,7 +619,7 @@ private struct ImportSection: View {
         let source = source
         Task {
             let r = await BrowserImporter.run(from: source, bookmarks: bookmarks, history: history, passwords: passwords)
-            result = "Importé depuis \(source.name) : " + r.summary
+            result = String(localized: "Importé depuis \(source.name) : \(r.summary)")
             working = false
         }
     }
@@ -617,7 +631,7 @@ private struct ImportSection: View {
         working = true
         Task {
             let count = await Task.detached(priority: .userInitiated) { BrowserImporter.importPasswordCSV(url) }.value
-            result = "\(count) mots de passe importés dans le trousseau."
+            result = String(localized: "\(count) mots de passe importés dans le trousseau.")
             working = false
         }
     }
@@ -655,8 +669,8 @@ private struct ExtensionsSettings: View {
 
 /// A switch with its title in bold and an explanation under it.
 private struct CaptionedToggle: View {
-    let title: String
-    let caption: String
+    let title: LocalizedStringKey
+    let caption: LocalizedStringKey
     @Binding var isOn: Bool
 
     var body: some View {
@@ -801,7 +815,7 @@ private struct ExtensionList: View {
                     Button("Retirer…", role: .destructive) { pendingRemoval = context }
                 }
             }
-            .confirmationDialog("Retirer « \(pendingRemoval?.webExtension.displayName ?? "cette extension") » de Void ?",
+            .confirmationDialog("Retirer « \(pendingRemoval?.webExtension.displayName ?? String(localized: "cette extension")) » de Void ?",
                                 isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
                                 presenting: pendingRemoval) { context in
                 Button("Retirer", role: .destructive) { manager.uninstall(context) }

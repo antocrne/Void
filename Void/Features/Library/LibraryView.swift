@@ -140,7 +140,7 @@ struct DownloadRow: View {
                 case .finished: Text(item.finishedText).font(.caption).foregroundStyle(.secondary)
                 case .cancelled: Text("Annulé").font(.caption).foregroundStyle(.secondary)
                 case .failed(let reason):
-                    Text(item.canResume ? "Interrompu · \(reason)" : reason).font(.caption).foregroundStyle(Theme.danger)
+                    Text(item.canResume ? String(localized: "Interrompu · \(reason)") : reason).font(.caption).foregroundStyle(Theme.danger)
                 }
             }
             Spacer()

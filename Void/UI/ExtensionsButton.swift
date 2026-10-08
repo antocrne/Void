@@ -247,16 +247,16 @@ enum WebStoreBridge {
             show("adding", in: webView)
             Task {
                 await manager.installFromWebStore(id)
-                if let error = manager.lastError { tab.browser?.showToast("exclamationmark.triangle", error) }
+                if let error = manager.lastError { tab.browser?.showToast("exclamationmark.triangle", verbatim: error) }
                 show(state(of: id), in: webView)
             }
         case "remove":
             if let context = manager.context(chromeID: id) {
                 let alert = NSAlert()
-                alert.messageText = "Retirer « \(context.webExtension.displayName ?? "cette extension") » de Void ?"
-                alert.informativeText = "Ses réglages et ses données sont supprimés."
-                alert.addButton(withTitle: "Retirer")
-                alert.addButton(withTitle: "Annuler")
+                alert.messageText = String(localized: "Retirer « \(context.webExtension.displayName ?? String(localized: "cette extension")) » de Void ?")
+                alert.informativeText = String(localized: "Ses réglages et ses données sont supprimés.")
+                alert.addButton(withTitle: String(localized: "Retirer"))
+                alert.addButton(withTitle: String(localized: "Annuler"))
                 if alert.runModal() == .alertFirstButtonReturn { manager.uninstall(context) }
             }
             show(state(of: id), in: webView)

@@ -63,13 +63,13 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
         webView.autoresizingMask = [.width, .height]
         content.addSubview(webView)
 
-        let back = NSButton(image: NSImage(systemSymbolName: "arrow.up.backward.and.arrow.down.forward", accessibilityDescription: "Revenir à l'onglet")!,
+        let back = NSButton(image: NSImage(systemSymbolName: "arrow.up.backward.and.arrow.down.forward", accessibilityDescription: String(localized: "Revenir à l'onglet"))!,
                             target: self, action: #selector(returnToTab))
         back.isBordered = false
         back.contentTintColor = Theme.videoControlNS
         back.frame = NSRect(x: size.width - 34, y: size.height - 30, width: 24, height: 22)
         back.autoresizingMask = [.minXMargin, .minYMargin]
-        back.toolTip = "Revenir à l'onglet"
+        back.toolTip = String(localized: "Revenir à l'onglet")
         content.addSubview(back)
 
         panel.contentView = content
@@ -108,10 +108,10 @@ final class FloatingPlayer: NSObject, NSWindowDelegate {
         panel.backgroundColor = Theme.videoBackgroundNS
         panel.delegate = self
 
-        let back = NSButton(image: NSImage(systemSymbolName: "arrow.up.backward.and.arrow.down.forward", accessibilityDescription: "Revenir à l'onglet")!,
+        let back = NSButton(image: NSImage(systemSymbolName: "arrow.up.backward.and.arrow.down.forward", accessibilityDescription: String(localized: "Revenir à l'onglet"))!,
                             target: self, action: #selector(returnToTab))
         back.isBordered = false
-        back.toolTip = "Revenir à l'onglet"
+        back.toolTip = String(localized: "Revenir à l'onglet")
         back.frame = NSRect(x: 0, y: 0, width: 26, height: 18)
         let accessory = NSTitlebarAccessoryViewController()
         accessory.view = back

@@ -157,7 +157,7 @@ struct SpaceIconButton: View {
     @State private var confirmingDeletion = false
 
     var body: some View {
-        ChromeButton(symbol: space.icon, help: space.name, active: selected) {
+        ChromeButton(symbol: space.icon, verbatimHelp: space.name, active: selected) {
             browser.switchSpace(to: space)
         }
         .symbolVariant(selected ? .fill : .none)
@@ -290,7 +290,7 @@ struct DownloadsButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Téléchargements (⌥⌘L)" + (speed.map { " · \($0)" } ?? ""))
+        .help(speed.map { speed -> LocalizedStringKey in "Téléchargements (⌥⌘L) · \(speed)" } ?? "Téléchargements (⌥⌘L)")
         .onHover { hovering = $0 }
         .animation(Theme.quick, value: hovering)
         .onAppear { browser.downloadsButtonsShown += 1 }
@@ -339,7 +339,8 @@ private struct DownloadProgressIcon: View {
         .frame(width: Self.diameter, height: Self.diameter)
         .accessibilityElement()
         .accessibilityLabel("Téléchargements")
-        .accessibilityValue(progress.fraction.map { "\(Int($0 * 100)) %" } ?? (progress.paused ? "En pause" : "En cours"))
+        .accessibilityValue(progress.fraction.map { $0.formatted(.percent.precision(.fractionLength(0))) }
+                            ?? (progress.paused ? String(localized: "En pause") : String(localized: "En cours")))
     }
 }
 

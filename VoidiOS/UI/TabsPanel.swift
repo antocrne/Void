@@ -107,9 +107,10 @@ struct TabsPanel: View {
 
     private func addSpace() {
         Task {
-            guard let name = await Dialogs.prompt(title: "Nouvel espace",
-                                                  message: "Chaque espace a ses onglets et ses propres cookies : un site peut y être connecté à un autre compte.",
-                                                  fields: [Dialogs.Field(placeholder: "Nom")], confirm: "Créer")?.first else { return }
+            guard let name = await Dialogs.prompt(title: String(localized: "Nouvel espace"),
+                                                  message: String(localized: "Chaque espace a ses onglets et ses propres cookies : un site peut y être connecté à un autre compte."),
+                                                  fields: [Dialogs.Field(placeholder: String(localized: "Nom"))],
+                                                  confirm: String(localized: "Créer"))?.first else { return }
             let icon = Space.iconChoices[browser.spaces.count % Space.iconChoices.count]
             browser.addSpace(name: name.trimmingCharacters(in: .whitespaces), icon: icon)
         }
@@ -254,8 +255,9 @@ private struct SpaceChip: View {
 
     private func rename() {
         Task {
-            guard let name = await Dialogs.prompt(title: "Renommer l'espace", message: "",
-                                                  fields: [Dialogs.Field(placeholder: "Nom", text: space.name)], confirm: "Renommer")?.first,
+            guard let name = await Dialogs.prompt(title: String(localized: "Renommer l'espace"), message: "",
+                                                  fields: [Dialogs.Field(placeholder: String(localized: "Nom"), text: space.name)],
+                                                  confirm: String(localized: "Renommer"))?.first,
                   !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             space.name = name.trimmingCharacters(in: .whitespaces)
             browser.setNeedsSave()
@@ -265,9 +267,10 @@ private struct SpaceChip: View {
     private func delete() {
         Task {
             let tabs = space.allTabs.count
-            guard await Dialogs.confirm(title: "Supprimer l'espace « \(space.name) » ?",
-                                        message: "Ses \(tabs == 1 ? "onglet" : "\(tabs) onglets") et ses données de sites (cookies, sessions) sont supprimés.",
-                                        confirm: "Supprimer", destructive: true) == true else { return }
+            guard await Dialogs.confirm(title: String(localized: "Supprimer l'espace « \(space.name) » ?"),
+                                        message: tabs == 1 ? String(localized: "Son onglet et ses données de sites (cookies, sessions) sont supprimés.")
+                                                           : String(localized: "Ses \(tabs) onglets et ses données de sites (cookies, sessions) sont supprimés."),
+                                        confirm: String(localized: "Supprimer"), destructive: true) == true else { return }
             browser.deleteSpace(space)
         }
     }

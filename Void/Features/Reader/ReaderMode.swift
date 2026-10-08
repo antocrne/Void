@@ -39,7 +39,7 @@ enum ReaderMode {
 
     static func document(for article: ReaderArticle, fontScale: Double, accent: (light: String, dark: String)) -> String {
         let minutes = max(1, article.words / 230)
-        let meta = [article.site, article.byline, "\(minutes) min de lecture"].filter { !$0.isEmpty }.map(escape).joined(separator: " · ")
+        let meta = [article.site, article.byline, String(localized: "\(minutes) min de lecture")].filter { !$0.isEmpty }.map(escape).joined(separator: " · ")
         return """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">

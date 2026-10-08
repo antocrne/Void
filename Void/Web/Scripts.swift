@@ -9,7 +9,11 @@ enum Scripts {
     static let reader = load("reader")
     static let hider = load("hider")
     static let activity = load("activity")
-    static let webstore = load("webstore")
+    static let webstore = load("webstore").replacingOccurrences(of: "__VOID_STORE_LABELS__", with: json([
+        "add": String(localized: "Ajouter à Void"),
+        "adding": String(localized: "Ajout en cours…"),
+        "remove": String(localized: "Retirer de Void"),
+    ]))
     static let extensionShim = load("extension-shim")
     static let shareAudio = load("shareaudio")
     static let shareAudioPage = load("shareaudio-page")
@@ -21,5 +25,10 @@ enum Scripts {
             return ""
         }
         return source
+    }
+
+    private static func json(_ object: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
     }
 }

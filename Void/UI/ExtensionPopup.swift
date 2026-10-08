@@ -83,7 +83,7 @@ private final class ResizeGrip: NSView {
         self.maximum = maximum
         self.growsUp = growsUp
         super.init(frame: .zero)
-        toolTip = "Glisser pour redimensionner · double-clic : taille d'origine"
+        toolTip = String(localized: "Glisser pour redimensionner · double-clic : taille d'origine")
     }
 
     @available(*, unavailable)

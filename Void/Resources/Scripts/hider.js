@@ -17,8 +17,8 @@
   });
   const touch = 'ontouchstart' in window;
   const tip = document.createElement('div');
-  tip.textContent = touch ? 'Touchez un élément pour le masquer — touchez ici pour annuler'
-                          : 'Cliquez sur un élément pour le masquer — Échap pour annuler';
+  // Both texts come from Void, in its language.
+  tip.textContent = (touch ? (typeof voidTipTouch === 'string' && voidTipTouch) : (typeof voidTipPointer === 'string' && voidTipPointer)) || '';
   Object.assign(tip.style, {
     position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: '2147483647',
     pointerEvents: 'none', font: '500 12px -apple-system, system-ui, sans-serif', color: '#ECECF1',

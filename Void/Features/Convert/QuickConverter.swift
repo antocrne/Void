@@ -27,8 +27,8 @@ enum QuickConverter {
         let rates = rates ?? .shared
         if let from = units[query.from], let name = query.to, let to = units[name], from.kind == to.kind {
             let value = (query.amount * from.factor + from.offset - to.offset) / to.factor
-            let converted = format(value, fractionDigits: from.kind == .temperature ? 2 : nil) + " " + to.symbol
-            return .result(Result(text: format(query.amount) + " " + from.symbol + " = " + converted, value: converted, note: nil))
+            let converted = format(value, fractionDigits: from.kind == .temperature ? 2 : nil) + " " + to.display
+            return .result(Result(text: format(query.amount) + " " + from.display + " = " + converted, value: converted, note: nil))
         }
         guard let from = currency(query.from) else { return nil }
         // « 100 usd »: into the Mac's currency.
@@ -144,14 +144,16 @@ enum QuickConverter {
         /// value × factor + offset = the value in the kind's base unit.
         let factor: Double
         var offset: Double = 0
+        /// The symbol as shown, in Void's language (« Mo » / « MB »).
+        var display: String
     }
 
     /// Every name a unit can be typed as (lowercase, no accents, ² and ³ as digits) → the unit.
     private static let units: [String: Unit] = {
         var table: [String: Unit] = [:]
-        func add(_ kind: Kind, _ symbol: String, _ factor: Double, offset: Double = 0, _ names: String...) {
-            let unit = Unit(kind: kind, symbol: symbol, factor: factor, offset: offset)
-            for name in [symbol.lowercased()] + names { table[normalize(name)] = unit }
+        func add(_ kind: Kind, _ symbol: String, _ factor: Double, offset: Double = 0, display: String? = nil, _ names: String...) {
+            let unit = Unit(kind: kind, symbol: symbol, factor: factor, offset: offset, display: display ?? symbol)
+            for name in [symbol.lowercased(), (display ?? symbol).lowercased()] + names { table[normalize(name)] = unit }
         }
         // Base: metre
         add(.length, "mm", 0.001, "millimetre", "millimetres", "millimeter", "millimeters")
@@ -204,17 +206,17 @@ enum QuickConverter {
         add(.duration, "s", 1, "sec", "seconde", "secondes", "second", "seconds")
         add(.duration, "min", 60, "minute", "minutes")
         add(.duration, "h", 3600, "heure", "heures", "hour", "hours")
-        add(.duration, "j", 86400, "jour", "jours", "day", "days")
-        add(.duration, "sem.", 604_800, "semaine", "semaines", "week", "weeks")
+        add(.duration, "j", 86400, display: String(localized: "j", comment: "Symbol of the day unit"), "jour", "jours", "day", "days")
+        add(.duration, "sem.", 604_800, display: String(localized: "sem.", comment: "Symbol of the week unit"), "semaine", "semaines", "week", "weeks")
         // Base: byte (ko = 1000 octets, Kio = 1024)
-        add(.data, "o", 1, "octet", "octets", "byte", "bytes")
-        add(.data, "ko", 1e3, "kb", "kilooctet", "kilooctets")
-        add(.data, "Mo", 1e6, "mb", "megaoctet", "megaoctets")
-        add(.data, "Go", 1e9, "gb", "gigaoctet", "gigaoctets")
-        add(.data, "To", 1e12, "tb", "teraoctet", "teraoctets")
-        add(.data, "Kio", 1024, "kib")
-        add(.data, "Mio", 1_048_576, "mib")
-        add(.data, "Gio", 1_073_741_824, "gib")
+        add(.data, "o", 1, display: String(localized: "o", comment: "Symbol of the byte unit"), "octet", "octets", "byte", "bytes")
+        add(.data, "ko", 1e3, display: String(localized: "ko", comment: "Symbol of the kilobyte unit"), "kb", "kilooctet", "kilooctets")
+        add(.data, "Mo", 1e6, display: String(localized: "Mo", comment: "Symbol of the megabyte unit"), "mb", "megaoctet", "megaoctets")
+        add(.data, "Go", 1e9, display: String(localized: "Go", comment: "Symbol of the gigabyte unit"), "gb", "gigaoctet", "gigaoctets")
+        add(.data, "To", 1e12, display: String(localized: "To", comment: "Symbol of the terabyte unit"), "tb", "teraoctet", "teraoctets")
+        add(.data, "Kio", 1024, display: String(localized: "Kio", comment: "Symbol of the kibibyte unit"), "kib")
+        add(.data, "Mio", 1_048_576, display: String(localized: "Mio", comment: "Symbol of the mebibyte unit"), "mib")
+        add(.data, "Gio", 1_073_741_824, display: String(localized: "Gio", comment: "Symbol of the gibibyte unit"), "gib")
         // Base: joule
         add(.energy, "J", 1, "joule", "joules")
         add(.energy, "kJ", 1000)
@@ -225,7 +227,7 @@ enum QuickConverter {
         // Base: watt
         add(.power, "W", 1, "watt", "watts")
         add(.power, "kW", 1000)
-        add(.power, "ch", 735.49875, "cv", "cheval", "chevaux")
+        add(.power, "ch", 735.49875, display: String(localized: "ch", comment: "Symbol of the metric horsepower unit"), "cv", "cheval", "chevaux")
         add(.power, "hp", 745.699872, "horsepower")
         // Base: pascal
         add(.pressure, "Pa", 1, "pascal", "pascals")
@@ -234,7 +236,7 @@ enum QuickConverter {
         add(.pressure, "psi", 6894.757293168)
         add(.pressure, "atm", 101_325)
         // « j » is the day here; joules are written out.
-        table["j"] = Unit(kind: .duration, symbol: "j", factor: 86400)
+        table["j"] = table["jour"]
         return table
     }()
 
@@ -301,8 +303,8 @@ final class CurrencyRates {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: saved.day) else { return "Taux BCE" }
-        return "Taux BCE du " + date.formatted(.dateTime.day().month(.abbreviated).year().locale(Locale(identifier: "fr_FR")))
+        guard let date = parser.date(from: saved.day) else { return String(localized: "Taux BCE") }
+        return String(localized: "Taux BCE du \(date.formatted(.dateTime.day().month(.abbreviated).year()))")
     }
 
     /// Fetches the rates when there are none or they are more than six hours old (one attempt a minute at most).

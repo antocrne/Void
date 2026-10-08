@@ -10,11 +10,11 @@ enum AccentChoice: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .violet: "Violet"
-        case .blue: "Bleu"
-        case .green: "Vert"
-        case .orange: "Orange"
-        case .pink: "Rose"
+        case .violet: String(localized: "Violet")
+        case .blue: String(localized: "Bleu")
+        case .green: String(localized: "Vert")
+        case .orange: String(localized: "Orange")
+        case .pink: String(localized: "Rose")
         }
     }
 
@@ -225,7 +225,9 @@ struct VoidLogo: View {
 /// Small icon-only button used throughout the chrome.
 struct ChromeButton: View {
     let symbol: String
-    var help: String = ""
+    var help: LocalizedStringKey = ""
+    /// In place of `help`, a text not to translate (a space's name).
+    var verbatimHelp: String?
     var active: Bool = false
     var disabled: Bool = false
     var size: CGFloat = 13
@@ -251,7 +253,7 @@ struct ChromeButton: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.35 : 1)
-        .help(help)
+        .help(verbatimHelp.map { Text($0) } ?? Text(help))
         .onHover { hovering = $0 }
         .animation(Theme.quick, value: hovering)
     }

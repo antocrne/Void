@@ -8,11 +8,11 @@ enum ChromeExtensions {
 
         var errorDescription: String? {
             switch self {
-            case .notAnExtensionLink: "Ce n'est pas un lien d'extension du Chrome Web Store (ni un identifiant d'extension)."
-            case .notACRX: "Ce fichier n'est pas une extension Chrome (.crx) lisible."
-            case .download(let reason): "Téléchargement depuis le Chrome Web Store impossible : \(reason)"
-            case .unzip: "L'archive de l'extension n'a pas pu être décompressée."
-            case .symbolicLink: "L'extension contient des liens symboliques : elle n'est pas chargée."
+            case .notAnExtensionLink: String(localized: "Ce n'est pas un lien d'extension du Chrome Web Store (ni un identifiant d'extension).")
+            case .notACRX: String(localized: "Ce fichier n'est pas une extension Chrome (.crx) lisible.")
+            case .download(let reason): String(localized: "Téléchargement depuis le Chrome Web Store impossible : \(reason)")
+            case .unzip: String(localized: "L'archive de l'extension n'a pas pu être décompressée.")
+            case .symbolicLink: String(localized: "L'extension contient des liens symboliques : elle n'est pas chargée.")
             }
         }
     }
@@ -53,12 +53,13 @@ enum ChromeExtensions {
 
     static func downloadFromWebStore(id: String) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(from: webStoreDownloadURL(id: id))
-        guard let http = response as? HTTPURLResponse else { throw Failure.download("pas de réponse") }
+        guard let http = response as? HTTPURLResponse else { throw Failure.download(String(localized: "pas de réponse")) }
         guard http.statusCode == 200 else {
             throw Failure.download(http.statusCode == 204 || http.statusCode == 404
-                                   ? "extension introuvable ou retirée du store" : "erreur \(http.statusCode)")
+                                   ? String(localized: "extension introuvable ou retirée du store")
+                                   : String(localized: "erreur \(http.statusCode)"))
         }
-        guard !data.isEmpty else { throw Failure.download("extension introuvable ou retirée du store") }
+        guard !data.isEmpty else { throw Failure.download(String(localized: "extension introuvable ou retirée du store")) }
         return data
     }
 
