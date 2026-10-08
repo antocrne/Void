@@ -4,7 +4,9 @@ import SwiftUI
 /// Live reordering of tabs by dragging: the sidebar's list of tabs and pinned grid, and the
 /// top bar's row. The dragged tab follows the pointer; the others make room as soon as it passes
 /// their middle (their cell, in the grid), and the space's order — hence ⌘1…⌘9 and the saved
-/// session — changes as it goes. Pinned tabs and ordinary tabs are reordered separately.
+/// session — changes as it goes. Pinned tabs, each folder's tabs and ordinary tabs are reordered
+/// separately; in the sidebar, a tab released on a folder goes into it, and a folder's tab released
+/// below the folders comes out of it.
 @MainActor @Observable
 final class TabReorder {
     enum Layout { case vertical, horizontal, grid }
@@ -17,6 +19,16 @@ final class TabReorder {
     private(set) var draggedID: UUID?
     /// How far the dragged tab is drawn from the slot it currently occupies in the layout.
     private(set) var offset: CGSize = .zero
+    /// Where the dragged tab goes if released now: a folder (its identifier), or `outOfFolder`.
+    private(set) var dropTarget: UUID?
+    /// Drop target: out of its folder, among the space's tabs.
+    static let outOfFolder = UUID()
+
+    @ObservationIgnored private weak var draggedTab: Tab?
+    /// Folder headers, by folder, and the top of the space's own tabs (below every folder).
+    @ObservationIgnored private var folderFrames: [UUID: CGRect] = [:]
+    @ObservationIgnored private var looseTop: CGFloat?
+    @ObservationIgnored private var dropIndex = 0
 
     /// Latest layout frames, by tab. Frozen into `snapshot` when a drag starts: while it lasts,
     /// positions are worked out from the order, so they never lag behind a move.
@@ -38,11 +50,13 @@ final class TabReorder {
     }
 
     func record(_ frame: CGRect, for id: UUID) { frames[id] = frame }
+    func recordFolder(_ frame: CGRect, for id: UUID) { folderFrames[id] = frame }
+    func recordLooseTop(_ y: CGFloat) { looseTop = y }
 
     /// `translation` is the pointer's movement since the press.
     func dragChanged(_ tab: Tab, translation: CGSize, browser: BrowserModel) {
         guard let space = tab.space else { return }
-        let list = tab.isPinned ? space.pinned : space.tabs
+        let list = space.siblings(of: tab)
         if draggedID == nil {
             guard let frame = frames[tab.id] else { return }
             snapshot = frames
@@ -50,6 +64,7 @@ final class TabReorder {
             startSlot = frame
             slot = frame
             draggedID = tab.id
+            draggedTab = tab
             // Worked back from the dragged tab: the first rows of a lazy list may never have been measured.
             let before = list.prefix { $0 !== tab }.reduce(CGFloat(0)) { $0 + extent(of: $1.id) + spacing }
             lineStart = (layout == .horizontal ? frame.minX : frame.minY) - before
@@ -68,6 +83,8 @@ final class TabReorder {
                 slot = cells[target]
             }
         case .vertical, .horizontal:
+            // A folded folder shows only its tab being viewed: nothing to reorder it among.
+            if space.folder(of: tab)?.isExpanded == false { break }
             let c = layout == .horizontal ? center.x : center.y
             while true {
                 let spans = lineSpans(order)
@@ -88,18 +105,43 @@ final class TabReorder {
             }
         }
 
+        if layout == .vertical { updateDropTarget(tab, in: space, at: center) }
+
         // A row or a column: the tab stays on it, whatever the pointer does across it.
         offset = CGSize(width: layout == .vertical ? 0 : startSlot.minX + translation.width - slot.minX,
                         height: layout == .horizontal ? 0 : startSlot.minY + translation.height - slot.minY)
     }
 
-    func dragEnded() {
+    /// `browser`: carries out the drop on a folder (or out of one).
+    func dragEnded(browser: BrowserModel? = nil) {
+        if let browser, let tab = draggedTab, let target = dropTarget, let space = tab.space {
+            if target == Self.outOfFolder {
+                browser.removeFromFolder(tab, at: dropIndex)
+            } else if let folder = space.folders.first(where: { $0.id == target }) {
+                browser.put(tab, in: folder)
+            }
+        }
         withAnimation(Theme.spring) {
             draggedID = nil
             offset = .zero
+            dropTarget = nil
         }
+        draggedTab = nil
         snapshot = [:]
         cells = []
+    }
+
+    /// A folder whose header is under the dragged tab's centre (not its own); for a folder's tab,
+    /// below every folder: out of it, at the place among the space's tabs under the centre.
+    private func updateDropTarget(_ tab: Tab, in space: Space, at point: CGPoint) {
+        guard !tab.isPinned else { return }
+        let current = space.folder(of: tab)
+        var target = space.folders.first { $0 !== current && folderFrames[$0.id]?.contains(point) == true }?.id
+        if target == nil, current != nil, let looseTop, point.y > looseTop {
+            target = Self.outOfFolder
+            dropIndex = space.tabs.filter { (frames[$0.id]?.midY ?? .infinity) < point.y }.count
+        }
+        if target != dropTarget { withAnimation(Theme.quick) { dropTarget = target } }
     }
 
     /// Start and middle of each tab along the list's axis, in `order`.
@@ -156,7 +198,7 @@ private struct TabReorderable: ViewModifier {
             .gesture(
                 DragGesture(minimumDistance: 4, coordinateSpace: .global)
                     .onChanged { reorder.dragChanged(tab, translation: $0.translation, browser: browser) }
-                    .onEnded { _ in reorder.dragEnded() }
+                    .onEnded { _ in reorder.dragEnded(browser: browser) }
             )
     }
 }

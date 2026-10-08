@@ -11,6 +11,8 @@ final class Space: Identifiable {
     var name: String
     var icon: String
     var pinned: [Tab] = []
+    /// Tabs put away for later (see TabFolder), between the pinned tabs and the others.
+    var folders: [TabFolder] = []
     var tabs: [Tab] = []
     var selectedTabID: UUID?
     /// Two tabs shown side by side (see SplitView.swift); kept while another tab is selected.
@@ -96,7 +98,7 @@ final class Space: Identifiable {
         UserDefaults.standard.set(pending, forKey: pendingRemovalsKey)
     }
 
-    var allTabs: [Tab] { pinned + tabs }
+    var allTabs: [Tab] { pinned + folders.flatMap(\.tabs) + tabs }
     var selectedTab: Tab? { allTabs.first { $0.id == selectedTabID } }
 
     static let iconChoices = ["circle", "briefcase", "house", "book", "graduationcap", "gamecontroller",

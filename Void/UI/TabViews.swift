@@ -38,11 +38,25 @@ struct TabContextMenu: View {
     @Environment(BrowserModel.self) private var browser
 
     var body: some View {
-        if browser.managesSpaces && !tab.isPrivate {
+        let folder = tab.space?.folder(of: tab)
+        if browser.managesSpaces && !tab.isPrivate, let space = tab.space {
             Button(tab.isPinned ? "Désépingler" : "Épingler") { browser.togglePin(tab) }
+            Menu("Ranger dans un dossier") {
+                let others = space.folders.filter { $0 !== folder }
+                ForEach(others) { other in
+                    Button(other.name) { browser.put(tab, in: other) }
+                }
+                if !others.isEmpty { Divider() }
+                Button("Nouveau dossier…") { browser.addFolder(with: tab) }
+            }
+            if folder != nil {
+                Button("Retirer du dossier") { browser.removeFromFolder(tab) }
+            }
         }
         if tab.isPinned && !tab.isAsleep {
             Button("Mettre en veille") { browser.close(tab) }
+        } else if folder != nil && !tab.isAsleep {
+            Button("Mettre en veille") { browser.sleepTab(tab) }
         }
         Button("Recharger") { browser.select(tab); browser.reload() }
         if let url = tab.url {
@@ -78,7 +92,9 @@ struct TabContextMenu: View {
         Divider()
         Button(tab.isPinned ? "Fermer (désépingler)" : "Fermer l'onglet") { browser.requestClose(tab, force: true) }
         if !browser.otherTabs(than: tab).isEmpty {
-            Button(tab.isPinned ? "Fermer les onglets non épinglés" : "Fermer les autres onglets") { browser.closeOtherTabs(than: tab) }
+            Button(tab.isPinned ? "Fermer les onglets non épinglés" : (folder != nil ? "Fermer les onglets hors dossiers" : "Fermer les autres onglets")) {
+                browser.closeOtherTabs(than: tab)
+            }
         }
     }
 
@@ -97,6 +113,8 @@ struct SidebarTabRow: View {
     let tab: Tab
     let selected: Bool
     let namespace: Namespace.ID
+    /// Tabs of a folder sit a little to the right of its header.
+    var indent: CGFloat = 0
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
     @State private var hovering = false
@@ -145,7 +163,8 @@ struct SidebarTabRow: View {
                 .help("Fermer l'onglet (⌘W)")
             }
         }
-        .padding(.horizontal, 9)
+        .padding(.leading, 9 + indent)
+        .padding(.trailing, 9)
         .frame(height: 34)
         .background {
             if selected {
@@ -169,6 +188,50 @@ struct SidebarTabRow: View {
         .onHover { hovering = $0 }
         .contextMenu { TabContextMenu(tab: tab) }
         .animation(Theme.quick, value: hovering)
+    }
+}
+
+extension View {
+    /// The folder's name field, next to it, while `BrowserModel.renamingFolderID` names it (a new
+    /// folder, or "Renommer…"). Left empty, the name stays.
+    func renameFolderPopover(_ folder: TabFolder, arrowEdge: Edge = .trailing) -> some View {
+        modifier(RenameFolderPopover(folder: folder, arrowEdge: arrowEdge))
+    }
+}
+
+private struct RenameFolderPopover: ViewModifier {
+    let folder: TabFolder
+    let arrowEdge: Edge
+    @Environment(BrowserModel.self) private var browser
+
+    func body(content: Content) -> some View {
+        content.popover(isPresented: Binding(get: { browser.renamingFolderID == folder.id },
+                                             set: { if !$0, browser.renamingFolderID == folder.id { browser.renamingFolderID = nil } }),
+                        arrowEdge: arrowEdge) {
+            RenameFolderForm(folder: folder) { browser.renamingFolderID = nil }
+        }
+    }
+}
+
+private struct RenameFolderForm: View {
+    let folder: TabFolder
+    let done: () -> Void
+    @Environment(BrowserModel.self) private var browser
+    @State private var name = ""
+
+    var body: some View {
+        HStack {
+            TextField(folder.name, text: $name).voidTextField().frame(width: 180)
+                .onSubmit(save)
+            Button("OK", action: save).keyboardShortcut(.defaultAction).voidPrimaryButton()
+        }
+        .padding(12)
+    }
+
+    private func save() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { folder.name = trimmed; browser.setNeedsSave() }
+        done()
     }
 }
 

@@ -72,6 +72,8 @@ final class BrowserModel {
     /// tab asked for, not when the page shows because the last tab was closed (or at launch).
     @ObservationIgnored var newTabFieldAnswered = 0
     var findBarVisible = false
+    /// The folder whose name is being typed (just created, or "Renommer…").
+    var renamingFolderID: UUID?
     /// What the find bar looked for last (⌘G repeats it).
     @ObservationIgnored var lastFindText = ""
     var toast: Toast?
@@ -225,18 +227,7 @@ final class BrowserModel {
         let partner = leaveSplit(tab)
         if tab.isPinned && !force {
             // ⌘W on a pinned tab puts it to sleep instead of closing it.
-            let wasSelected = space.selectedTabID == tab.id
-            if wasSelected { selectNeighbor(of: tab, in: space, preferring: partner) }
-            if tab.isInPiP || tab.isInFloatingPlayer {
-                // Sleep once PiP (or the floating player) has actually been left — unless the tab
-                // was shown again meanwhile (it would be left without its page).
-                Task {
-                    await PiPController.shared.exit(tab)
-                    if tab.browser?.selectedTab !== tab { tab.sleep(force: true) }
-                }
-            } else {
-                tab.sleep()
-            }
+            sleepInPlace(tab, in: space, preferring: partner)
             showToast("moon.zzz", "Onglet épinglé mis en veille")
             return
         }
@@ -245,15 +236,28 @@ final class BrowserModel {
         if let url = tab.url { closedTabs.append((url, space.id)) }
         if closedTabs.count > 30 { closedTabs.removeFirst() }
         if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
-        withAnimation(Theme.spring) {
-            space.tabs.removeAll { $0 === tab }
-            space.pinned.removeAll { $0 === tab }
-        }
+        withAnimation(Theme.spring) { space.detach(tab) }
         ExtensionEvents.tabClosed(tab)
         tab.isClosed = true
         tab.isPinned = false
         tab.sleep(force: true)
         setNeedsSave()
+    }
+
+    /// Releases a tab's web view where it stays (a pinned tab on ⌘W, a tab of a folder): its
+    /// neighbour is shown instead if it was shown.
+    private func sleepInPlace(_ tab: Tab, in space: Space, preferring partner: Tab? = nil) {
+        if space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
+        if tab.isInPiP || tab.isInFloatingPlayer {
+            // Sleep once PiP (or the floating player) has actually been left — unless the tab
+            // was shown again meanwhile (it would be left without its page).
+            Task {
+                await PiPController.shared.exit(tab)
+                if tab.browser?.selectedTab !== tab { tab.sleep(force: true) }
+            }
+        } else {
+            tab.sleep()
+        }
     }
 
     /// The tab that takes the place of `tab` when it goes: the next ordinary tab (else the
@@ -332,7 +336,7 @@ final class BrowserModel {
                 tab.isPinned = false
                 space.tabs.insert(tab, at: 0)
             } else {
-                space.tabs.removeAll { $0 === tab }
+                space.detach(tab)
                 tab.isPinned = true
                 space.pinned.append(tab)
             }
@@ -340,7 +344,7 @@ final class BrowserModel {
         setNeedsSave()
     }
 
-    /// Moves a tab to `index` among its space's pinned tabs, or among its ordinary tabs (drag and drop).
+    /// Moves a tab to `index` among its space's pinned tabs, its folder's tabs, or its ordinary tabs (drag and drop).
     func moveTab(_ tab: Tab, to index: Int) {
         guard let space = tab.space else { return }
         let before = extensionTabs.firstIndex { $0 === tab } ?? 0
@@ -351,26 +355,110 @@ final class BrowserModel {
             list.insert(tab, at: index)
         }
         withAnimation(Theme.spring) {
-            if tab.isPinned { move(in: &space.pinned) } else { move(in: &space.tabs) }
+            if tab.isPinned {
+                move(in: &space.pinned)
+            } else if let folder = space.folder(of: tab) {
+                move(in: &folder.tabs)
+            } else {
+                move(in: &space.tabs)
+            }
         }
         setNeedsSave()
     }
 
-    /// ⌘1…⌘8 select the nth tab, ⌘9 the last one (pinned tabs come first).
+    /// ⌘1…⌘8 select the nth tab, ⌘9 the last one (pinned tabs come first, then the folders' shown tabs).
     func selectTab(number: Int) {
-        let list = currentSpace.allTabs
+        let list = currentSpace.navigableTabs
         guard !list.isEmpty else { return }
         let index = number == 9 ? list.count - 1 : number - 1
         if list.indices.contains(index) { select(list[index]) }
     }
 
     func selectAdjacentTab(_ delta: Int) {
-        let list = currentSpace.allTabs
+        let list = currentSpace.navigableTabs
         guard !list.isEmpty else { return }
         guard let current = selectedTab, let i = list.firstIndex(where: { $0 === current }) else {
             select(list[0]); return
         }
         select(list[(i + delta + list.count) % list.count])
+    }
+
+    // MARK: - Folders
+
+    /// A new folder at the end of the space's folders (main window only), its name asked for
+    /// next to it (`renamingFolderID`). `tab`: put in it at once.
+    @discardableResult
+    func addFolder(in space: Space? = nil, with tab: Tab? = nil) -> TabFolder? {
+        let space = space ?? tab?.space ?? currentSpace
+        guard managesSpaces, spaces.contains(where: { $0 === space }) else { return nil }
+        let folder = TabFolder(name: String(localized: "Nouveau dossier"))
+        withAnimation(Theme.spring) { space.folders.append(folder) }
+        if let tab { put(tab, in: folder) }
+        renamingFolderID = folder.id
+        setNeedsSave()
+        return folder
+    }
+
+    /// Puts a tab away in a folder of its space, at the end, asleep: the space's next tab is shown
+    /// if it was. A pinned tab is unpinned.
+    func put(_ tab: Tab, in folder: TabFolder) {
+        guard managesSpaces, !tab.isPrivate, !tab.isClosed, let space = tab.space,
+              space.folders.contains(where: { $0 === folder }), space.folder(of: tab) !== folder else { return }
+        let index = extensionTabs.firstIndex { $0 === tab } ?? 0
+        let wasPinned = tab.isPinned
+        let partner = leaveSplit(tab)
+        if space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
+        withAnimation(Theme.spring) {
+            space.detach(tab)
+            tab.isPinned = false
+            folder.tabs.append(tab)
+        }
+        sleepInPlace(tab, in: space)
+        if wasPinned { ExtensionEvents.tabChanged(tab, .pinned) }
+        ExtensionEvents.tabMoved(tab, from: index)
+        setNeedsSave()
+    }
+
+    /// Takes a tab out of its folder, to `index` among the space's tabs (the top by default).
+    func removeFromFolder(_ tab: Tab, at index: Int = 0) {
+        guard let space = tab.space, let folder = space.folder(of: tab) else { return }
+        let before = extensionTabs.firstIndex { $0 === tab } ?? 0
+        withAnimation(Theme.spring) {
+            folder.tabs.removeAll { $0 === tab }
+            space.tabs.insert(tab, at: min(max(index, 0), space.tabs.count))
+        }
+        ExtensionEvents.tabMoved(tab, from: before)
+        setNeedsSave()
+    }
+
+    func toggleFolder(_ folder: TabFolder) {
+        withAnimation(Theme.spring) { folder.isExpanded.toggle() }
+        setNeedsSave()
+    }
+
+    /// A tab of a folder (or a pinned tab) shown earlier goes back to sleep, staying where it is.
+    func sleepTab(_ tab: Tab) {
+        guard let space = tab.space, !tab.isAsleep else { return }
+        sleepInPlace(tab, in: space, preferring: leaveSplit(tab))
+    }
+
+    /// `keepingTabs`: its tabs go to the top of the space's tabs, asleep; otherwise they are
+    /// closed (⌘⇧T reopens them one by one).
+    func deleteFolder(_ folder: TabFolder, keepingTabs: Bool) {
+        guard let space = spaces.first(where: { $0.folders.contains { $0 === folder } }) else { return }
+        if keepingTabs {
+            let before = folder.tabs.map { tab in (tab, extensionTabs.firstIndex { $0 === tab } ?? 0) }
+            withAnimation(Theme.spring) {
+                space.tabs.insert(contentsOf: folder.tabs, at: 0)
+                folder.tabs = []
+                space.folders.removeAll { $0 === folder }
+            }
+            for (tab, index) in before { ExtensionEvents.tabMoved(tab, from: index) }
+        } else {
+            for tab in folder.tabs { close(tab, force: true) }
+            withAnimation(Theme.spring) { space.folders.removeAll { $0 === folder } }
+        }
+        setNeedsSave()
     }
 
     // MARK: - Navigation
@@ -534,7 +622,8 @@ final class BrowserModel {
         let idle = delay ?? Self.tabSleepDelay
         let visible = visibleTabs
         for space in spaces {
-            for tab in space.tabs where !visible.contains(where: { $0 === tab }) && tab.canAutoSleep(idleFor: idle, now: now) {
+            for tab in space.folders.flatMap(\.tabs) + space.tabs
+            where !visible.contains(where: { $0 === tab }) && tab.canAutoSleep(idleFor: idle, now: now) {
                 Task { await tab.sleepKeepingPlace(idleFor: idle) }
             }
         }
@@ -581,6 +670,7 @@ final class BrowserModel {
         for space in spaces {
             space.tabs = []
             space.pinned = []
+            space.folders = []
             space.selectedTabID = nil
         }
         #if os(macOS)
@@ -620,7 +710,12 @@ final class BrowserModel {
             return SavedSpace(id: space.id, name: space.name, icon: space.icon,
                               pinned: space.pinned.map(persistable),
                               tabs: restoreTabs ? space.tabs.filter { !$0.isPrivate && $0.url != nil }.map(persistable) : [],
-                              selectedTabID: space.selectedTab?.isPrivate == true ? nil : selectedID(space))
+                              selectedTabID: space.selectedTab?.isPrivate == true ? nil : selectedID(space),
+                              // Put away on purpose: kept even when the other tabs aren't.
+                              folders: space.folders.map { folder in
+                                  SavedFolder(id: folder.id, name: folder.name, isExpanded: folder.isExpanded,
+                                              tabs: folder.tabs.filter { $0.url != nil }.map(persistable))
+                              })
         })
         saved.favicons = favicons
         StateStore.save(saved)
@@ -664,6 +759,11 @@ final class BrowserModel {
             let space = Space(id: s.id, name: s.name, icon: s.icon)
             space.pinned = s.pinned.map { Tab(id: $0.id, url: $0.url, title: $0.title, isPinned: true, faviconData: saved.favicon(of: $0)) }
             space.tabs = s.tabs.map { Tab(id: $0.id, url: $0.url, title: $0.title, faviconData: saved.favicon(of: $0)) }
+            space.folders = s.folders.map { f in
+                let folder = TabFolder(id: f.id, name: f.name, isExpanded: f.isExpanded)
+                folder.tabs = f.tabs.map { Tab(id: $0.id, url: $0.url, title: $0.title, faviconData: saved.favicon(of: $0)) }
+                return folder
+            }
             space.allTabs.forEach { $0.space = space }
             space.selectedTabID = s.selectedTabID
             return space

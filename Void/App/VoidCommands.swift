@@ -19,6 +19,9 @@ struct VoidCommands: Commands {
             Button("Nouvel espace…") { BrowserModel.shared.addSpace(name: "", icon: "circle") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
                 .disabled(!browser.managesSpaces)
+            Button("Nouveau dossier") { browser.newFolder() }
+                .keyboardShortcut("n", modifiers: [.command, .control])
+                .disabled(!browser.managesSpaces)
             Divider()
             Button("Ouvrir l'emplacement…") { browser.showCommandBar(.currentTab) }
                 .keyboardShortcut("l")

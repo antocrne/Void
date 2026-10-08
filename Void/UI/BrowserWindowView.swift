@@ -202,6 +202,8 @@ private struct EdgeRevealSidebar: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        // A new folder's name is typed next to it, in the sidebar: out while it is.
+        .onChange(of: browser.renamingFolderID) { _, id in id != nil ? show() : scheduleHide() }
     }
 
     private func show() {
@@ -215,6 +217,7 @@ private struct EdgeRevealSidebar: View {
         let work = DispatchWorkItem {
             // The downloads popover hangs off the sidebar: stay until it closes.
             if browser.showingDownloads { scheduleHide(); return }
+            if browser.renamingFolderID != nil { scheduleHide(); return }
             // Still over the sidebar (e.g. a context menu took the pointer): stay.
             if let window = browser.window, window.mouseLocationOutsideOfEventStream.x <= width + 4,
                window.frame.contains(NSEvent.mouseLocation) {

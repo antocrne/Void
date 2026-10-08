@@ -137,6 +137,8 @@ final class FeatureSelfTest {
         "visio": { t, space in await t.testMeetings(in: space) },
         "partage-son": { t, space in await t.testShareAudio(in: space) },
         "fermer-autres": { t, space in await t.testCloseOtherTabs(in: space) },
+        "dossiers": { t, space in await t.testFolders(in: space) },
+        "apercu-dossiers": { t, space in await t.previewFolders(in: space) },
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
@@ -314,6 +316,157 @@ final class FeatureSelfTest {
               "onglets \(space.tabs.count) · épinglés \(space.pinned.count)")
         browser.reopenClosedTab()
         check("Fermer les autres onglets : ⌘⇧T en rouvre un", space.tabs.count == 2, "\(space.tabs.count)")
+    }
+
+    /// Not a test: two folders in the sidebar, one unfolded with a tab shown, captured next to the
+    /// report (-apercu-dossiers.png).
+    private func previewFolders(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let layoutBefore = AppSettings.shared.tabLayout
+        AppSettings.shared.tabLayout = .sidebar
+        defer { AppSettings.shared.tabLayout = layoutBefore }
+        let page = { (title: String) in "<title>\(title)</title><body style='font:15px -apple-system;padding:40px'><h1>\(title)</h1>" }
+        let reading = await htmlTab(page("Les trous noirs expliqués simplement"), in: space)
+        let recipe = await htmlTab(page("Recette : tarte aux pommes"), in: space)
+        let talk = await htmlTab(page("Conférence WWDC — Nouveautés SwiftUI"), in: space)
+        let trip = await htmlTab(page("Lisbonne en 3 jours"), in: space)
+        _ = await htmlTab(page("Boîte de réception"), in: space)
+        let now = await htmlTab(page("Documentation Swift"), in: space)
+        guard let later = browser.addFolder(in: space), let travel = browser.addFolder(in: space) else { return }
+        browser.renamingFolderID = nil
+        later.name = "À lire plus tard"
+        travel.name = "Voyage"
+        for tab in [reading, recipe, talk] { browser.put(tab, in: later) }
+        browser.put(trip, in: travel)
+        browser.toggleFolder(travel)
+        browser.select(recipe)
+        await sleep(1.5)
+        await captureOnScreen("apercu-dossiers")
+        browser.select(now)
+        await sleep(1)
+        await captureOnScreen("apercu-dossiers-veille")
+        check("Aperçu des dossiers : captures enregistrées à côté du rapport", true)
+    }
+
+    /// Tabs put away in a folder of the sidebar: asleep there, woken one at a time, folded, dragged
+    /// in and out, pinned, deleted, and saved with the session even when the other tabs aren't.
+    private func testFolders(in space: Space) async {
+        let tabs = (0..<4).map { browser.openTab(url: URL(string: "https://example.com/?dossier=\($0)"), in: space) }
+        let shown = tabs[3]
+        guard let folder = browser.addFolder(in: space) else { check("Dossiers : création", false); return }
+        check("Dossiers : nouveau dossier, son nom demandé à côté", space.folders.last === folder && browser.renamingFolderID == folder.id)
+        browser.renamingFolderID = nil
+
+        browser.put(shown, in: folder)
+        check("Dossiers : onglet affiché rangé → dans le dossier, en veille, un autre onglet affiché",
+              folder.tabs.count == 1 && folder.tabs.first === shown && !space.tabs.contains { $0 === shown }
+                && shown.isAsleep && browser.selectedTab != nil && browser.selectedTab !== shown,
+              "dossier \(folder.tabs.count) · veille \(shown.isAsleep) · affiché \(browser.selectedTab?.url?.query() ?? "nil")")
+        browser.select(shown)
+        check("Dossiers : un clic le réveille, il reste dans son dossier",
+              !shown.isAsleep && browser.selectedTab === shown && space.folder(of: shown) === folder)
+
+        browser.put(tabs[0], in: folder)
+        browser.toggleFolder(folder)
+        check("Dossiers : replié, seul son onglet affiché reste visible (et dans ⌘1…⌘9)",
+              folder.shownTabs(selectedID: space.selectedTabID).map(\.id) == [shown.id]
+                && space.navigableTabs.contains { $0 === shown } && !space.navigableTabs.contains { $0 === tabs[0] })
+        browser.sleepTab(shown)
+        check("Dossiers : « Mettre en veille » → en veille, à sa place", shown.isAsleep && space.folder(of: shown) === folder && browser.selectedTab !== shown)
+        browser.toggleFolder(folder)
+
+        // Saved even with "restore tabs" off; read back in order, folded or not.
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("void-folders-selftest-\(UUID().uuidString)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let savedDirectory = StateStore.sessionDirectory, savedRestore = AppSettings.shared.restoreTabs
+        StateStore.sessionDirectory = dir
+        AppSettings.shared.restoreTabs = false
+        browser.isEphemeralSession = false
+        browser.saveNow()
+        browser.isEphemeralSession = true
+        AppSettings.shared.restoreTabs = savedRestore
+        let saved = StateStore.load()?.spaces.first { $0.id == space.id }
+        StateStore.sessionDirectory = savedDirectory
+        try? fm.removeItem(at: dir)
+        let savedFolder = saved?.folders.first
+        check("Dossiers : enregistrés avec la session, même sans « rouvrir les onglets »",
+              saved?.tabs.isEmpty == true && savedFolder?.id == folder.id && savedFolder?.name == folder.name
+                && savedFolder?.tabs.map(\.id) == folder.tabs.map(\.id) && savedFolder?.isExpanded == true,
+              "onglets \(saved?.tabs.count ?? -1) · dossiers \(saved?.folders.count ?? -1) · dedans \(savedFolder?.tabs.count ?? -1)")
+
+        // Drag and drop in the sidebar: header at the top (32 pt), the folder's rows (34 pt, 2 pt
+        // apart), the divider, then the space's tabs.
+        let rowHeight: CGFloat = 36
+        func layOut(_ reorder: TabReorder) {
+            reorder.recordFolder(CGRect(x: 0, y: 0, width: 200, height: 32), for: folder.id)
+            var y: CGFloat = 34
+            for tab in folder.tabs { reorder.record(CGRect(x: 0, y: y, width: 200, height: 34), for: tab.id); y += 36 }
+            reorder.recordLooseTop(y + 4)
+            y += 10
+            for tab in space.tabs { reorder.record(CGRect(x: 0, y: y, width: 200, height: 34), for: tab.id); y += 36 }
+        }
+        func drag(_ tab: Tab, _ reorder: TabReorder, toCenterY y: CGFloat) -> UUID? {
+            let looseStart: CGFloat = 34 + CGFloat(folder.tabs.count) * rowHeight + 10
+            var start: CGFloat = 0
+            if let i = folder.tabs.firstIndex(where: { $0 === tab }) {
+                start = 34 + CGFloat(i) * rowHeight + 17
+            } else if let i = space.tabs.firstIndex(where: { $0 === tab }) {
+                start = looseStart + CGFloat(i) * rowHeight + 17
+            }
+            for i in 1...12 { reorder.dragChanged(tab, translation: CGSize(width: 0, height: (y - start) * CGFloat(i) / 12), browser: browser) }
+            let target = reorder.dropTarget
+            reorder.dragEnded(browser: browser)
+            return target
+        }
+        let into = TabReorder(layout: .vertical, spacing: 2)
+        layOut(into)
+        let target = drag(tabs[1], into, toCenterY: 16)
+        check("Dossiers : un onglet lâché sur le dossier y est rangé (dossier en surbrillance pendant le glisser)",
+              target == folder.id && space.folder(of: tabs[1]) === folder && tabs[1].isAsleep)
+
+        let out = TabReorder(layout: .vertical, spacing: 2)
+        layOut(out)
+        let looseStart = 34 + CGFloat(folder.tabs.count) * 36 + 10
+        let outTarget = drag(tabs[0], out, toCenterY: looseStart + 35)   // between the first two of the space's tabs
+        check("Dossiers : un onglet du dossier lâché sous les dossiers en sort, à l'endroit visé",
+              outTarget == TabReorder.outOfFolder && space.folder(of: tabs[0]) == nil && space.tabs.firstIndex { $0 === tabs[0] } == 1,
+              "position \(space.tabs.firstIndex { $0 === tabs[0] }.map(String.init) ?? "?")")
+
+        browser.togglePin(tabs[1])
+        check("Dossiers : épingler un onglet du dossier l'en sort", tabs[1].isPinned && space.folder(of: tabs[1]) == nil)
+        browser.togglePin(tabs[1])
+        browser.put(tabs[1], in: folder)
+        browser.removeFromFolder(tabs[1])
+        check("Dossiers : « Retirer du dossier » → en tête des onglets", space.tabs.first === tabs[1] && space.folder(of: tabs[1]) == nil)
+
+        browser.requestClose(shown, force: true)
+        check("Dossiers : fermer un onglet du dossier l'en retire", shown.isClosed && !folder.tabs.contains { $0 === shown })
+
+        browser.put(tabs[1], in: folder)
+        browser.deleteFolder(folder, keepingTabs: true)
+        check("Dossiers : supprimé en gardant ses onglets → en tête des onglets", space.folders.isEmpty && space.tabs.first === tabs[1] && !tabs[1].isClosed)
+        if let other = browser.addFolder(in: space, with: tabs[2]) {
+            browser.renamingFolderID = nil
+            browser.deleteFolder(other, keepingTabs: false)
+            check("Dossiers : supprimé avec ses onglets → fermés", space.folders.isEmpty && tabs[2].isClosed)
+        }
+
+        // Fichier → Nouveau dossier (⌃⌘N): an empty folder, the sidebar shown again to type its name.
+        let settings = AppSettings.shared
+        let layoutBefore = settings.tabLayout, visibleBefore = settings.sidebarVisible
+        settings.tabLayout = .sidebar
+        settings.sidebarVisible = false
+        browser.newFolder()
+        check("Dossiers : Fichier → Nouveau dossier (⌃⌘N) → dossier vide, barre latérale réaffichée, nom demandé",
+              space.folders.count == 1 && space.folders.first?.tabs.isEmpty == true && settings.sidebarVisible
+                && browser.renamingFolderID == space.folders.first?.id)
+        browser.renamingFolderID = nil
+        space.folders.forEach { browser.deleteFolder($0, keepingTabs: false) }
+        settings.tabLayout = layoutBefore
+        settings.sidebarVisible = visibleBefore
+        for tab in tabs where !tab.isClosed { browser.close(tab, force: true) }
     }
 
     /// A video call asks for the camera and the micro: the page gets an answer (refused in
@@ -1145,6 +1298,7 @@ final class FeatureSelfTest {
 
         // 7c. Tab lifecycle: dialogs, crashes, pinned tabs.
         await testTabLifecycle(in: space)
+        await testFolders(in: space)
 
         // 7d. Downloads and links to other apps.
         await testDownloads(in: space)

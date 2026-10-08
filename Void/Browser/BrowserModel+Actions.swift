@@ -146,6 +146,18 @@ extension BrowserModel {
         }
     }
 
+    /// Fichier → Nouveau dossier (⌃⌘N): an empty folder in the current space. Its name is typed in
+    /// the sidebar, which comes back if it was hidden (or slides out while kept hidden, see
+    /// EdgeRevealSidebar).
+    func newFolder() {
+        guard managesSpaces else { return }
+        let settings = AppSettings.shared
+        if settings.tabLayout == .sidebar && !settings.sidebarVisible {
+            withAnimation(Theme.spring) { settings.sidebarVisible = true }
+        }
+        addFolder(in: currentSpace)
+    }
+
     /// ⌘S: keeps the tabs hidden (the page fills the window; pushing against the left edge
     /// reveals them), or docks them again.
     func toggleTabsHidden() {
