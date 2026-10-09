@@ -26,7 +26,17 @@ xcodebuild -project Void.xcodeproj -scheme Void -configuration Release -derivedD
 open build/DerivedData/Build/Products/Release/Void.app
 ```
 
-Pour l'installer, copier `Void.app` dans `/Applications`, ou créer une image disque :
+**Installer dans /Applications** :
+
+```bash
+./scripts/install.sh
+```
+
+Le script compile en Release, ferme Void s'il tourne, remplace `/Applications/Void.app` et la rouvre.
+
+Chaque build du schéma *Void* (⌘B ou ⌘R dans Xcode, ou `xcodebuild`) fait de même, sans la rouvrir : une post-action du schéma lance `scripts/copy-to-applications.sh`, qui copie l'app compilée (Debug ou Release, celle du build) dans `/Applications`, après avoir fermé la copie qui s'y trouve si elle tourne (si elle ne se ferme pas, un dialogue en attente par exemple, rien n'est remplacé). Son compte rendu est dans `build/copy-to-applications.log`. Pour s'en passer : Product → Scheme → Edit Scheme… → Build → Post-actions.
+
+**Image disque (DMG)** :
 
 ```bash
 ./scripts/make-dmg.sh
@@ -34,7 +44,7 @@ Pour l'installer, copier `Void.app` dans `/Applications`, ou créer une image di
 
 Le script compile en Release et produit `build/Void-<version>.dmg`, soit `build/Void-0.1.dmg` pour cette version (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script.
 
-La signature est ad hoc (« Sign to Run Locally »), sans compte développeur. Pour distribuer l'app, renseigner une équipe dans *Signing & Capabilities* ; cela permet aussi au trousseau d'utiliser le *data protection keychain* (sinon macOS peut redemander l'accès aux mots de passe après chaque recompilation).
+L'app est signée avec le certificat *Apple Development* de l'équipe (il doit être dans le trousseau de la machine qui compile). Pas en ad hoc : macOS reconnaîtrait alors Void à l'empreinte de son binaire, qui change à chaque compilation, et redemanderait le mot de passe de session pour chaque élément du trousseau après chaque build. Pour distribuer l'app à d'autres, il faudra une signature *Developer ID* et la notarisation.
 
 L'icône est générée par script (`swift scripts/make-icon.swift`).
 
