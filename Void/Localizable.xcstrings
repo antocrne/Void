@@ -2553,6 +2553,22 @@
         }
       }
     },
+    "Chiffre les clés WebCrypto que les sites gardent dans Void (IndexedDB)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encrypts the WebCrypto keys websites keep in Void (IndexedDB)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiffre les clés WebCrypto que les sites gardent dans Void (IndexedDB)."
+          }
+        }
+      }
+    },
     "Choisir" : {
       "localizations" : {
         "en" : {

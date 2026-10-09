@@ -66,6 +66,9 @@ enum WebViewFactory {
         } else {
             config.websiteDataStore = isPrivate ? .nonPersistent() : BrowserModel.shared.currentSpace.dataStore
         }
+        #if os(macOS)
+        WebCryptoMasterKey.shared.attach(to: config.websiteDataStore)
+        #endif
         config.applicationNameForUserAgent = userAgentSuffix
         config.allowsAirPlayForMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = AppSettings.shared.blockAutoplayWithSound ? .audio : []

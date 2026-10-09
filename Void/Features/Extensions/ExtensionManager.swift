@@ -120,6 +120,10 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         guard !isStarted else { return }
         isStarted = true
         Self.isRunning = true
+        // Extension pages use the controller's store: they keep WebCrypto keys too.
+        if let store = controller.configuration.defaultWebsiteDataStore {
+            WebCryptoMasterKey.shared.attach(to: store)
+        }
         runGeneration &+= 1
         let generation = runGeneration
         migrateIdentifiers()
