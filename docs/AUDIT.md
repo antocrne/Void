@@ -412,10 +412,9 @@ Les deux `TabWebDelegate` partagent l'essentiel de leurs décisions (schémas ex
 - `FeatureSelfTest.swift` (2 598 lignes) : un fichier par section `-VoidSelfTestOnly`.
 
 ### Distribution et mises à jour
-- **Signature.** La signature ad hoc, sans notarisation, pose trois problèmes :
+- **Signature.** Void est signée *Apple Development* (plus en ad hoc, qui faisait redemander l'accès au trousseau après chaque compilation), sans notarisation. Restent deux problèmes :
   - sur un autre Mac, Gatekeeper bloque l'app (« impossible de vérifier le développeur ») ;
-  - le trousseau redemande l'accès après chaque mise à jour ;
-  - le *data protection keychain* n'est pas disponible.
+  - le *data protection keychain* n'est pas disponible (il faut l'entitlement `keychain-access-groups`, donc un profil de provisionnement).
 
   Avec un compte développeur, ajouter à `make-dmg.sh` : signature Developer ID, `xcrun notarytool submit --wait`, puis `xcrun stapler staple`.
 - **Mises à jour de Void.** Il n'y en a aucune. Dans l'esprit de Void, sans Sparkle ni dépendance, voici ce qui suffit :

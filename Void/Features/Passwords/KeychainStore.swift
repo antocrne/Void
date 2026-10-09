@@ -13,8 +13,10 @@ struct SavedLogin: Identifiable, Hashable {
 enum KeychainStore {
     private static let creator = NSNumber(value: UInt32(0x564F_4944)) // 'VOID'
 
-    /// The data-protection keychain needs a signed team identifier; ad-hoc builds fall back
-    /// to the login keychain (which may re-prompt after each rebuild).
+    /// The data-protection keychain needs a keychain-access-groups entitlement (so a provisioning
+    /// profile); without it, the login keychain. Its items trust Void's designated requirement:
+    /// signed ad hoc, that's the binary's hash, so every rebuild would prompt again for each item
+    /// — hence the Apple Development signature, whose requirement survives rebuilds.
     private static var useDataProtection: Bool {
         get { UserDefaults.standard.object(forKey: "keychainDataProtection") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "keychainDataProtection") }
