@@ -18,6 +18,154 @@ final class FeatureSelfTest {
 
     init(outputPath: String) { self.outputPath = outputPath }
 
+    /// Settings → Général → Teinte: persisted, applied to the frame, contrast kept for every hue.
+    private func testChromeTint(in space: Space) async {
+        let settings = AppSettings.shared
+        let saved = (settings.chromeTint, settings.chromeTintIntensity, settings.chromeTintGradient,
+                     settings.theme, settings.tabLayout, settings.accent)
+        let tab = await htmlTab("""
+            <!doctype html><title>Teintes</title><body style="font: 15px -apple-system; margin: 48px; color: #333">
+            <h1>Une page</h1><p>Le cadre autour d'elle prend la teinte choisie.</p></body>
+            """, in: space)
+        browser.select(tab)
+
+        settings.accent = .violet
+        settings.chromeTint = .lavender
+        settings.chromeTintIntensity = 0.15
+        settings.chromeTintGradient = false
+        let defaults = UserDefaults.standard
+        check("Teinte : mémorisée", defaults.string(forKey: "chromeTint") == "lavender"
+              && defaults.double(forKey: "chromeTintIntensity") == 0.15 && defaults.object(forKey: "chromeTintGradient") as? Bool == false)
+        await sleep(0.3)
+        let windowColor = browser.window?.backgroundColor.flatMap { resolved($0, dark: false) }
+        let expected = ChromeLook.mix(0xF0EAE2, ChromeLook.pastel(ChromeTint.lavender.hue!, dark: false), 0.15)
+        check("Teinte : fond de la fenêtre teinté (lavande, 15 % sur la base chaude)", windowColor?.hex == Int(expected), windowColor.map { "\($0)" } ?? "nil")
+        let blurs = { [weak self] in self?.browser.window?.contentView.map { Self.views(of: NSVisualEffectView.self, in: $0) } ?? [] }
+        let behind = { blurs().filter { $0.blendingMode == .behindWindow && $0.state == .active }.count }
+        check("Teinte : cadre légèrement translucide (bureau flouté dessous)", behind() >= 1, "\(behind()) vue(s) de flou")
+        settings.chromeTintIntensity = 0.9
+        check("Teinte : intensité plafonnée à 20 %", settings.chromeLook.amount == 0.20, "\(settings.chromeLook.amount)")
+        let neutral = ChromeLook(tint: .none, amount: 0.2, gradient: false).color
+        check("Teinte : « Neutre » garde le gris d'origine", resolved(neutral, dark: false)?.hex == 0xE9E9EE && resolved(neutral, dark: true)?.hex == 0x0B0B0E)
+        let marked = AccentChoice.allCases.map { accent in ChromeTint.palette.filter { $0.isComplementary(to: accent) } }
+        check("Teinte : chaque couleur a au moins une teinte complémentaire signalée", marked.allSatisfy { !$0.isEmpty },
+              zip(AccentChoice.allCases, marked).map { "\($0.rawValue) → \($1.map(\.rawValue).joined(separator: "+"))" }.joined(separator: ", "))
+
+        // Contrast (WCAG) of secondary text (and, in the dark theme, of every accent) on the frame:
+        // every tint, its complement (the gradient's second glow), every intensity, the selected tab.
+        var worst = (ratio: 99.0, what: "")
+        let secondary = (resolved(NSColor(Theme.secondaryText), dark: false)!, resolved(NSColor(Theme.secondaryText), dark: true)!)
+        for tint in ChromeTint.palette {
+            for hue in [tint.hue!, tint.hue! + 180] {
+                for amount in [ChromeLook.amountRange.lowerBound * ChromeLook.gradientBase, 0.12, ChromeLook.amountRange.upperBound] {
+                    let frame = ChromeLook(tint: tint, amount: amount, gradient: false).tone(hue: hue, amount: amount)
+                    for dark in [false, true] {
+                        guard let bg = resolved(frame, dark: dark) else { continue }
+                        let selected = dark ? bg.blended(white: 1, alpha: 0.10) : bg
+                        // The pastel accents trade contrast for softness in the light theme (see AccentChoice).
+                        let fgs = [UInt32((dark ? secondary.1 : secondary.0).hex)] + (dark ? AccentChoice.allCases.map(\.darkHex) : [])
+                        for fg in fgs {
+                            for back in [bg, selected] {
+                                let ratio = Self.contrast(fg, back)
+                                if ratio < worst.ratio { worst = (ratio, String(format: "%.0f°, %.0f %%, %@, #%06X", hue, amount * 100, dark ? "sombre" : "clair", fg)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        check("Teinte : contraste ≥ 4,5:1 (texte secondaire ; accents en sombre), toutes teintes et intensités", worst.ratio >= 4.5, String(format: "pire %.2f (%@)", worst.ratio, worst.what))
+
+        let labels = AccentChoice.allCases.map { Self.contrast(0x131316, SRGB(red: Double($0.lightHex >> 16) / 255, green: Double(($0.lightHex >> 8) & 0xFF) / 255, blue: Double($0.lightHex & 0xFF) / 255)) }
+        check("Couleurs pastel : libellé foncé lisible sur les boutons (≥ 4,5:1)", labels.allSatisfy { $0 >= 4.5 }, labels.map { String(format: "%.1f", $0) }.joined(separator: " "))
+
+        settings.tabLayout = .sidebar
+        settings.chromeTintGradient = true
+        settings.chromeTintIntensity = ChromeLook.amountRange.upperBound
+        for (accent, tint, theme) in [(AccentChoice.violet, ChromeTint.lavender, ThemeChoice.light), (.violet, .lemon, .light),
+                                      (.blue, .peach, .light), (.orange, .sky, .light),
+                                      (.violet, .lavender, .dark), (.green, .mauve, .dark)] {
+            settings.accent = accent
+            settings.chromeTint = tint
+            settings.theme = theme
+            await sleep(0.8)
+            await snapshotWindow("teinte-\(accent.rawValue)-\(tint.rawValue)-\(theme.rawValue)")
+        }
+        settings.accent = .pink
+        settings.chromeTint = .mint
+        settings.tabLayout = .top
+        await sleep(0.8)
+        await snapshotWindow("teinte-pink-mint-dark-haut")
+
+        // New-tab page: the tint as frosted glass over the desktop (only visible on screen).
+        settings.tabLayout = .sidebar
+        settings.accent = .violet
+        settings.chromeTint = .lavender
+        for theme in [ThemeChoice.light, .dark] {
+            settings.theme = theme
+            browser.select(tab)
+            browser.currentSpace.selectedTabID = nil
+            browser.window?.makeKeyAndOrderFront(nil)
+            await sleep(1)
+            await captureOnScreen("teinte-nouvel-onglet-\(theme.rawValue)")
+            await snapshotWindow("teinte-nouvel-onglet-\(theme.rawValue)")
+        }
+        check("Teinte : nouvel onglet en verre dépoli (bureau flouté derrière la teinte)", behind() >= 2, "\(behind()) vue(s) de flou")
+        settings.chromeTint = .none
+        await sleep(0.5)
+        check("Teinte : sans teinte, cadre et nouvel onglet opaques", behind() == 0, "\(behind()) vue(s) de flou")
+        browser.select(tab)
+        let savedPanel = defaults.string(forKey: "settingsPanel")
+        defaults.set("general", forKey: "settingsPanel")
+        settings.theme = .light
+        settings.chromeTint = .lemon
+        browser.openSettingsAction?()
+        await sleep(1.5)
+        if let settingsWindow = NSApp.windows.first(where: { $0.isVisible && $0 !== browser.window && $0.title != "Void" && !($0 is NSPanel) }) {
+            await snapshotWindow("teinte-reglages", window: settingsWindow)
+            settingsWindow.performClose(nil)
+            await sleep(0.5)
+        }
+        defaults.set(savedPanel, forKey: "settingsPanel")
+
+        (settings.chromeTint, settings.chromeTintIntensity, settings.chromeTintGradient,
+         settings.theme, settings.tabLayout, settings.accent) = saved
+        browser.close(tab)
+    }
+
+    private static func views<V: NSView>(of type: V.Type, in view: NSView) -> [V] {
+        (view as? V).map { [$0] } ?? [] + view.subviews.flatMap { views(of: type, in: $0) }
+    }
+
+    private struct SRGB: CustomStringConvertible {
+        let red: Double, green: Double, blue: Double
+        var hex: Int { [red, green, blue].reduce(0) { $0 << 8 | Int(($1 * 255).rounded()) } }
+        var description: String { String(format: "#%06X", hex) }
+        func blended(white: Double, alpha: Double) -> SRGB {
+            SRGB(red: red + (white - red) * alpha, green: green + (white - green) * alpha, blue: blue + (white - blue) * alpha)
+        }
+        var luminance: Double {
+            func channel(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+        }
+    }
+
+    private func resolved(_ color: NSColor, dark: Bool) -> SRGB? {
+        var result: SRGB?
+        NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+            if let c = color.usingColorSpace(.sRGB) {
+                result = SRGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
+            }
+        }
+        return result
+    }
+
+    private static func contrast(_ hex: UInt32, _ background: SRGB) -> Double {
+        let fg = SRGB(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+        let (a, b) = (fg.luminance, background.luminance)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
     /// The traffic lights share the centre line of the first row of buttons, also after a resize.
     private func testTrafficLights() async {
         let settings = AppSettings.shared
@@ -145,6 +293,7 @@ final class FeatureSelfTest {
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
+        "teinte": { t, space in await t.testChromeTint(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -1325,7 +1474,7 @@ final class FeatureSelfTest {
         let savedAccent = settings.accent
         settings.accent = .green
         check("Couleur : mémorisée", UserDefaults.standard.string(forKey: "accent") == "green")
-        check("Couleur : palette centralisée (vert, thème clair)", Theme.accentCSS.light == "#12703A", Theme.accentCSS.light)
+        check("Couleur : palette centralisée (vert, thème clair)", Theme.accentCSS.light == "#7BBC8E", Theme.accentCSS.light)
 
         // 8. UI snapshots
         settings.sidebarVisible = true

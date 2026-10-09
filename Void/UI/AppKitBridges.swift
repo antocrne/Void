@@ -16,6 +16,20 @@ struct WindowAccessor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// What is behind the window (desktop, other apps), blurred: the frosted glass of the new-tab
+/// page. Stays frosted in an inactive window; "Réduire la transparence" makes it opaque.
+struct BehindWindowBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.material = .underWindowBackground
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
 /// The top bar is also the window's title bar, where macOS would move the window from anywhere
 /// — tabs included, before they can be dragged. While this view is in a window, the window
 /// can't be moved by the system; it moves only from the bar's empty places (this view, behind

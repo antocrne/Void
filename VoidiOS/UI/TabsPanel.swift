@@ -180,8 +180,8 @@ struct TabsDrawer: View {
                 .frame(height: min(large, max(0, base - drag)))
                 .frame(maxWidth: .infinity)
                 .background {
-                    UnevenRoundedRectangle(topLeadingRadius: 22, topTrailingRadius: 22, style: .continuous)
-                        .fill(browser.isPrivate ? Theme.privateChrome : Theme.chrome)
+                    ChromeBackground(isPrivate: browser.isPrivate)
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 22, topTrailingRadius: 22, style: .continuous))
                         .shadow(color: Theme.shadow.opacity(0.3), radius: 20, y: -4)
                         .ignoresSafeArea(edges: .bottom)
                 }

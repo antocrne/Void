@@ -29,7 +29,25 @@ struct NewTabPage: View {
         }
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.surface)
+        .background(NewTabBackground(isPrivate: browser.isPrivate))
+    }
+}
+
+/// Behind the new-tab page: the page's own background, or with a tint (Settings → Teinte), the
+/// tint as frosted glass over the desktop, blurred.
+private struct NewTabBackground: View {
+    let isPrivate: Bool
+    @Environment(AppSettings.self) private var settings
+
+    var body: some View {
+        if isPrivate || settings.chromeTint == .none {
+            Theme.surface
+        } else {
+            ZStack {
+                BehindWindowBlur()
+                ChromeFill(look: settings.chromeLook).opacity(Theme.frostedTintOpacity)
+            }
+        }
     }
 }
 
