@@ -144,7 +144,7 @@ private struct PinnedExtensionButton: View {
                 if let badge = action?.badgeText.nonEmpty {
                     Text(badge)
                         .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.onAccent)
                         .lineLimit(1)
                         .padding(.horizontal, 2.5)
                         .frame(minWidth: 11, minHeight: 11)

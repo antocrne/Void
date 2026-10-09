@@ -149,6 +149,10 @@ final class AppSettings {
     var sleepInactiveTabs: Bool { didSet { defaults.set(sleepInactiveTabs, forKey: "sleepInactiveTabs") } }
 
     var accent: AccentChoice { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
+    /// Tint of the window's frame (see ChromeTint.swift).
+    var chromeTint: ChromeTint { didSet { defaults.set(chromeTint.rawValue, forKey: "chromeTint") } }
+    var chromeTintIntensity: Double { didSet { defaults.set(chromeTintIntensity, forKey: "chromeTintIntensity") } }
+    var chromeTintGradient: Bool { didSet { defaults.set(chromeTintGradient, forKey: "chromeTintGradient") } }
     /// The first-launch personalization was completed or skipped.
     var onboardingCompleted: Bool { didSet { defaults.set(onboardingCompleted, forKey: "onboardingCompleted") } }
     /// nil = ~/Downloads (on iOS: the app's Documents folder, shown in Files).
@@ -187,6 +191,9 @@ final class AppSettings {
         showReadingProgress = d.object(forKey: "showReadingProgress") as? Bool ?? true
         sleepInactiveTabs = d.object(forKey: "sleepInactiveTabs") as? Bool ?? true
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
+        chromeTint = ChromeTint(rawValue: d.string(forKey: "chromeTint") ?? "") ?? .none
+        chromeTintIntensity = d.object(forKey: "chromeTintIntensity") as? Double ?? ChromeLook.amountRange.upperBound
+        chromeTintGradient = d.object(forKey: "chromeTintGradient") as? Bool ?? true
         onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
         shareScreenAudio = d.bool(forKey: "shareScreenAudio")
@@ -196,6 +203,12 @@ final class AppSettings {
         #else
         askDownloadLocation = d.bool(forKey: "askDownloadLocation")
         #endif
+    }
+
+    var chromeLook: ChromeLook {
+        let range = ChromeLook.amountRange
+        return ChromeLook(tint: chromeTint,
+                          amount: min(range.upperBound, max(range.lowerBound, chromeTintIntensity)), gradient: chromeTintGradient)
     }
 
     func searchURL(for query: String) -> URL? {

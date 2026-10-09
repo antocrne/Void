@@ -17,6 +17,11 @@ struct SettingsView: View {
                         ForEach(ThemeChoice.allCases) { Text($0.label).tag($0) }
                     }
                     LabeledContent("Couleur") { AccentPicker() }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Teinte de la fenêtre")
+                        ChromeTintPicker()
+                    }
+                    ChromeTintOptions()
                     Picker("Les onglets affichent", selection: $settings.tabIconStyle) {
                         ForEach(TabIconStyle.allCases) { Text($0.label).tag($0) }
                     }

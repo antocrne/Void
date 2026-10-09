@@ -273,6 +273,22 @@
         }
       }
     },
+    "%@ — complémentaire de votre couleur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — complementary to your color"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — complémentaire de votre couleur"
+          }
+        }
+      }
+    },
     "%@ — nécessite Void Notes" : {
       "localizations" : {
         "en" : {
@@ -2633,6 +2649,38 @@
         }
       }
     },
+    "Ciel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sky"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ciel"
+          }
+        }
+      }
+    },
+    "Citron" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lemon"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Citron"
+          }
+        }
+      }
+    },
     "Clair" : {
       "localizations" : {
         "en" : {
@@ -2693,6 +2741,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Commencer à naviguer"
+          }
+        }
+      }
+    },
+    "Complémentaire de votre couleur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complementary to your color"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complémentaire de votre couleur"
           }
         }
       }
@@ -3141,6 +3205,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Définir Void par défaut"
+          }
+        }
+      }
+    },
+    "Dégradé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gradient"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dégradé"
           }
         }
       }
@@ -4667,6 +4747,22 @@
         }
       }
     },
+    "Intensité de la teinte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tint intensity"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intensité de la teinte"
+          }
+        }
+      }
+    },
     "Interrompu · %@" : {
       "localizations" : {
         "en" : {
@@ -4988,6 +5084,22 @@
         }
       }
     },
+    "Lavande" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lavender"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lavande"
+          }
+        }
+      }
+    },
     "Le bloqueur est désactivé sur ces sites." : {
       "localizations" : {
         "en" : {
@@ -5084,18 +5196,18 @@
         }
       }
     },
-    "Le thème de l'interface et la couleur d'accent (onglet actif, interrupteurs, boutons)." : {
+    "Le thème de l'interface, la couleur d'accent (onglet actif, interrupteurs, boutons) et la teinte de la fenêtre." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The interface theme and the accent color (active tab, switches, buttons)."
+            "value" : "The interface theme, the accent color (active tab, switches, buttons) and the window tint."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le thème de l'interface et la couleur d'accent (onglet actif, interrupteurs, boutons)."
+            "value" : "Le thème de l'interface, la couleur d'accent (onglet actif, interrupteurs, boutons) et la teinte de la fenêtre."
           }
         }
       }
@@ -5448,6 +5560,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Masquée jusqu'au bord"
+          }
+        }
+      }
+    },
+    "Mauve" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mauve"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mauve"
+          }
+        }
+      }
+    },
+    "Menthe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mint"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menthe"
           }
         }
       }
@@ -5850,6 +5994,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Navigation privée"
+          }
+        }
+      }
+    },
+    "Neutre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neutral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neutre"
           }
         }
       }
@@ -7246,6 +7406,22 @@
         }
       }
     },
+    "Pêche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peach"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pêche"
+          }
+        }
+      }
+    },
     "Quand une vidéo joue avec le son et que vous changez d'onglet ou d'espace, elle passe en PiP ; elle revient à son retour. ⌘⇧P bascule le PiP à la main." : {
       "localizations" : {
         "en" : {
@@ -8350,6 +8526,22 @@
         }
       }
     },
+    "Sauge" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sage"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sauge"
+          }
+        }
+      }
+    },
     "Se connecter" : {
       "localizations" : {
         "en" : {
@@ -8922,6 +9114,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Taux de change en cours de chargement"
+          }
+        }
+      }
+    },
+    "Teinte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tint"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teinte"
+          }
+        }
+      }
+    },
+    "Teinte de la fenêtre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Window tint"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teinte de la fenêtre"
           }
         }
       }
@@ -10044,6 +10268,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ch"
+          }
+        }
+      }
+    },
+    "complémentaire de votre couleur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "complementary to your color"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "complémentaire de votre couleur"
           }
         }
       }

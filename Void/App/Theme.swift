@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The five accent colors offered in Settings → Général → Couleur.
-/// Each tone was checked against Void's backgrounds (WCAG): the light/dark tones reach at least
-/// 4.5:1 as text or icon on the chrome, page and selection backgrounds of their theme, and white
-/// reaches at least 5.5:1 on the fill tone used by primary buttons.
+/// The five accent colors offered in Settings → Général → Couleur, in pastel tones (OKLCH:
+/// lightness 0.74 and chroma 0.095 for the light theme, 0.80 and about 0.09 for the dark one).
+/// A deliberate choice of softness over contrast in the light theme: there an accent text or
+/// icon reaches only about 2:1 on the chrome; in the dark theme, at least 8:1. Labels on an accent
+/// fill (primary buttons, badges) are dark (`Theme.onAccent`, at least 7.5:1), never white.
 enum AccentChoice: String, CaseIterable, Identifiable {
     case violet, blue, green, orange, pink
     var id: String { rawValue }
@@ -18,40 +19,50 @@ enum AccentChoice: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Text / icon tone on light backgrounds; also the fill of primary buttons (white label).
+    /// Text / icon tone on light backgrounds; also the fill of primary buttons (dark label).
     var lightHex: UInt32 {
         switch self {
-        case .violet: 0x5B4BE0
-        case .blue: 0x1F5FD1
-        case .green: 0x12703A
-        case .orange: 0xA84400
-        case .pink: 0xC21F68
+        case .violet: 0xA7A2E4
+        case .blue: 0x84ADE7
+        case .green: 0x7BBC8E
+        case .orange: 0xD89C6D
+        case .pink: 0xDB92AE
         }
     }
 
     /// Text / icon tone on dark backgrounds.
     var darkHex: UInt32 {
         switch self {
-        case .violet: 0x9D8FFF
-        case .blue: 0x6AA8FF
-        case .green: 0x4FCF7F
-        case .orange: 0xFF9E4A
-        case .pink: 0xFF7EB6
+        case .violet: 0xBAB5F4
+        case .blue: 0x9EC0F0
+        case .green: 0x91CFA3
+        case .orange: 0xE7B188
+        case .pink: 0xEEA5C1
         }
     }
 }
 
-/// Void's palette — the only place where colors are defined. Every color adapts to the current
-/// appearance (dark by default); the accent follows Settings → Général → Couleur, live.
+/// Void's palette — the only place where colors are defined (the frame's tints are computed in
+/// ChromeTint.swift). Every color adapts to the current appearance (dark by default); the accent
+/// follows Settings → Général → Couleur and the frame Settings → Général → Teinte, live.
 enum Theme {
-    static let chrome = dynamic(light: chromeLight, dark: chromeDark)
+    /// The window's frame (sidebar, bars, around the page), flat: neutral or tinted.
+    @MainActor static var chrome: Color { Color(platformColor: chromeNS) }
+    /// A tinted frame over the blurred desktop (Mac): lightly translucent.
+    static let translucentChromeOpacity = 0.82
     static let surface = dynamic(light: PlatformColor(hex: 0xFFFFFF), dark: PlatformColor(hex: 0x17171C))
     static let elevated = dynamic(light: PlatformColor(hex: 0xFFFFFF), dark: PlatformColor(hex: 0x1D1D23))
     static let hover = dynamic(light: PlatformColor(white: 0, alpha: 0.05), dark: PlatformColor(white: 1, alpha: 0.055))
     static let selection = dynamic(light: PlatformColor(white: 1, alpha: 0.95), dark: PlatformColor(white: 1, alpha: 0.10))
     static let stroke = dynamic(light: PlatformColor(white: 0, alpha: 0.08), dark: PlatformColor(white: 1, alpha: 0.08))
     static let primaryText = dynamic(light: PlatformColor(hex: 0x131316), dark: PlatformColor(hex: 0xECECF1))
-    static let secondaryText = dynamic(light: PlatformColor(hex: 0x62626B), dark: PlatformColor(hex: 0x8B8B96))
+    /// Cool grey on the neutral frame; warm grey, lighter in the dark theme, on a tinted one (its
+    /// warm base and up to 20 % of color): at least 4.5:1 on the frame in both cases.
+    @MainActor static var secondaryText: Color {
+        AppSettings.shared.chromeTint == .none ? secondaryTextNeutral : secondaryTextWarm
+    }
+    private static let secondaryTextNeutral = dynamic(light: PlatformColor(hex: 0x62626B), dark: PlatformColor(hex: 0x8B8B96))
+    private static let secondaryTextWarm = dynamic(light: PlatformColor(hex: 0x5E5A55), dark: PlatformColor(hex: 0xBCB7B0))
     static let success = dynamic(light: PlatformColor(hex: 0x1E7B34), dark: PlatformColor(hex: 0x5AD27A))
     static let danger = dynamic(light: PlatformColor(hex: 0xC4262E), dark: PlatformColor(hex: 0xFF6B6B))
     static let switchOff = dynamic(light: PlatformColor(white: 0, alpha: 0.14), dark: PlatformColor(white: 1, alpha: 0.18))
@@ -59,10 +70,10 @@ enum Theme {
     static let shadow = Color.black
     static let scrim = Color.black.opacity(0.28)
 
+    /// The tint over the blurred desktop, on the new-tab page: frosted, not clear.
+    static let frostedTintOpacity = 0.72
     /// Window background behind the chrome (AppKit side of `chrome`).
-    static let chromeNS = PlatformColor.voidDynamic(light: chromeLight, dark: chromeDark)
-    private static let chromeLight = PlatformColor(hex: 0xE9E9EE)
-    private static let chromeDark = PlatformColor(hex: 0x0B0B0E)
+    @MainActor static var chromeNS: PlatformColor { AppSettings.shared.chromeLook.color }
 
     // MARK: Accent
 
@@ -74,13 +85,15 @@ enum Theme {
         (choice, AccentPalette(
             accent: dynamic(light: PlatformColor(hex: choice.lightHex), dark: PlatformColor(hex: choice.darkHex)),
             fill: Color(platformColor: PlatformColor(hex: choice.lightHex)),
-            soft: dynamic(light: PlatformColor(hex: choice.lightHex, alpha: 0.13), dark: PlatformColor(hex: choice.darkHex, alpha: 0.2))))
+            soft: dynamic(light: PlatformColor(hex: choice.lightHex, alpha: 0.28), dark: PlatformColor(hex: choice.darkHex, alpha: 0.2))))
     })
 
     /// Icons, active controls, selected tab marker, switches, focus rings, links.
     @MainActor static var accent: Color { palettes[AppSettings.shared.accent]!.accent }
-    /// Solid fill behind white text (primary buttons) — same tone in both themes.
+    /// Solid fill behind `onAccent` text (primary buttons, badges) — same tone in both themes.
     @MainActor static var accentFill: Color { palettes[AppSettings.shared.accent]!.fill }
+    /// Text and symbols on `accentFill` / `accent` fills: dark, the pastel tones being light.
+    static let onAccent = Color(platformColor: PlatformColor(hex: 0x131316))
     /// Tinted background: reading progress, highlighted menu rows, letter tiles.
     @MainActor static var accentSoft: Color { palettes[AppSettings.shared.accent]!.soft }
 
@@ -151,7 +164,31 @@ extension View {
 
 private struct PrimaryButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
-        content.buttonStyle(.borderedProminent).tint(Theme.accentFill)
+        content.buttonStyle(PrimaryButtonStyle())
+    }
+}
+
+/// The system's prominent button draws a white label, unreadable on the pastel accents.
+private struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    #if os(macOS)
+    private static let height: CGFloat = 22, padding: CGFloat = 10, radius: CGFloat = 6
+    #else
+    private static let height: CGFloat = 36, padding: CGFloat = 16, radius: CGFloat = 10
+    #endif
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .fontWeight(.medium)
+            .foregroundStyle(Theme.onAccent)
+            .padding(.horizontal, Self.padding)
+            .frame(minHeight: Self.height)
+            .background(RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+                .fill(Theme.accentFill)
+                .brightness(configuration.isPressed ? -0.08 : 0))
+            .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
+            .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

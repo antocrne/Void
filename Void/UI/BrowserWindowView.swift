@@ -12,7 +12,7 @@ struct BrowserWindowView: View {
 
     var body: some View {
         ZStack {
-            browser.isPrivate ? Theme.privateChrome : Theme.chrome
+            ChromeBackground(isPrivate: browser.isPrivate)
             Group {
                 switch settings.tabLayout {
                 case .sidebar: sidebarLayout
@@ -40,6 +40,7 @@ struct BrowserWindowView: View {
         // On the centre line of the top bar (44 pt) or of the sidebar's first row (4 + 30 pt).
         .background(TrafficLightsAlignment(centerY: settings.tabLayout == .top ? 22 : 19))
         .onChange(of: tabsKeptHidden) { revealed = false }
+        .onChange(of: settings.chromeLook) { if !browser.isPrivate { browser.window?.backgroundColor = Theme.chromeNS } }
         // Once macOS's transition is over, without animation: changing the bars during it (or
         // animating them) makes SwiftUI resize the window inside AppKit's layout pass, which
         // AppKit stops by raising an exception — Void quit on leaving full screen.
@@ -193,7 +194,7 @@ private struct EdgeRevealSidebar: View {
                 SidebarView()
                     .frame(width: width)
                     .frame(maxHeight: .infinity)
-                    .background(browser.isPrivate ? Theme.privateChrome : Theme.chrome)
+                    .background(ChromeBackground(isPrivate: browser.isPrivate))
                     .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: 10, topTrailingRadius: 10, style: .continuous))
                     .shadow(color: Theme.shadow.opacity(0.3), radius: 18, x: 4)
                     .privateChrome(browser.isPrivate)

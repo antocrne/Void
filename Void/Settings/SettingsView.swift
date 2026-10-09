@@ -61,6 +61,8 @@ private struct GeneralSettings: View {
                     ForEach(ThemeChoice.allCases) { Text($0.label).tag($0) }
                 }
                 LabeledContent("Couleur") { AccentPicker() }
+                LabeledContent("Teinte de la fenêtre") { ChromeTintPicker() }
+                ChromeTintOptions()
                 Toggle("Rouvrir les onglets au lancement", isOn: $settings.restoreTabs)
                 LabeledContent("Personnalisation du premier lancement") {
                     Button("Revoir…") {
@@ -115,7 +117,7 @@ struct AccentPicker: View {
                         .frame(width: 18, height: 18)
                         .overlay {
                             if selected {
-                                Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.surface)
+                                Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.onAccent)
                             }
                         }
                         .padding(3)

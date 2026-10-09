@@ -113,7 +113,7 @@ private struct AppearanceStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StepHeader(title: "Apparence", subtitle: "Le thème de l'interface et la couleur d'accent (onglet actif, interrupteurs, boutons).")
+            StepHeader(title: "Apparence", subtitle: "Le thème de l'interface, la couleur d'accent (onglet actif, interrupteurs, boutons) et la teinte de la fenêtre.")
             HStack(spacing: 12) {
                 ForEach(ThemeChoice.allCases) { choice in
                     OptionCard(title: Text(choice.label), selected: settings.theme == choice) {
@@ -136,6 +136,11 @@ private struct AppearanceStep: View {
                 Text("Couleur").font(.system(size: 13, weight: .medium))
                 Spacer()
                 AccentPicker()
+            }
+            HStack {
+                Text("Teinte").font(.system(size: 13, weight: .medium))
+                Spacer()
+                ChromeTintPicker()
             }
         }
     }
@@ -329,7 +334,7 @@ struct MiniBrowser: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Theme.chrome
+            ChromeBackground()
             switch layout {
             case .sidebar where tabsHidden:
                 page.padding(0)

@@ -74,6 +74,7 @@ private struct ProgressLine: View {
 /// new tab, with the suggestions of the address bar under it, as on the Mac.
 struct NewTabPage: View {
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
     @State private var text = ""
     /// Recomputed when the text changes only: it queries the history database.
     @State private var suggestions: [Suggestion] = []
@@ -83,6 +84,18 @@ struct NewTabPage: View {
 
     private static let fieldHeight: CGFloat = 50
     private static let rowHeight: CGFloat = 50
+
+    /// The page's own background, or with a tint (Settings → Teinte), the tint as frosted glass.
+    @ViewBuilder private var background: some View {
+        if browser.isPrivate || settings.chromeTint == .none {
+            Theme.surface
+        } else {
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                ChromeFill(look: settings.chromeLook).opacity(Theme.frostedTintOpacity)
+            }
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -108,7 +121,7 @@ struct NewTabPage: View {
             .animation(Theme.spring, value: listing)
             .animation(Theme.spring, value: keyboardTop)
         }
-        .background(Theme.surface.ignoresSafeArea(edges: .top).onTapGesture { focused = false })
+        .background(background.ignoresSafeArea(edges: .top).onTapGesture { focused = false })
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             keyboardTop = end.minY >= UIScreen.main.bounds.height ? .infinity : end.minY

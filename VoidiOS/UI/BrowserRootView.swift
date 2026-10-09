@@ -18,7 +18,7 @@ struct BrowserRootView: View {
     var body: some View {
         @Bindable var windows = windows
         ZStack {
-            (browser.isPrivate ? Theme.privateChrome : Theme.chrome)
+            ChromeBackground(isPrivate: browser.isPrivate)
                 .ignoresSafeArea()
 
             Group {
