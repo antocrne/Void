@@ -30,6 +30,10 @@ struct PageView: View {
                     FindBar()
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                if !browser.isPrivate && Updater.shared.showsBar {
+                    UpdateBar()
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 if let prompt = browser.passwordPrompt {
                     PasswordPromptBar(prompt: prompt)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -47,6 +51,7 @@ struct PageView: View {
             }
         }
         .animation(Theme.spring, value: browser.passwordPrompt?.id)
+        .animation(Theme.spring, value: Updater.shared.showsBar)
         .onChange(of: [browser.selectedTab?.id, browser.splitPartner?.id], initial: true) {
             browser.selectedTab?.ensureWebView()
             browser.splitPartner?.ensureWebView()

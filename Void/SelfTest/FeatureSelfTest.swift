@@ -368,6 +368,7 @@ final class FeatureSelfTest {
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
+        "mise-a-jour": { t, _ in await t.testUpdater() },
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
@@ -575,6 +576,50 @@ final class FeatureSelfTest {
         await sleep(1)
         await captureOnScreen("apercu-dossiers-veille")
         check("Aperçu des dossiers : captures enregistrées à côté du rapport", true)
+    }
+
+    /// Void's updates against a local feed (-VoidUpdateFeed file:///…/releases.json, a release whose
+    /// Void-<version>.zip holds a Void signed by the same team): found, downloaded, verified, and put in
+    /// place of this copy as the self-test quits (look at the version of this Void.app afterwards).
+    private func testUpdater() async {
+        check("Mises à jour : 0.2.1 > 0.2 > 0.1.9, 0.2 = 0.2.0",
+              Updater.isNewer("0.2.1", than: "0.2") && Updater.isNewer("0.2", than: "0.1.9") && !Updater.isNewer("0.2.0", than: "0.2")
+                && Updater.isNewer("0.10", than: "0.9") && !Updater.isNewer("0.2", than: "0.2.1"))
+        guard UserDefaults.standard.string(forKey: "VoidUpdateFeed") != nil else {
+            check("Mises à jour : lancer avec -VoidUpdateFeed file:///…/releases.json", false)
+            return
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let updater = Updater.shared
+        await updater.check(userInitiated: false)
+        guard case .available(let release) = updater.phase else {
+            check("Mises à jour : version plus récente trouvée", false, "\(updater.phase)")
+            return
+        }
+        check("Mises à jour : version plus récente trouvée, barre affichée", updater.showsBar, "\(release.version) · \(release.archive.lastPathComponent)")
+        await sleep(0.8)
+        await snapshotWindow("mise-a-jour-disponible")
+
+        updater.install()
+        let ready = await until(30) { if case .ready = updater.phase { true } else { false } }
+        check("Mises à jour : téléchargée, version et signature vérifiées", ready, "\(updater.phase)")
+        await sleep(0.8)
+        await snapshotWindow("mise-a-jour-prete")
+
+        check("Mises à jour : cette copie de Void passe la vérification de signature", Updater.isSignedLikeThisApp(Bundle.main.bundleURL),
+              Updater.teamIdentifier() ?? "pas d'équipe")
+        let fm = FileManager.default
+        let copy = fm.temporaryDirectory.appendingPathComponent("void-adhoc-\(UUID().uuidString)/Void.app")
+        try? fm.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.copyItem(at: Bundle.main.bundleURL, to: copy)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--deep", "--sign", "-", copy.path]
+        try? sign.run()
+        while sign.isRunning { await sleep(0.1) }
+        check("Mises à jour : une copie signée ad hoc est refusée", sign.terminationStatus == 0 && !Updater.isSignedLikeThisApp(copy))
+        try? fm.removeItem(at: copy.deletingLastPathComponent())
     }
 
     /// Tabs put away in a folder of the sidebar: asleep there, woken one at a time, folded, dragged

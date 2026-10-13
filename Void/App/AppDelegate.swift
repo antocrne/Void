@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             selfTest = SelfTestRunner.isRequested
             SelfTestRunner.startIfRequested()
             #endif
+            if !selfTest { Updater.shared.start() }
             // First launch: let the user choose how Void looks (Settings → Général can replay it).
             if !AppSettings.shared.onboardingCompleted && !selfTest {
                 BrowserModel.shared.onboardingStep = 0
@@ -105,7 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             BrowserModel.shared.saveNow()
             if !SingleInstance.isDuplicate { DownloadManager.shared.removeUnfinishedFiles() }
-            AppLanguage.relaunchIfRequested()
+            // A downloaded update takes the app's place, and opens if a relaunch was asked for.
+            if SingleInstance.isDuplicate || !Updater.shared.installIfReady(relaunch: AppLanguage.relaunchRequested) {
+                AppLanguage.relaunchIfRequested()
+            }
         }
     }
 }

@@ -3657,6 +3657,22 @@
         }
       }
     },
+    "Elle remplacera cette version à la fermeture de Void." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It will replace this version when Void quits."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elle remplacera cette version à la fermeture de Void."
+          }
+        }
+      }
+    },
     "Empêcher la lecture automatique avec le son" : {
       "localizations" : {
         "en" : {
@@ -4731,6 +4747,22 @@
         }
       }
     },
+    "Impossible de vérifier les mises à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't check for updates"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de vérifier les mises à jour"
+          }
+        }
+      }
+    },
     "Imprimer…" : {
       "localizations" : {
         "en" : {
@@ -4759,6 +4791,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installation : %@…"
+          }
+        }
+      }
+    },
+    "Installer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer"
           }
         }
       }
@@ -4924,6 +4972,38 @@
         }
       }
     },
+    "L'archive n'a pas pu être ouverte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The archive couldn't be opened."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'archive n'a pas pu être ouverte."
+          }
+        }
+      }
+    },
+    "L'archive ne contient pas la version attendue de Void." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The archive doesn't contain the expected version of Void."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'archive ne contient pas la version attendue de Void."
+          }
+        }
+      }
+    },
     "L'autoriser à enregistrer plusieurs fichiers à la suite ?" : {
       "localizations" : {
         "en" : {
@@ -5036,6 +5116,22 @@
         }
       }
     },
+    "La mise à jour n'a pas abouti" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The update didn't complete"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La mise à jour n'a pas abouti"
+          }
+        }
+      }
+    },
     "La nouvelle langue s'appliquera au prochain lancement de Void." : {
       "localizations" : {
         "en" : {
@@ -5080,6 +5176,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La page occupe la fenêtre sous la barre d'adresse ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
+          }
+        }
+      }
+    },
+    "La signature de la nouvelle version ne correspond pas à celle de Void : elle n'est pas installée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new version's signature doesn't match Void's: it wasn't installed."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La signature de la nouvelle version ne correspond pas à celle de Void : elle n'est pas installée."
           }
         }
       }
@@ -5240,6 +5352,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le thème de l'interface, la couleur d'accent (onglet actif, interrupteurs, boutons) et la teinte de la fenêtre."
+          }
+        }
+      }
+    },
+    "Le téléchargement a échoué. Vérifiez la connexion." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The download failed. Check your connection."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le téléchargement a échoué. Vérifiez la connexion."
           }
         }
       }
@@ -6202,6 +6330,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nouveau dossier…"
+          }
+        }
+      }
+    },
+    "Nouveautés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What's New"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveautés"
           }
         }
       }
@@ -7838,6 +7982,54 @@
         }
       }
     },
+    "Rechercher les mises à jour automatiquement" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for updates automatically"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher les mises à jour automatiquement"
+          }
+        }
+      }
+    },
+    "Rechercher les mises à jour…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for Updates…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher les mises à jour…"
+          }
+        }
+      }
+    },
+    "Rechercher maintenant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check Now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher maintenant"
+          }
+        }
+      }
+    },
     "Rechercher ou saisir une adresse" : {
       "localizations" : {
         "en" : {
@@ -7866,6 +8058,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rechercher ou saisir une adresse (⌘L)"
+          }
+        }
+      }
+    },
+    "Recherche…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recherche…"
           }
         }
       }
@@ -7914,6 +8122,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Refuser"
+          }
+        }
+      }
+    },
+    "Relancer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relaunch"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relancer"
           }
         }
       }
@@ -9487,6 +9711,22 @@
         }
       }
     },
+    "Téléchargement de Void %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading Void %@…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargement de Void %@…"
+          }
+        }
+      }
+    },
     "Téléchargement depuis le Chrome Web Store impossible : %@" : {
       "localizations" : {
         "en" : {
@@ -9579,6 +9819,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Téléchargements de cette fenêtre"
+          }
+        }
+      }
+    },
+    "Téléchargée et vérifiée seulement si vous l'installez." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloaded and verified only if you install it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargée et vérifiée seulement si vous l'installez."
           }
         }
       }
@@ -9935,6 +10191,38 @@
         }
       }
     },
+    "Void %@ est disponible" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void %@ is available"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void %@ est disponible"
+          }
+        }
+      }
+    },
+    "Void %@ est prête" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void %@ is ready"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void %@ est prête"
+          }
+        }
+      }
+    },
     "Void (trousseau de l'appareil)" : {
       "localizations" : {
         "en" : {
@@ -10011,6 +10299,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Void est votre navigateur par défaut"
+          }
+        }
+      }
+    },
+    "Void est à jour (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void is up to date (%@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void est à jour (%@)"
           }
         }
       }
@@ -10107,6 +10411,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Void n'a pas accès à votre position : Réglages → Void"
+          }
+        }
+      }
+    },
+    "Void ne peut pas se remplacer à cet endroit : la page de téléchargement va s'ouvrir." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void can't replace itself where it is: the download page will open."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Void ne peut pas se remplacer à cet endroit : la page de téléchargement va s'ouvrir."
           }
         }
       }

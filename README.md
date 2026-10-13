@@ -1,6 +1,6 @@
 # Void
 
-**Un navigateur qui s'efface.** Version **0.2** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
+**Un navigateur qui s'efface.** Version **0.2.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Une version **iPhone et iPad** partage le même modèle, le même stockage et les mêmes scripts (cible *Void iOS*, voir [iOS](#ios-iphone-et-ipad))
@@ -42,11 +42,19 @@ Chaque build du schéma *Void* (⌘B ou ⌘R dans Xcode, ou `xcodebuild`) fait d
 ./scripts/make-dmg.sh
 ```
 
-Le script compile en Release et produit `build/Void-<version>.dmg`, soit `build/Void-0.2.dmg` pour cette version (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script.
+Le script compile en Release et produit `build/Void-<version>.dmg` (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script. Une image disque n'est publiée qu'avec une version sans troisième chiffre (0.2, 0.3…) : les versions intermédiaires (0.2.1, 0.2.2…) s'installent depuis Void (voir ci-dessous).
 
 L'app est signée avec le certificat *Apple Development* de l'équipe (il doit être dans le trousseau de la machine qui compile). Pas en ad hoc : macOS reconnaîtrait alors Void à l'empreinte de son binaire, qui change à chaque compilation, et redemanderait le mot de passe de session pour chaque élément du trousseau après chaque build. Pour distribuer l'app à d'autres, il faudra une signature *Developer ID* et la notarisation.
 
 L'icône est générée par script (`swift scripts/make-icon.swift`).
+
+**Publier une version** : passer `MARKETING_VERSION` à la version suivante (0.2.1 → 0.2.2 pour une correction ou une nouveauté ; 0.3 pour une étape, avec un DMG) dans la PR, puis, une fois la PR fusionnée, depuis `main` à jour :
+
+```bash
+./scripts/release.sh notes.md
+```
+
+Le script refuse une version déjà publiée ou un `main` différent de GitHub, compile en Release, vérifie la signature et publie la version sur GitHub (préversion avant 1.0) avec `Void-<version>.zip`, plus `Void-<version>.dmg` pour une version sans troisième chiffre.
 
 ## Raccourcis
 
@@ -133,6 +141,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ✅ **Réorganiser les onglets par glisser-déposer**, dans la barre latérale (liste et grille des épinglés) comme dans la barre du haut : les autres onglets s'écartent pendant le glissé, l'ordre (donc ⌘1…⌘9 et la session) suit. Épinglés et onglets ordinaires se réordonnent séparément ; attraper un onglet ne déplace pas la fenêtre. Dans la barre du haut, qui est la barre de titre, les zones sont nettes : un onglet se déplace, les espaces vides déplacent la fenêtre (double-clic : comme la barre de titre). Vérifié par l'auto-test avec des événements souris envoyés à la fenêtre (onglet déplacé, fenêtre immobile ; zone vide : fenêtre déplacée).
 - ✅ **Changer la position des onglets** (barre latérale ↔ barre du haut) sans perdre la page : pendant l'animation, les deux zones de page coexistent et seule la dernière arrivée dans la fenêtre tient les pages (l'ancienne gardait parfois la page en disparaissant : page blanche). Vérifié par l'auto-test (bascules animées, rapides et lentes).
 
+- ✅ **Mises à jour de Void** (section `mise-a-jour` de l'auto-test, avec un flux local et une fausse version 9.9.9) : au lancement puis toutes les 6 heures, Void lit les versions publiées sur GitHub (API Releases, aucun autre serveur). Si une version plus récente porte son archive `Void-<version>.zip`, une barre la propose au-dessus de la page : rien n'est téléchargé avant « Installer ». L'archive est alors ouverte à côté de l'app et gardée seulement si c'est Void, dans la version annoncée, signée par la même équipe que le Void installé (une copie signée ad hoc est refusée) ; elle remplace l'app quand Void se ferme (« Relancer », ou le prochain ⌘Q), l'ancienne revenant si le remplacement échoue. Aussi : Void → « Rechercher les mises à jour… », et Réglages → À propos (recherche automatique désactivable). Quand Void ne peut pas se remplacer (lancée depuis l'image disque, dossier en lecture seule), « Installer » ouvre la page de la version.
 ### Terminé, non testé automatiquement
 - ☑️ **Barre du haut** : mêmes outils que la barre latérale — extensions, fenêtre privée, téléchargements, et menu des espaces (changer d'espace, en créer un). Les onglets inactifs rétrécissent quand ils s'accumulent (jusqu'à la seule icône du site) ; la barre ne défile qu'au-delà.
 - ☑️ **Web Inspector** (`isInspectable`, « Inspecter l'élément » au clic droit). ⌥⌘J ouvre la console via une API interne de WebKit (`_inspector`), appelée avec garde-fous.
@@ -241,7 +250,7 @@ Tout est dans `~/Library/Application Support/Void/` (session, historique SQLite,
 ## Auto-tests (build Debug)
 Compiler avec un `-derivedDataPath` **hors de `~/Documents`** : iCloud y ajoute des attributs qui font échouer la signature. Les contrôles à base de clics simulés (lien `_blank`, masquage d'élément, glisser dans la barre du haut) échouent quand l'écran du Mac est verrouillé ou que la souris est utilisée pendant le test, de même que la lecture des vidéos en streaming du test PiP écran verrouillé, et parfois l'agrandissement du popup d'extension à la poignée (le test déplace le vrai pointeur) ; ce n'est pas une régression. Le cas « Repli natif WebKit seul » du test PiP échoue toujours : ce niveau n'est pas disponible sur ce WebKit (voir le compte rendu PiP).
 
-Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux,notes,nouvel-onglet,conversion,visio,fermer-autres,dossiers,cote-a-cote,reunion,partage-son,teinte,barre-reduite` ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ,reveil-extensions` (`proton-champ` : Proton Pass installé et connecté ; `reveil-extensions` attend que WebKit décharge les arrière-plans, quelques minutes).
+Pour ne lancer que certaines sections : `-VoidSelfTestOnly session,onglets,telechargements,adresse,stabilite,glisser,disposition,extensions,plein-ecran,barre-commande,lecteurs,mots-de-passe,feux,notes,nouvel-onglet,conversion,visio,fermer-autres,dossiers,cote-a-cote,reunion,partage-son,teinte,barre-reduite` ; `mise-a-jour` avec `-VoidUpdateFeed file://…/releases.json` (une version plus récente, signée par la même équipe : la copie testée est remplacée à la fin) ; sur une copie d'un vrai profil : `lancement-extensions,popups-installes,store,proton-champ,reveil-extensions` (`proton-champ` : Proton Pass installé et connecté ; `reveil-extensions` attend que WebKit décharge les arrière-plans, quelques minutes).
 
 ```bash
 build/DerivedData/Build/Products/Debug/Void.app/Contents/MacOS/Void -VoidSelfTest features -VoidSelfTestOut /tmp/void-features.md

@@ -66,7 +66,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     }
 
     #if os(macOS)
-    private static var relaunchRequested = false
+    private(set) static var relaunchRequested = false
 
     /// Quits, then opens Void again once this copy has really gone (Void runs only once).
     @MainActor

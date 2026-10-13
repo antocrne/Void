@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Builds Void in Release and packages it as build/Void-<version>.dmg
 # (Void.app + a shortcut to /Applications, to install by drag and drop).
-#   ./scripts/make-dmg.sh
+#   ./scripts/make-dmg.sh               (--no-build: package the Release build already there, see release.sh)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -9,9 +9,11 @@ ROOT=$PWD
 DERIVED="$ROOT/build/DerivedData"
 APP="$DERIVED/Build/Products/Release/Void.app"
 
-echo "→ Compilation Release…"
-xcodebuild -project Void.xcodeproj -scheme Void -configuration Release -destination 'generic/platform=macOS' \
-  -derivedDataPath "$DERIVED" build -quiet
+if [[ ${1:-} != --no-build ]]; then
+  echo "→ Compilation Release…"
+  xcodebuild -project Void.xcodeproj -scheme Void -configuration Release -destination 'generic/platform=macOS' \
+    -derivedDataPath "$DERIVED" build -quiet
+fi
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 DMG="$ROOT/build/Void-$VERSION.dmg"
