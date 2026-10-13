@@ -45,6 +45,7 @@
 				UI/ExtensionsButton.swift,
 				UI/Overlays.swift,
 				UI/PageView.swift,
+				UI/SidebarRail.swift,
 				UI/SidebarView.swift,
 				UI/TabReorder.swift,
 				UI/TabViews.swift,

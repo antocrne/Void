@@ -145,7 +145,6 @@ private struct TabFolderRow: View {
     let reorder: TabReorder
     @Environment(BrowserModel.self) private var browser
     @State private var hovering = false
-    @State private var confirmingDeletion = false
 
     var body: some View {
         let target = reorder.dropTarget == folder.id
@@ -189,26 +188,45 @@ private struct TabFolderRow: View {
             reorder.recordFolder($0, for: folder.id)
         }
         .help(folder.isExpanded ? "Replier le dossier" : "Déplier le dossier")
-        .contextMenu {
-            Button("Renommer…") { browser.renamingFolderID = folder.id }
-            Button(folder.isExpanded ? "Replier" : "Déplier") { browser.toggleFolder(folder) }
-            if folder.tabs.contains(where: { !$0.isAsleep }) {
-                Button("Mettre les onglets en veille") { for tab in folder.tabs { browser.sleepTab(tab) } }
+        .folderActions(folder)
+    }
+}
+
+extension View {
+    /// A folder's right-click menu (rename, fold, sleep, delete) and its name field, for its row in
+    /// the sidebar and its button in the reduced sidebar.
+    func folderActions(_ folder: TabFolder) -> some View {
+        modifier(FolderActions(folder: folder))
+    }
+}
+
+private struct FolderActions: ViewModifier {
+    let folder: TabFolder
+    @Environment(BrowserModel.self) private var browser
+    @State private var confirmingDeletion = false
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button("Renommer…") { browser.renamingFolderID = folder.id }
+                Button(folder.isExpanded ? "Replier" : "Déplier") { browser.toggleFolder(folder) }
+                if folder.tabs.contains(where: { !$0.isAsleep }) {
+                    Button("Mettre les onglets en veille") { for tab in folder.tabs { browser.sleepTab(tab) } }
+                }
+                Divider()
+                Button("Supprimer le dossier, garder les onglets") { browser.deleteFolder(folder, keepingTabs: true) }
+                Button("Supprimer le dossier et ses onglets…", role: .destructive) {
+                    if folder.tabs.isEmpty { browser.deleteFolder(folder, keepingTabs: false) } else { confirmingDeletion = true }
+                }
             }
-            Divider()
-            Button("Supprimer le dossier, garder les onglets") { browser.deleteFolder(folder, keepingTabs: true) }
-            Button("Supprimer le dossier et ses onglets…", role: .destructive) {
-                if folder.tabs.isEmpty { browser.deleteFolder(folder, keepingTabs: false) } else { confirmingDeletion = true }
+            .renameFolderPopover(folder)
+            .confirmationDialog("Supprimer le dossier « \(folder.name) » et ses onglets ?", isPresented: $confirmingDeletion) {
+                Button(folder.tabs.count == 1 ? "Fermer 1 onglet et supprimer" : "Fermer \(folder.tabs.count) onglets et supprimer", role: .destructive) {
+                    browser.deleteFolder(folder, keepingTabs: false)
+                }
+            } message: {
+                Text("⌘⇧T rouvre les onglets fermés un par un.")
             }
-        }
-        .renameFolderPopover(folder)
-        .confirmationDialog("Supprimer le dossier « \(folder.name) » et ses onglets ?", isPresented: $confirmingDeletion) {
-            Button(folder.tabs.count == 1 ? "Fermer 1 onglet et supprimer" : "Fermer \(folder.tabs.count) onglets et supprimer", role: .destructive) {
-                browser.deleteFolder(folder, keepingTabs: false)
-            }
-        } message: {
-            Text("⌘⇧T rouvre les onglets fermés un par un.")
-        }
     }
 }
 

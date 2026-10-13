@@ -61,52 +61,72 @@ struct BrowserWindowView: View {
 
     /// Width taken by the docked sidebar on the left of the page (0 when the page spans the window).
     private var dockedSidebarWidth: CGFloat {
-        settings.tabLayout == .sidebar && settings.sidebarVisible && !tabsKeptHidden ? CGFloat(settings.sidebarWidth) : 0
+        guard settings.tabLayout == .sidebar && settings.sidebarVisible && !tabsKeptHidden else { return 0 }
+        return settings.sidebarCompact ? SidebarRail.width : CGFloat(settings.sidebarWidth)
     }
 
     private var sidebarLayout: some View {
         let hidden = tabsKeptHidden
         let docked = settings.sidebarVisible && !hidden
+        let compact = docked && settings.sidebarCompact
+        // Sidebar hidden or reduced to its icons: navigation and the title go above the page.
+        let titleBar = !hidden && (!settings.sidebarVisible || compact)
         let width = CGFloat(settings.sidebarWidth)
         // A private window keeps a slate frame even when the page fills the window.
         let frameInset: CGFloat = hidden ? (browser.isPrivate ? 4 : 0) : 8
         return ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                if docked {
-                    SidebarView()
-                        .frame(width: width)
+            VStack(spacing: 0) {
+                if titleBar {
+                    CompactTitleBar()
+                        .frame(height: 38)
+                        .padding(.horizontal, frameInset)
                         .privateChrome(browser.isPrivate)
-                        .overlay(alignment: .trailing) {
-                            SidebarResizeHandle(width: settings.sidebarWidth, onResize: resizeSidebar,
-                                                onReset: { withAnimation(Theme.spring) { settings.sidebarWidth = AppSettings.defaultSidebarWidth } })
-                                .frame(width: 8)
-                                .offset(x: 4)
-                                .help("Tirer pour élargir · double-clic : largeur par défaut")
+                        .transition(.opacity)
+                }
+                HStack(spacing: 0) {
+                    if compact {
+                        SidebarRail()
+                            .frame(width: SidebarRail.width)
+                            .privateChrome(browser.isPrivate)
+                            .overlay(alignment: .trailing) {
+                                SidebarResizeHandle(width: Double(SidebarRail.width), onResize: resizeRail,
+                                                    onReset: { browser.toggleSidebarCompact() })
+                                    .frame(width: 8)
+                                    .offset(x: 4)
+                                    .help("Tirer vers la droite ou double-cliquer pour déplier")
+                            }
+                            .zIndex(1)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    } else if docked {
+                        SidebarView()
+                            .frame(width: width)
+                            .privateChrome(browser.isPrivate)
+                            .overlay(alignment: .trailing) {
+                                SidebarResizeHandle(width: settings.sidebarWidth, onResize: resizeSidebar,
+                                                    onReset: { withAnimation(Theme.spring) { settings.sidebarWidth = AppSettings.defaultSidebarWidth } })
+                                    .frame(width: 8)
+                                    .offset(x: 4)
+                                    .help("Tirer pour élargir, tout à gauche pour réduire aux icônes · double-clic : largeur par défaut")
+                            }
+                            .zIndex(1)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                    VStack(spacing: 0) {
+                        if docked && settings.showBookmarksBar {
+                            BookmarksBar()
+                                .privateChrome(browser.isPrivate)
+                                .padding(.bottom, 4)
+                                .transition(.opacity)
                         }
-                        .zIndex(1)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                VStack(spacing: 0) {
-                    if !settings.sidebarVisible && !hidden {
-                        CompactTitleBar()
-                            .frame(height: 38)
-                            .privateChrome(browser.isPrivate)
-                            .transition(.opacity)
+                        PageView()
+                            .clipShape(RoundedRectangle(cornerRadius: hidden ? 0 : 10, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: hidden ? 0 : 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: hidden ? 0 : 1))
+                            .shadow(color: Theme.shadow.opacity(hidden ? 0 : 0.18), radius: 6, y: 1)
                     }
-                    if docked && settings.showBookmarksBar {
-                        BookmarksBar()
-                            .privateChrome(browser.isPrivate)
-                            .padding(.bottom, 4)
-                            .transition(.opacity)
-                    }
-                    PageView()
-                        .clipShape(RoundedRectangle(cornerRadius: hidden ? 0 : 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: hidden ? 0 : 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: hidden ? 0 : 1))
-                        .shadow(color: Theme.shadow.opacity(hidden ? 0 : 0.18), radius: 6, y: 1)
+                    .padding(.top, titleBar ? 0 : (docked ? (settings.showBookmarksBar ? 4 : 8) : frameInset))
+                    .padding([.bottom, .trailing], frameInset)
+                    .padding(.leading, docked ? 0 : frameInset)
                 }
-                .padding(.top, docked ? (settings.showBookmarksBar ? 4 : 8) : (hidden ? frameInset : 0))
-                .padding([.bottom, .trailing], frameInset)
-                .padding(.leading, docked ? 0 : frameInset)
             }
             if hidden {
                 EdgeRevealSidebar(revealed: $revealed, width: width)
@@ -146,7 +166,16 @@ struct BrowserWindowView: View {
 
     private func resizeSidebar(_ width: Double) {
         let range = AppSettings.sidebarWidthRange
+        if width < range.lowerBound - AppSettings.sidebarCollapsePull {
+            browser.toggleSidebarCompact()
+            return
+        }
         settings.sidebarWidth = min(range.upperBound, max(range.lowerBound, width))
+    }
+
+    /// The reduced sidebar's edge pulled to the right: the whole sidebar again.
+    private func resizeRail(_ width: Double) {
+        if width > Double(SidebarRail.width) + AppSettings.sidebarCollapsePull { browser.toggleSidebarCompact() }
     }
 
     private func configure(_ window: NSWindow) {
@@ -232,26 +261,36 @@ private struct EdgeRevealSidebar: View {
     }
 }
 
-/// Shown above the page when the sidebar is hidden: room for the traffic lights + essentials.
+/// Shown above the page when the sidebar is hidden or reduced to its icons: room for the traffic
+/// lights + essentials.
 private struct CompactTitleBar: View {
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
 
     var body: some View {
         HStack(spacing: 4) {
             // Room for the traffic lights, which full screen hides.
             if !browser.isFullScreen { Color.clear.frame(width: 70) }
-            ChromeButton(symbol: "sidebar.left", help: "Afficher la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
+            ChromeButton(symbol: "sidebar.left", help: settings.sidebarVisible ? "Masquer la barre latérale (⌃⌘S)" : "Afficher la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
             ChromeButton(symbol: "chevron.left", help: "Précédent", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
             ChromeButton(symbol: "chevron.right", help: "Suivant", disabled: !(browser.selectedTab?.canGoForward ?? false)) { browser.goForward() }
+            ChromeButton(symbol: browser.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", help: "Recharger (⌘R)") {
+                browser.selectedTab?.isLoading == true ? browser.stopLoading() : browser.reload()
+            }
             if browser.isPrivate { PrivateBadge().padding(.leading, 4) }
-            Spacer()
-            Text(browser.selectedTab?.displayTitle ?? "Void")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.secondaryText)
-                .lineLimit(1)
-                .onTapGesture { browser.showCommandBar(.currentTab) }
-            Spacer()
-            Color.clear.frame(width: 120)
+            Spacer(minLength: 8)
+            if settings.sidebarVisible && settings.sidebarCompact {
+                // The reduced sidebar has no room for the address: here, as in the top bar layout.
+                TopAddressField(tab: browser.selectedTab)
+            } else {
+                Text(browser.selectedTab?.displayTitle ?? "Void")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1)
+                    .onTapGesture { browser.showCommandBar(.currentTab) }
+            }
+            Spacer(minLength: 8)
+            Color.clear.frame(maxWidth: 120)
         }
         .padding(.horizontal, 8)
     }

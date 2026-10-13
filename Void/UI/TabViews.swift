@@ -385,7 +385,7 @@ struct TopAddressField: View {
 }
 
 /// The active tab fills up with the accent as the page is scrolled (Settings → Onglets).
-private struct ReadingProgressFill: View {
+struct ReadingProgressFill: View {
     let progress: Double
 
     var body: some View {

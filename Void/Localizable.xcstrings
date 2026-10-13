@@ -289,6 +289,22 @@
         }
       }
     },
+    "%@ — déplier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — expand"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — déplier"
+          }
+        }
+      }
+    },
     "%@ — nécessite Void Notes" : {
       "localizations" : {
         "en" : {
@@ -317,6 +333,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ — rechercher ou saisir une adresse (⌘L)"
+          }
+        }
+      }
+    },
+    "%@ — replier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — collapse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — replier"
           }
         }
       }
@@ -8414,6 +8446,22 @@
         }
       }
     },
+    "Réduire la barre latérale aux icônes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reduce Sidebar to Icons"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réduire la barre latérale aux icônes"
+          }
+        }
+      }
+    },
     "Réduire le texte" : {
       "localizations" : {
         "en" : {
@@ -9230,18 +9278,34 @@
         }
       }
     },
-    "Tirer pour élargir · double-clic : largeur par défaut" : {
+    "Tirer pour élargir, tout à gauche pour réduire aux icônes · double-clic : largeur par défaut" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Drag to widen · double-click: default width"
+            "value" : "Drag to widen, all the way left to reduce to icons · double-click: default width"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tirer pour élargir · double-clic : largeur par défaut"
+            "value" : "Tirer pour élargir, tout à gauche pour réduire aux icônes · double-clic : largeur par défaut"
+          }
+        }
+      }
+    },
+    "Tirer vers la droite ou double-cliquer pour déplier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag right or double-click to expand"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tirer vers la droite ou double-cliquer pour déplier"
           }
         }
       }
@@ -9643,6 +9707,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un téléchargement ne demande rien ; un site qui en enchaîne plus de trois en quelques secondes demande d'abord."
+          }
+        }
+      }
+    },
+    "Une colonne étroite avec l'icône ou l'initiale de chaque onglet, son titre au survol ; la navigation et l'adresse passent au-dessus de la page. Tirez le bord de la barre tout à gauche pour la réduire, vers la droite pour la déplier (⌃⌥⌘S)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A narrow column with each tab's icon or initial, its title on hover; navigation and the address move above the page. Pull the sidebar's edge all the way left to reduce it, to the right to expand it (⌃⌥⌘S)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une colonne étroite avec l'icône ou l'initiale de chaque onglet, son titre au survol ; la navigation et l'adresse passent au-dessus de la page. Tirez le bord de la barre tout à gauche pour la réduire, vers la droite pour la déplier (⌃⌥⌘S)."
           }
         }
       }

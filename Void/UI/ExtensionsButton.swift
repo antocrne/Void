@@ -6,15 +6,17 @@ import WebKit
 /// their badge); choosing one runs its action, and its popup hangs from the button. Without
 /// extensions, the menu leads to the Chrome Web Store. Pinned extensions also get their own
 /// button, and their popup hangs from that one: in the top bar just before 🧩; in the sidebar
-/// just after it, as many as `sidebarRoom` allows (the others stay in the menu).
+/// just after it, as many as `sidebarRoom` allows (the others stay in the menu); in the reduced
+/// sidebar (`vertical`) above it, one under the other.
 struct ExtensionsButton: View {
     var sidebarRoom: Int? = nil
+    var vertical = false
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
 
     var body: some View {
         if #available(macOS 15.4, *), !browser.isPrivate || settings.extensionsInPrivate {
-            ExtensionsMenu(sidebarRoom: sidebarRoom)
+            ExtensionsMenu(sidebarRoom: sidebarRoom, vertical: vertical)
         }
     }
 }
@@ -22,6 +24,7 @@ struct ExtensionsButton: View {
 @available(macOS 15.4, *)
 private struct ExtensionsMenu: View {
     let sidebarRoom: Int?
+    let vertical: Bool
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
     @State private var hovering = false
@@ -35,7 +38,8 @@ private struct ExtensionsMenu: View {
         let shownIDs = Set(shown.map(\.context.uniqueIdentifier))
         // Shown pinned buttons show their own badge.
         let hasBadge = items.contains { !($0.action?.badgeText.isEmpty ?? true) && !shownIDs.contains($0.context.uniqueIdentifier) }
-        HStack(spacing: 2) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        layout {
             if sidebarRoom == nil { pinnedButtons(shown) }
             menu(items, hasBadge: hasBadge)
             if sidebarRoom != nil { pinnedButtons(shown) }
