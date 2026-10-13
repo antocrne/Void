@@ -36,7 +36,6 @@ struct BrowserWindowView: View {
         .animation(Theme.quick, value: browser.commandBar)
         .animation(Theme.spring, value: browser.onboardingStep == nil)
         .background(WindowAccessor { window in configure(window) })
-        .background(WindowButtonsVisibility(hidden: tabsKeptHidden && !revealed))
         // On the centre line of the top bar (44 pt) or of the sidebar's first row (4 + 30 pt).
         .background(TrafficLightsAlignment(centerY: settings.tabLayout == .top ? 22 : 19))
         .onChange(of: tabsKeptHidden) { revealed = false }
@@ -56,7 +55,8 @@ struct BrowserWindowView: View {
         }
     }
 
-    /// ⌘S / Settings → Onglets: the page fills the window, the sidebar appears at the left edge.
+    /// ⌘S / Settings → Onglets: the page fills the window under the address bar, the sidebar
+    /// appears at the left edge.
     private var tabsKeptHidden: Bool { settings.tabLayout == .sidebar && settings.sidebarAutoHide }
 
     /// Width taken by the docked sidebar on the left of the page (0 when the page spans the window).
@@ -69,8 +69,9 @@ struct BrowserWindowView: View {
         let hidden = tabsKeptHidden
         let docked = settings.sidebarVisible && !hidden
         let compact = docked && settings.sidebarCompact
-        // Sidebar hidden or reduced to its icons: navigation and the title go above the page.
-        let titleBar = !hidden && (!settings.sidebarVisible || compact)
+        // Sidebar hidden, kept hidden or reduced to its icons: navigation and the address go
+        // above the page.
+        let titleBar = !docked || compact
         let width = CGFloat(settings.sidebarWidth)
         // A private window keeps a slate frame even when the page fills the window.
         let frameInset: CGFloat = hidden ? (browser.isPrivate ? 4 : 0) : 8
@@ -123,20 +124,13 @@ struct BrowserWindowView: View {
                             .overlay(RoundedRectangle(cornerRadius: hidden ? 0 : 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: hidden ? 0 : 1))
                             .shadow(color: Theme.shadow.opacity(hidden ? 0 : 0.18), radius: 6, y: 1)
                     }
-                    .padding(.top, titleBar ? 0 : (docked ? (settings.showBookmarksBar ? 4 : 8) : frameInset))
+                    .padding(.top, titleBar ? 0 : (settings.showBookmarksBar ? 4 : 8))
                     .padding([.bottom, .trailing], frameInset)
                     .padding(.leading, docked ? 0 : frameInset)
                 }
             }
             if hidden {
                 EdgeRevealSidebar(revealed: $revealed, width: width)
-                if browser.isPrivate && !revealed {
-                    PrivateBadge()
-                        .padding(.leading, 12)
-                        .padding(.top, 10)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
             }
         }
     }
@@ -164,10 +158,13 @@ struct BrowserWindowView: View {
         }
     }
 
+    /// Also called after the sidebar was reduced, until the button is released: the edge being
+    /// dragged lives on while it slides away.
     private func resizeSidebar(_ width: Double) {
+        guard !settings.sidebarCompact else { return }
         let range = AppSettings.sidebarWidthRange
         if width < range.lowerBound - AppSettings.sidebarCollapsePull {
-            browser.toggleSidebarCompact()
+            browser.setSidebarCompact(true)
             return
         }
         settings.sidebarWidth = min(range.upperBound, max(range.lowerBound, width))
@@ -175,7 +172,7 @@ struct BrowserWindowView: View {
 
     /// The reduced sidebar's edge pulled to the right: the whole sidebar again.
     private func resizeRail(_ width: Double) {
-        if width > Double(SidebarRail.width) + AppSettings.sidebarCollapsePull { browser.toggleSidebarCompact() }
+        if width > Double(SidebarRail.width) + AppSettings.sidebarCollapsePull { browser.setSidebarCompact(false) }
     }
 
     private func configure(_ window: NSWindow) {
@@ -261,8 +258,8 @@ private struct EdgeRevealSidebar: View {
     }
 }
 
-/// Shown above the page when the sidebar is hidden or reduced to its icons: room for the traffic
-/// lights + essentials.
+/// Shown above the page when the sidebar is hidden, kept hidden or reduced to its icons: room for
+/// the traffic lights, navigation and the address, which the sidebar no longer shows.
 private struct CompactTitleBar: View {
     @Environment(BrowserModel.self) private var browser
     @Environment(AppSettings.self) private var settings
@@ -271,7 +268,7 @@ private struct CompactTitleBar: View {
         HStack(spacing: 4) {
             // Room for the traffic lights, which full screen hides.
             if !browser.isFullScreen { Color.clear.frame(width: 70) }
-            ChromeButton(symbol: "sidebar.left", help: settings.sidebarVisible ? "Masquer la barre latérale (⌃⌘S)" : "Afficher la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
+            ChromeButton(symbol: "sidebar.left", help: settings.sidebarVisible && !settings.sidebarAutoHide ? "Masquer la barre latérale (⌃⌘S)" : "Afficher la barre latérale (⌃⌘S)") { browser.toggleSidebar() }
             ChromeButton(symbol: "chevron.left", help: "Précédent", disabled: !(browser.selectedTab?.canGoBack ?? false)) { browser.goBack() }
             ChromeButton(symbol: "chevron.right", help: "Suivant", disabled: !(browser.selectedTab?.canGoForward ?? false)) { browser.goForward() }
             ChromeButton(symbol: browser.selectedTab?.isLoading == true ? "xmark" : "arrow.clockwise", help: "Recharger (⌘R)") {
@@ -279,16 +276,7 @@ private struct CompactTitleBar: View {
             }
             if browser.isPrivate { PrivateBadge().padding(.leading, 4) }
             Spacer(minLength: 8)
-            if settings.sidebarVisible && settings.sidebarCompact {
-                // The reduced sidebar has no room for the address: here, as in the top bar layout.
-                TopAddressField(tab: browser.selectedTab)
-            } else {
-                Text(browser.selectedTab?.displayTitle ?? "Void")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.secondaryText)
-                    .lineLimit(1)
-                    .onTapGesture { browser.showCommandBar(.currentTab) }
-            }
+            TopAddressField(tab: browser.selectedTab)
             Spacer(minLength: 8)
             Color.clear.frame(maxWidth: 120)
         }

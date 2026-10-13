@@ -149,11 +149,18 @@ extension BrowserModel {
     /// Présentation → Réduire la barre latérale: only the tabs' icons, or everything again. Reduced,
     /// it is docked, to be seen.
     func toggleSidebarCompact() {
+        setSidebarCompact(!AppSettings.shared.sidebarCompact)
+    }
+
+    /// The sidebar's edge pulled past its limit: reduced or unfolded, whatever it already is. Not a
+    /// toggle — the edge being dragged keeps reporting the pull until the button is released, and
+    /// a toggle would flip the sidebar back and forth under the pointer.
+    func setSidebarCompact(_ compact: Bool) {
         let settings = AppSettings.shared
-        guard settings.tabLayout == .sidebar else { return }
+        guard settings.tabLayout == .sidebar, settings.sidebarCompact != compact else { return }
         withAnimation(Theme.spring) {
-            settings.sidebarCompact.toggle()
-            if settings.sidebarCompact {
+            settings.sidebarCompact = compact
+            if compact {
                 settings.sidebarAutoHide = false
                 settings.sidebarVisible = true
             }

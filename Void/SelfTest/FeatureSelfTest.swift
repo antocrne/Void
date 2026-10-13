@@ -217,8 +217,25 @@ final class FeatureSelfTest {
         check("Barre réduite : dépliée → la barre latérale entière revient", !settings.sidebarCompact && abs(pageLeft() - full) < 2,
               "page à \(pageLeft()) pt")
 
-        // Tabs kept hidden (⌘S), then reduced: docked again, to be seen.
+        // The edge pulled past its limit reports the pull again at every move until the button is
+        // released: reduced once, not back and forth.
+        for _ in 0..<3 { browser.setSidebarCompact(true) }
+        let pulledLeft = settings.sidebarCompact
+        for _ in 0..<3 { browser.setSidebarCompact(false) }
+        check("Barre réduite : bord tiré au-delà de la limite → réduite (ou dépliée) une seule fois",
+              pulledLeft && !settings.sidebarCompact)
+        await sleep(1)
+
+        // Tabs kept hidden (⌘S): the page under the address bar, as with the reduced sidebar.
         settings.sidebarAutoHide = true
+        await sleep(1)
+        let pageTop = window.contentView.map { $0.bounds.height - (tabs[1].webView.map { $0.convert($0.bounds, to: nil).maxY } ?? 0) } ?? -1
+        check("Onglets masqués : la page commence sous la barre d'adresse, sur toute la largeur",
+              abs(pageTop - 38) < 2 && abs(pageLeft()) < 2 && buttons.allSatisfy { !$0.isHidden },
+              "page à \(pageLeft()) pt du bord gauche, \(pageTop) pt du haut")
+        await snapshotWindow("onglets-masques")
+
+        // Tabs kept hidden, then reduced: docked again, to be seen.
         browser.toggleSidebarCompact()
         check("Barre réduite : depuis les onglets masqués → réduite et visible",
               settings.sidebarCompact && !settings.sidebarAutoHide && settings.sidebarVisible)
@@ -1579,8 +1596,9 @@ final class FeatureSelfTest {
         settings.sidebarAutoHide = true
         await sleep(1.2)
         await snapshotWindow("tabs-hidden")
-        let buttonsHidden = browser.window?.standardWindowButton(.closeButton)?.isHidden == true
-        check("Onglets masqués (⌘S) : la page occupe la fenêtre, boutons de fenêtre masqués", buttonsHidden)
+        // The address stays above the page, beside the traffic lights (see testCompactSidebar).
+        let buttonsShown = browser.window?.standardWindowButton(.closeButton)?.isHidden == false
+        check("Onglets masqués (⌘S) : la page occupe la fenêtre sous la barre d'adresse, boutons de fenêtre visibles", buttonsShown)
         settings.sidebarAutoHide = false
         settings.accent = .pink
         let savedPanel = UserDefaults.standard.string(forKey: "settingsPanel")
