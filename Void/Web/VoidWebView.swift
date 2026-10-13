@@ -168,6 +168,16 @@ final class VoidWebView: WKWebView {
         send.isEnabled = notes.isInstalled
         if !notes.isInstalled { send.toolTip = VoidNotes.missingHint }
         menu.addItem(send)
+        // An image under the click: the image itself.
+        if let image = contextImageURL, ["http", "https", "data", "blob"].contains(image.scheme?.lowercased() ?? "") {
+            let item = NSMenuItem(title: notes.menuTitle("Envoyer l'image vers Void Notes"),
+                                  action: notes.isInstalled ? #selector(sendImageToNotes(_:)) : nil, keyEquivalent: "")
+            item.representedObject = image
+            item.target = self
+            item.isEnabled = notes.isInstalled
+            if !notes.isInstalled { item.toolTip = VoidNotes.missingHint }
+            menu.addItem(item)
+        }
         let hide = NSMenuItem(title: String(localized: "Masquer un élément…"), action: #selector(hideElement), keyEquivalent: "")
         hide.target = self
         menu.addItem(hide)
@@ -223,6 +233,13 @@ final class VoidWebView: WKWebView {
             guard let tab else { return }
             let selection = sender.representedObject as? String ?? ""
             if selection.isEmpty { VoidNotes.shared.sendPage(from: tab) } else { VoidNotes.shared.sendSelection(selection, from: tab) }
+        }
+    }
+
+    @objc private func sendImageToNotes(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated {
+            guard let tab, let image = sender.representedObject as? URL else { return }
+            VoidNotes.shared.sendImage(image, from: tab)
         }
     }
 
