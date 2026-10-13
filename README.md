@@ -8,7 +8,7 @@
 - **≈ 9 Mo** (build Release, image disque de 3,1 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
 - ~21 300 lignes de Swift (dont ~3 800 d’auto-tests), ~1 300 lignes de JavaScript injecté
 
-![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
+![Void : barre latérale sombre, onglets épinglés, un dossier et la page Nouvel onglet](docs/apercu/nouvel-onglet.png)
 
 ## Compiler et lancer
 
