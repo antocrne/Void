@@ -368,6 +368,7 @@ final class FeatureSelfTest {
         "cote-a-cote": { t, space in await t.testSideBySide(in: space) },
         "reunion": { t, space in await t.testMeetingWindow(in: space) },
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
+        "apercu-readme": { t, space in await t.previewReadme(in: space) },
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
@@ -575,6 +576,63 @@ final class FeatureSelfTest {
         await sleep(1)
         await captureOnScreen("apercu-dossiers-veille")
         check("Aperçu des dossiers : captures enregistrées à côté du rapport", true)
+    }
+
+    /// Not a test: the README picture (docs/selftest/ui-sidebar-dark.png). Default look (dark, violet,
+    /// no tint), real sites in the sidebar for their icons, a folder, and the new-tab page.
+    private func previewReadme(in space: Space) async {
+        let settings = AppSettings.shared
+        let saved = (settings.theme, settings.accent, settings.chromeTint, settings.tabLayout, settings.sidebarVisible,
+                     settings.sidebarAutoHide, settings.sidebarCompact, settings.sidebarWidth, settings.tabIconStyle, settings.showBookmarksBar)
+        defer {
+            (settings.theme, settings.accent, settings.chromeTint, settings.tabLayout, settings.sidebarVisible,
+             settings.sidebarAutoHide, settings.sidebarCompact, settings.sidebarWidth, settings.tabIconStyle, settings.showBookmarksBar) = saved
+        }
+        (settings.theme, settings.accent, settings.chromeTint, settings.tabLayout, settings.sidebarVisible,
+         settings.sidebarAutoHide, settings.sidebarCompact, settings.sidebarWidth, settings.tabIconStyle, settings.showBookmarksBar)
+            = (.dark, .violet, .none, .sidebar, true, false, false, AppSettings.defaultSidebarWidth, .favicons, false)
+
+        // The two spaces of a first launch: the self-test one stands in for « Travail ».
+        guard let personal = browser.spaces.first(where: { $0 !== space }) else { return }
+        space.name = String(localized: "Travail")
+        space.icon = "briefcase"
+        browser.switchSpace(to: personal)
+        if let window = browser.window, let screen = window.screen ?? NSScreen.main {
+            NSLog("[Void features] fenêtre avant l'aperçu : %@", NSStringFromRect(window.frame))
+            let area = screen.visibleFrame
+            window.setFrame(NSRect(x: area.midX - 640, y: area.midY - 400, width: 1280, height: 800), display: true)
+            await sleep(1)
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let pinned = ["https://www.youtube.com", "https://www.figma.com", "https://fr.wikipedia.org"]
+        let open = ["https://fr.wikipedia.org/wiki/Mars_(plan%C3%A8te)", "https://webkit.org", "https://www.apple.com/fr/",
+                    "https://developer.apple.com/swift/"]
+        let later = ["https://fr.wikipedia.org/wiki/Trou_noir", "https://www.swift.org/documentation/"]
+        var tabs: [String: Tab] = [:]
+        for address in pinned + open + later {
+            let tab = browser.openTab(url: URL(string: address), in: personal)
+            tab.ensureWebView()
+            tabs[address] = tab
+        }
+        let start = Date()
+        while tabs.values.contains(where: { $0.isLoading || $0.favicon == nil }) && Date().timeIntervalSince(start) < 25 { await sleep(0.5) }
+        // Shown when the folder is filled, a tab would stay awake (highlighted) in it.
+        if let first = tabs[open[0]] { browser.select(first) }
+        for address in pinned { if let tab = tabs[address] { browser.togglePin(tab) } }
+        if let folder = browser.addFolder(in: personal) {
+            browser.renamingFolderID = nil
+            folder.name = String(localized: "À lire plus tard")
+            for address in later { if let tab = tabs[address] { browser.put(tab, in: folder) } }
+        }
+        browser.showCommandBar(.newTab)
+        await sleep(2)
+        await captureOnScreen("apercu-readme")
+        await snapshotWindow("apercu-readme-vue")
+        check("Aperçu du README : capture enregistrée à côté du rapport", true,
+              tabs.values.filter { $0.favicon == nil }.compactMap { $0.url?.host() }.joined(separator: ", "))
+        for tab in tabs.values { browser.close(tab) }
     }
 
     /// Tabs put away in a folder of the sidebar: asleep there, woken one at a time, folded, dragged
