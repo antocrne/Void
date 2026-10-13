@@ -370,6 +370,7 @@ final class FeatureSelfTest {
         "apercu": { t, space in await t.previewSplitAndMeeting(in: space) },
         "mise-a-jour": { t, _ in await t.testUpdater() },
         "apercu-readme": { t, space in await t.previewReadme(in: space) },
+        "apercu-notes": { t, space in await t.previewNotesPicker(in: space) },
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
@@ -386,6 +387,34 @@ final class FeatureSelfTest {
         process.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
         try? process.run()
         while process.isRunning { await sleep(0.1) }
+    }
+
+    /// Not a test: the panel « Envoyer vers Void Notes », on a demo tree, captured next to the
+    /// report (-apercu-notes-*.png).
+    private func previewNotesPicker(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let tab = await htmlTab("<title>Planète Mars — Wikipédia</title><body style='font:15px -apple-system;padding:32px 40px'><h1>Planète Mars</h1><p>Mars est la quatrième planète par ordre de distance croissante au Soleil.</p>", in: space, base: "https://fr.wikipedia.org/")
+        browser.select(tab)
+        let personal = VoidNotes.Directory.Space(id: UUID(), name: "Personnel", icon: "person")
+        let work = VoidNotes.Directory.Space(id: UUID(), name: "Travail", icon: "briefcase")
+        let school = VoidNotes.Directory.Folder(id: UUID(), name: "Cours", icon: "graduationcap", parent: nil, space: personal.id)
+        let astro = VoidNotes.Directory.Folder(id: UUID(), name: "Astronomie", icon: "sparkles", parent: school.id, space: personal.id)
+        let trips = VoidNotes.Directory.Folder(id: UUID(), name: "Voyages", icon: "paperplane", parent: nil, space: personal.id)
+        func note(_ title: String, _ folder: VoidNotes.Directory.Folder?, pinned: Bool = false, space: UUID? = nil) -> VoidNotes.NoteTarget {
+            VoidNotes.NoteTarget(id: UUID(), title: title, space: space ?? personal.id, folder: folder?.id, pinned: pinned)
+        }
+        let tree = VoidNotes.Directory(spaces: [personal, work], folders: [school, astro, trips], notes: [
+            note("Daily To-do", nil, pinned: true), note("Exposé sur Mars", astro), note("Système solaire", astro),
+            note("Philosophie — dissertation", school), note("Lisbonne", trips), note("Idées en vrac", nil),
+            note("Réunion produit", nil, space: work.id),
+        ])
+        browser.notesPicker = NotesPickerRequest(content: .selection("Mars est la quatrième planète par ordre de distance croissante au Soleil."),
+                                                 tab: tab, directory: tree, expanded: [school.id, astro.id])
+        await sleep(1)
+        await snapshotWindow("apercu-notes")
+        browser.notesPicker = nil
+        browser.close(tab)
     }
 
     /// Not a test: demo pages side by side and a (simulated) call in its floating window, captured
@@ -1379,7 +1408,10 @@ final class FeatureSelfTest {
     /// Nothing is handed to macOS: the opening is replaced by `openOverride`.
     private func testVoidNotes(in space: Space) async {
         let notes = VoidNotes.shared
-        defer { notes.openOverride = nil; notes.installedOverride = nil }
+        defer { notes.openOverride = nil; notes.installedOverride = nil; notes.directoryOverride = nil; browser.notesPicker = nil }
+        // Whatever notes Void Notes lists on this Mac: none, until the tests of the panel.
+        let nothing = VoidNotes.Directory(spaces: [], folders: [], notes: [])
+        notes.directoryOverride = nothing
         func values(_ url: URL?) -> [String: String] {
             let items = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
             return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
@@ -1497,6 +1529,98 @@ final class FeatureSelfTest {
         }
         let named = VoidNotes.image(from: png, source: URL(string: "https://example.com/photos/Mon%20chat.jpeg?w=200")!)
         check("Void Notes : nom de l'image tiré de son adresse, extension de son format", named?.name == "Mon chat.png", named?.name ?? "nil")
+
+        // Added to a note already written: the tree Void Notes lists, in a panel.
+        let personal = VoidNotes.Directory.Space(id: UUID(), name: "Personnel", icon: "person")
+        let work = VoidNotes.Directory.Space(id: UUID(), name: "Work", icon: "briefcase")
+        let projects = VoidNotes.Directory.Folder(id: UUID(), name: "Projets", icon: "folder", parent: nil, space: personal.id)
+        let trips = VoidNotes.Directory.Folder(id: UUID(), name: "Voyages", icon: "paperplane", parent: projects.id, space: personal.id)
+        let daily = VoidNotes.NoteTarget(id: UUID(), title: "Daily To-do", space: personal.id, folder: nil, pinned: true)
+        let lisbon = VoidNotes.NoteTarget(id: UUID(), title: "Lisbonne", space: personal.id, folder: trips.id, pinned: false)
+        let plan = VoidNotes.NoteTarget(id: UUID(), title: "Plan", space: personal.id, folder: projects.id, pinned: false)
+        let loose = VoidNotes.NoteTarget(id: UUID(), title: "Repartir du bon pied", space: personal.id, folder: nil, pinned: false)
+        let travel = VoidNotes.NoteTarget(id: UUID(), title: "Travel", space: work.id, folder: nil, pinned: false)
+        let tree = VoidNotes.Directory(spaces: [personal, work], folders: [projects, trips], notes: [daily, lisbon, plan, loose, travel])
+        func shown(_ rows: [VoidNotes.Directory.Row]) -> [String] {
+            rows.map { row in
+                let indent = String(repeating: "  ", count: row.depth)
+                switch row.kind {
+                case .newNote: return "+"
+                case .header(let title): return "# " + title
+                case .folder(let folder, let open, let count): return indent + (open ? "▾ " : "▸ ") + folder.name + " (\(count))"
+                case .note(let note, let path): return indent + note.title + (path.isEmpty ? "" : " — " + path)
+                }
+            }
+        }
+        let closed = shown(tree.rows(in: personal.id, expanded: [], query: ""))
+        check("Void Notes : arborescence — nouvelle note, épinglées, dossiers repliés, notes hors dossier",
+              tree.initialSpace == personal.id
+              && closed == ["+", "# Épinglées", "Daily To-do", "# Dossiers", "▸ Projets (2)", "# Notes", "Repartir du bon pied"], closed.joined(separator: " | "))
+        let open = shown(tree.rows(in: personal.id, expanded: [projects.id, trips.id], query: ""))
+        check("Void Notes : dossier ouvert → sous-dossiers puis ses notes, en retrait",
+              open == ["+", "# Épinglées", "Daily To-do", "# Dossiers", "▾ Projets (2)", "  ▾ Voyages (1)", "    Lisbonne", "  Plan", "# Notes", "Repartir du bon pied"],
+              open.joined(separator: " | "))
+        let other = shown(tree.rows(in: work.id, expanded: [], query: ""))
+        check("Void Notes : autre espace, ses notes seulement", other == ["+", "Travel"], other.joined(separator: " | "))
+        let found = shown(tree.rows(in: personal.id, expanded: [], query: "voyages lisb"))
+        let accents = shown(tree.rows(in: personal.id, expanded: [], query: "PERSONNEL repartir"))
+        check("Void Notes : recherche dans tous les espaces, titre et emplacement, sans casse ni accents",
+              found == ["Lisbonne — Personnel › Projets › Voyages"] && accents == ["Repartir du bon pied — Personnel"]
+              && shown(tree.rows(in: personal.id, expanded: [], query: "travel")) == ["Travel — Work"],
+              (found + accents).joined(separator: " | "))
+
+        notes.directoryOverride = tree
+        webView.contextSelection = "Texte choisi pour la note"
+        let item = contextMenu(webView)
+        check("Void Notes : clic droit, un seul article, sans sous-menu", item?.submenu == nil && item?.isEnabled == true, item?.title ?? "nil")
+        let sent = opened.count
+        if let item, let action = item.action { NSApp.sendAction(action, to: item.target, from: item) }
+        let picking = await until(4) { self.browser.notesPicker != nil }
+        check("Void Notes : notes listées → panneau ouvert, rien d'envoyé encore",
+              picking && browser.notesPicker?.content == .selection("Texte choisi pour la note") && opened.count == sent)
+        browser.chooseInNotesPicker(lisbon)
+        _ = await until(4) { opened.count == sent + 1 }
+        let appended = opened.count == sent + 1 ? opened.last : nil
+        let addition = values(appended)
+        check("Void Notes : note choisie → voidnotes://append, son identifiant, la sélection ; panneau fermé",
+              appended?.host() == "append" && addition["note"] == lisbon.id.uuidString && addition["text"] == "Texte choisi pour la note"
+              && addition["title"] == "Page de notes" && browser.notesPicker == nil, appended?.absoluteString ?? "nil")
+        check("Void Notes : message « Ajouté à » la note", browser.toast?.message == "Ajouté à « Lisbonne »", browser.toast?.message ?? "nil")
+        browser.sendPageToNotes()
+        check("Void Notes : ⌘⇧M aussi → panneau, pour la page", browser.notesPicker?.content == .page)
+        browser.chooseInNotesPicker(nil)
+        _ = await until(4) { opened.count == sent + 2 }
+        check("Void Notes : « Nouvelle note » du panneau → voidnotes://new", opened.count == sent + 2 && opened.last?.host() == "new"
+              && values(opened.last)["note"] == nil, opened.last?.absoluteString ?? "nil")
+        webView.contextImageURL = URL(string: "data:image/png;base64,\(pngBase64)")
+        if let image = contextMenu(webView, image: true), let action = image.action { NSApp.sendAction(action, to: image.target, from: image) }
+        let imagePicking = await until(4) { self.browser.notesPicker != nil }
+        let forImage = if case .image? = browser.notesPicker?.content { true } else { false }
+        check("Void Notes : l'image aussi, par le panneau", imagePicking && forImage)
+        browser.notesPicker = nil
+        webView.contextImageURL = nil
+        // What Void Notes leaves on its pasteboard, read back; the pasteboard as it was after.
+        notes.directoryOverride = nil
+        let board = NSPasteboard(name: NSPasteboard.Name(VoidNotes.directoryPasteboard))
+        let type = NSPasteboard.PasteboardType(VoidNotes.directoryPasteboard)
+        let previous = board.data(forType: type)
+        let space = personal.id.uuidString, folder = projects.id.uuidString
+        let written = "{\"version\":2,\"spaces\":[{\"id\":\"\(space)\",\"name\":\"Personnel\",\"icon\":\"person\"}],"
+            + "\"folders\":[{\"id\":\"\(folder)\",\"name\":\"Projets\",\"icon\":\"folder\",\"space\":\"\(space)\"}],"
+            + "\"notes\":[{\"id\":\"\(plan.id.uuidString)\",\"title\":\"Plan\",\"space\":\"\(space)\",\"folder\":\"\(folder)\",\"pinned\":false}]}"
+        board.clearContents()
+        board.setData(Data(written.utf8), forType: type)
+        let read = notes.directory()
+        board.clearContents()
+        board.setData(Data("{\"version\":1,\"notes\":[{\"id\":\"\(daily.id.uuidString)\",\"title\":\"Daily To-do\",\"space\":\"Personnel\"}]}".utf8), forType: type)
+        let older = notes.directory()
+        board.clearContents()
+        let empty = notes.directory()
+        if let previous { board.setData(previous, forType: type) }
+        check("Void Notes : arborescence de Void Notes lue ; ancienne liste ou rien → pas de panneau",
+              read?.notes == [plan] && read?.folders.first?.parent == nil && read?.folders.first?.name == "Projets" && older == nil && empty == nil,
+              "\(read?.notes.map(\.title) ?? []) · \(older == nil) · \(empty == nil)")
+        notes.directoryOverride = nothing
 
         notes.openOverride = { _ in false }
         browser.sendPageToNotes()
@@ -3453,8 +3577,8 @@ final class FeatureSelfTest {
             if window === browser.window, let partner = browser.splitPartner?.webView { pages.insert(partner, at: 0) }
             if window !== browser.window { pages = content.subviews.compactMap { $0 as? WKWebView } }
         }
-        // Overlays above the page (command bar, onboarding) would be covered by the page snapshot.
-        for webView in pages where browser.commandBar == nil && browser.onboardingStep == nil && webView.window === window {
+        // Overlays above the page (command bar, Void Notes panel, onboarding) would be covered by the page snapshot.
+        for webView in pages where browser.commandBar == nil && browser.notesPicker == nil && browser.onboardingStep == nil && webView.window === window {
             let shot: NSImage? = await withCheckedContinuation { c in webView.takeSnapshot(with: nil) { img, _ in c.resume(returning: img) } }
             if let shot {
                 let frame = webView.convert(webView.bounds, to: content)

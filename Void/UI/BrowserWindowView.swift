@@ -24,6 +24,11 @@ struct BrowserWindowView: View {
                     .transition(.opacity)
                     .zIndex(10)
             }
+            if let request = browser.notesPicker {
+                NotesPickerOverlay(request: request, leadingInset: dockedSidebarWidth)
+                    .transition(.opacity)
+                    .zIndex(11)
+            }
             if browser.kind == .main, let step = browser.onboardingStep {
                 OnboardingView(step: step)
                     .transition(.opacity)
@@ -34,6 +39,7 @@ struct BrowserWindowView: View {
         .frame(minWidth: 640, minHeight: 420)
         .tint(Theme.accent)
         .animation(Theme.quick, value: browser.commandBar)
+        .animation(Theme.quick, value: browser.notesPicker)
         .animation(Theme.spring, value: browser.onboardingStep == nil)
         .background(WindowAccessor { window in configure(window) })
         // On the centre line of the top bar (44 pt) or of the sidebar's first row (4 + 30 pt).

@@ -46,7 +46,7 @@ extension BrowserModel {
 
     func sendPageToNotes() {
         guard let tab = selectedTab else { return }
-        VoidNotes.shared.sendPage(from: tab)
+        VoidNotes.shared.send(.page, from: tab)
     }
 
     #if os(macOS)
