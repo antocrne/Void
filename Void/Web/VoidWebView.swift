@@ -161,26 +161,33 @@ final class VoidWebView: WKWebView {
         let notes = VoidNotes.shared
         notes.refresh()
         let selection = contextSelection.trimmingCharacters(in: .whitespacesAndNewlines)
-        let send = NSMenuItem(title: notes.menuTitle(selection.isEmpty ? "Envoyer la page vers Void Notes" : "Envoyer vers Void Notes"),
-                              action: notes.isInstalled ? #selector(sendToNotes(_:)) : nil, keyEquivalent: "")
-        send.representedObject = selection
-        send.target = self
-        send.isEnabled = notes.isInstalled
-        if !notes.isInstalled { send.toolTip = VoidNotes.missingHint }
-        menu.addItem(send)
+        menu.addItem(notesItem(selection.isEmpty ? "Envoyer la page vers Void Notes" : "Envoyer vers Void Notes",
+                               content: selection.isEmpty ? .page : .selection(selection)))
         // An image under the click: the image itself.
         if let image = contextImageURL, ["http", "https", "data", "blob"].contains(image.scheme?.lowercased() ?? "") {
-            let item = NSMenuItem(title: notes.menuTitle("Envoyer l'image vers Void Notes"),
-                                  action: notes.isInstalled ? #selector(sendImageToNotes(_:)) : nil, keyEquivalent: "")
-            item.representedObject = image
-            item.target = self
-            item.isEnabled = notes.isInstalled
-            if !notes.isInstalled { item.toolTip = VoidNotes.missingHint }
-            menu.addItem(item)
+            menu.addItem(notesItem("Envoyer l'image vers Void Notes", content: .image(image)))
         }
         let hide = NSMenuItem(title: String(localized: "Masquer un élément…"), action: #selector(hideElement), keyEquivalent: "")
         hide.target = self
         menu.addItem(hide)
+    }
+
+    /// "Envoyer … vers Void Notes": to a new note, or through the panel where one picks the note
+    /// (VoidNotes.send).
+    private func notesItem(_ title: LocalizedStringResource, content: VoidNotes.Content) -> NSMenuItem {
+        let notes = VoidNotes.shared
+        let item = NSMenuItem(title: notes.menuTitle(title), action: notes.isInstalled ? #selector(sendToNotes(_:)) : nil, keyEquivalent: "")
+        item.representedObject = NotesContent(content)
+        item.target = self
+        item.isEnabled = notes.isInstalled
+        if !notes.isInstalled { item.toolTip = VoidNotes.missingHint }
+        return item
+    }
+
+    /// What a Void Notes item sends, boxed for `representedObject`.
+    private final class NotesContent: NSObject {
+        let content: VoidNotes.Content
+        init(_ content: VoidNotes.Content) { self.content = content }
     }
 
     /// WebKit's own items keep their action (it carries the opener and the referrer), routed
@@ -230,16 +237,8 @@ final class VoidWebView: WKWebView {
 
     @objc private func sendToNotes(_ sender: NSMenuItem) {
         MainActor.assumeIsolated {
-            guard let tab else { return }
-            let selection = sender.representedObject as? String ?? ""
-            if selection.isEmpty { VoidNotes.shared.sendPage(from: tab) } else { VoidNotes.shared.sendSelection(selection, from: tab) }
-        }
-    }
-
-    @objc private func sendImageToNotes(_ sender: NSMenuItem) {
-        MainActor.assumeIsolated {
-            guard let tab, let image = sender.representedObject as? URL else { return }
-            VoidNotes.shared.sendImage(image, from: tab)
+            guard let tab, let sending = sender.representedObject as? NotesContent else { return }
+            VoidNotes.shared.send(sending.content, from: tab)
         }
     }
 

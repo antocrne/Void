@@ -1465,6 +1465,22 @@
         }
       }
     },
+    "Ajouté à « %@ »" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added to “%@”"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouté à « %@ »"
+          }
+        }
+      }
+    },
     "Aller à l'onglet · %@" : {
       "localizations" : {
         "en" : {
@@ -1861,6 +1877,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucune extension."
+          }
+        }
+      }
+    },
+    "Aucune note ne correspond" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching notes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune note ne correspond"
           }
         }
       }
@@ -3205,6 +3237,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dossier proposé"
+          }
+        }
+      }
+    },
+    "Dossiers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folders"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dossiers"
           }
         }
       }
@@ -6318,6 +6366,22 @@
         }
       }
     },
+    "Notes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notes"
+          }
+        }
+      }
+    },
     "Nouveau dossier" : {
       "localizations" : {
         "en" : {
@@ -6538,6 +6602,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nouvelle fenêtre privée (⌘⇧N)"
+          }
+        }
+      }
+    },
+    "Nouvelle note" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Note"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelle note"
           }
         }
       }
@@ -7114,6 +7194,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ouvrir les réglages"
+          }
+        }
+      }
+    },
+    "Ouvrir un dossier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a folder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir un dossier"
           }
         }
       }
@@ -8090,6 +8186,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rechercher ou saisir une adresse (⌘L)"
+          }
+        }
+      }
+    },
+    "Rechercher une note" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Notes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher une note"
           }
         }
       }
@@ -11296,6 +11408,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Épinglée"
+          }
+        }
+      }
+    },
+    "Épinglées" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Épinglées"
           }
         }
       }

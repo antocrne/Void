@@ -63,6 +63,8 @@ final class BrowserModel {
     var spaceTransitionEdge: Edge = .trailing
 
     var commandBar: CommandBarRequest?
+    /// « Envoyer vers Void Notes » when Void Notes lists notes: where to send it.
+    var notesPicker: NotesPickerRequest?
     /// ⌘T (« + » on iOS): the selected tab steps aside for the new-tab page and its field, and comes
     /// back if nothing is opened (Esc, ⌘W). nil when the page shows because the space has no tab.
     @ObservationIgnored weak var tabBeforeNewTabPage: Tab?

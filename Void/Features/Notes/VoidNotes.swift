@@ -12,6 +12,9 @@ import UIKit
 /// app through `voidnotes://new?title=…&text=…&url=…`. The system delivers the URL to Void Notes
 /// when it is installed; without it the menu items stay visible but disabled. An image can't
 /// travel in a URL: it goes on a named pasteboard that Void Notes reads (see `sendImage`).
+/// On the Mac, what is sent can also go at the end of a note already written
+/// (`voidnotes://append?note=…&…`): a panel shows the tree Void Notes leaves on another named
+/// pasteboard (`directory()`), and one picks a note in it (NotesPicker).
 @MainActor @Observable
 final class VoidNotes {
     static let shared = VoidNotes()
@@ -24,6 +27,48 @@ final class VoidNotes {
     static let imagePasteboard = "app.void.notes.incoming"
     /// Larger is refused rather than handed over.
     static let maxImageBytes = 30_000_000
+    /// Where Void Notes lists the notes one can add to, as its list shows them (its `NoteDirectory`).
+    static let directoryPasteboard = "app.void.notes.directory"
+
+    /// What Void Notes lists: its spaces, the folders that lead to a note, and the notes one can
+    /// add to — pinned, then the most recently changed; neither locked nor archived.
+    struct Directory: Decodable, Equatable {
+        struct Space: Decodable, Equatable, Identifiable {
+            let id: UUID
+            let name: String
+            /// SF Symbol name.
+            let icon: String
+        }
+        struct Folder: Decodable, Equatable, Identifiable {
+            let id: UUID
+            let name: String
+            let icon: String
+            let parent: UUID?
+            let space: UUID?
+        }
+        var version = 2
+        /// In Void Notes' order.
+        let spaces: [Space]
+        /// Each one followed by its subfolders, by name.
+        let folders: [Folder]
+        let notes: [NoteTarget]
+    }
+
+    /// A note of Void Notes that can be added to.
+    struct NoteTarget: Decodable, Equatable, Identifiable {
+        let id: UUID
+        let title: String
+        let space: UUID?
+        let folder: UUID?
+        let pinned: Bool
+    }
+
+    /// What is sent.
+    enum Content: Equatable {
+        case selection(String)
+        case page
+        case image(URL)
+    }
 
     /// Whether an app is registered for `voidnotes://`. Observed by the menu bar.
     private(set) var isInstalled = false
@@ -33,6 +78,8 @@ final class VoidNotes {
     @ObservationIgnored var installedOverride: Bool? { didSet { refresh() } }
     /// Self-test: receives the note URL instead of LaunchServices; returns whether it "opened".
     @ObservationIgnored var openOverride: ((URL) -> Bool)?
+    /// Self-test: what Void Notes would list; without notes, as if it listed nothing.
+    @ObservationIgnored var directoryOverride: Directory?
     #endif
 
     private init() {
@@ -67,29 +114,69 @@ final class VoidNotes {
         return isInstalled ? title : String(localized: "\(title) — nécessite Void Notes")
     }
 
+    /// The notes Void Notes offers to add to, in their tree; nil when it hasn't said (not
+    /// launched since the Mac started, or an older version) or lists none.
+    func directory() -> Directory? {
+        #if DEBUG
+        if let directoryOverride { return directoryOverride.notes.isEmpty ? nil : directoryOverride }
+        #endif
+        #if os(macOS)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(Self.directoryPasteboard))
+        guard let data = pasteboard.data(forType: NSPasteboard.PasteboardType(Self.directoryPasteboard)),
+              let directory = try? JSONDecoder().decode(Directory.self, from: data), directory.version == 2,
+              !directory.spaces.isEmpty, directory.notes.contains(where: { !$0.title.isEmpty }) else { return nil }
+        return Directory(spaces: directory.spaces, folders: directory.folders, notes: directory.notes.filter { !$0.title.isEmpty })
+        #else
+        return nil
+        #endif
+    }
+
+    /// Sending from a tab: to a new note — or, when Void Notes lists notes, through the panel
+    /// where one picks a note or a new one.
+    func send(_ content: Content, from tab: Tab) {
+        let browser = tab.browser ?? BrowserWindows.shared.active
+        refresh()
+        guard isInstalled, let directory = directory() else {
+            deliver(content, from: tab, to: nil)
+            return
+        }
+        browser.commandBar = nil
+        browser.notesPicker = NotesPickerRequest(content: content, tab: tab, directory: directory)
+    }
+
+    /// `note`: the note to add to; nil, a new one.
+    func deliver(_ content: Content, from tab: Tab, to note: NoteTarget?) {
+        switch content {
+        case .selection(let text): sendSelection(text, from: tab, to: note)
+        case .page: sendPage(from: tab, to: note)
+        case .image(let source): sendImage(source, from: tab, to: note)
+        }
+    }
+
     /// Every value is fully percent-encoded (`&`, `=`, `+`, line breaks…), so the receiver
     /// gets it back whichever way it parses the query.
-    /// `image`: the name of the image left on `imagePasteboard`.
-    static func noteURL(title: String, text: String, url: URL?, image: String? = nil) -> URL? {
+    /// `image`: the name of the image left on `imagePasteboard`. `note`: the note to add to,
+    /// rather than a new one.
+    static func noteURL(title: String, text: String, url: URL?, image: String? = nil, note: UUID? = nil) -> URL? {
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         let body = text.count > maxTextLength ? text.prefix(maxTextLength) + "…" : text
-        let query = [("title", title), ("text", body), ("url", url?.absoluteString ?? ""), ("image", image ?? "")]
+        let query = [("note", note?.uuidString ?? ""), ("title", title), ("text", body), ("url", url?.absoluteString ?? ""), ("image", image ?? "")]
             .filter { !$0.1.isEmpty }
             .compactMap { name, value in value.addingPercentEncoding(withAllowedCharacters: unreserved).map { "\(name)=\($0)" } }
             .joined(separator: "&")
-        return URL(string: "\(scheme)://new" + (query.isEmpty ? "" : "?" + query))
+        return URL(string: "\(scheme)://\(note == nil ? "new" : "append")" + (query.isEmpty ? "" : "?" + query))
     }
 
-    /// New note: the selected text, the page it comes from and its title.
-    func sendSelection(_ selection: String, from tab: Tab) {
+    /// New note — or added to `note`: the selected text, the page it comes from and its title.
+    func sendSelection(_ selection: String, from tab: Tab, to note: NoteTarget? = nil) {
         let text = selection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        send(title: title(of: tab), text: text, url: tab.url ?? tab.webView?.url, from: tab)
+        send(title: title(of: tab), text: text, url: tab.url ?? tab.webView?.url, to: note, from: tab)
     }
 
-    /// New note: title, address and the article reader.js finds; title and link only on a
-    /// page without one.
-    func sendPage(from tab: Tab) {
+    /// New note — or added to `note`: title, address and the article reader.js finds; title
+    /// and link only on a page without one.
+    func sendPage(from tab: Tab, to note: NoteTarget? = nil) {
         guard let url = tab.url ?? tab.webView?.url else {
             tab.browser?.showToast("note.text", "Aucune page à envoyer")
             return
@@ -102,12 +189,12 @@ final class VoidNotes {
         let title = title(of: tab)
         Task {
             let article = await tab.webView?.voidCall("return (\n\(Scripts.reader)\n);") as? [String: Any]
-            send(title: title, text: article?["text"] as? String ?? "", url: url, from: tab)
+            send(title: title, text: article?["text"] as? String ?? "", url: url, to: note, from: tab)
         }
     }
 
-    /// New note: the image under the right-click, the page it is on and its title.
-    func sendImage(_ source: URL, from tab: Tab) {
+    /// New note — or added to `note`: the image under the right-click, the page it is on and its title.
+    func sendImage(_ source: URL, from tab: Tab, to note: NoteTarget? = nil) {
         let browser = tab.browser ?? BrowserWindows.shared.active
         refresh()
         guard isInstalled else {
@@ -121,7 +208,7 @@ final class VoidNotes {
                 return
             }
             Self.leaveOnPasteboard(image)
-            send(title: title, text: "", url: page, image: image.name, from: tab)
+            send(title: title, text: "", url: page, image: image.name, to: note, from: tab)
         }
     }
 
@@ -227,19 +314,21 @@ final class VoidNotes {
         return title.isEmpty ? (tab.url?.host() ?? "") : title
     }
 
-    private func send(title: String, text: String, url: URL?, image: String? = nil, from tab: Tab) {
+    private func send(title: String, text: String, url: URL?, image: String? = nil, to target: NoteTarget? = nil, from tab: Tab) {
         let browser = tab.browser ?? BrowserWindows.shared.active
         refresh()
         guard isInstalled else {
             browser.showToast("note.text", verbatim: Self.missingHint)
             return
         }
-        guard let note = Self.noteURL(title: title, text: text, url: url, image: image) else {
+        guard let note = Self.noteURL(title: title, text: text, url: url, image: image, note: target?.id) else {
             browser.showToast("exclamationmark.triangle", "Impossible d'envoyer vers Void Notes")
             return
         }
         let finish = { [weak browser] (opened: Bool) in
-            if opened {
+            if let target, opened {
+                browser?.showToast("note.text", "Ajouté à « \(target.title) »")
+            } else if opened {
                 browser?.showToast("note.text", "Envoyé vers Void Notes")
             } else {
                 browser?.showToast("exclamationmark.triangle", "Impossible d'ouvrir Void Notes")
