@@ -1,12 +1,12 @@
 # Void
 
-**Un navigateur qui s'efface.** Version **0.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
+**Un navigateur qui s'efface.** Version **0.2** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Une version **iPhone et iPad** partage le même modèle, le même stockage et les mêmes scripts (cible *Void iOS*, voir [iOS](#ios-iphone-et-ipad))
 - Apple silicon, macOS 14 minimum
-- **≈ 6 Mo** (build Release, image disque de 2,4 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
-- ~13 600 lignes de Swift (dont ~2 500 d’auto-tests), ~1 000 lignes de JavaScript injecté
+- **≈ 9 Mo** (build Release, image disque de 3,1 Mo), aucune dépendance externe (SQLite et CommonCrypto viennent du système)
+- ~21 300 lignes de Swift (dont ~3 800 d’auto-tests), ~1 300 lignes de JavaScript injecté
 
 ![Void, barre latérale, thème sombre](docs/selftest/ui-sidebar-dark.png)
 
@@ -42,7 +42,7 @@ Chaque build du schéma *Void* (⌘B ou ⌘R dans Xcode, ou `xcodebuild`) fait d
 ./scripts/make-dmg.sh
 ```
 
-Le script compile en Release et produit `build/Void-<version>.dmg`, soit `build/Void-0.1.dmg` pour cette version (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script.
+Le script compile en Release et produit `build/Void-<version>.dmg`, soit `build/Void-0.2.dmg` pour cette version (Void + raccourci vers Applications, à glisser-déposer). L'image n'est pas versionnée dans le dépôt : la recréer avec le script.
 
 L'app est signée avec le certificat *Apple Development* de l'équipe (il doit être dans le trousseau de la machine qui compile). Pas en ad hoc : macOS reconnaîtrait alors Void à l'empreinte de son binaire, qui change à chaque compilation, et redemanderait le mot de passe de session pour chaque élément du trousseau après chaque build. Pour distribuer l'app à d'autres, il faudra une signature *Developer ID* et la notarisation.
 
