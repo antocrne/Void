@@ -169,6 +169,69 @@ struct ToastView: View {
     }
 }
 
+/// A newer Void: offered, downloaded on demand, then waiting for the relaunch (see Updater).
+struct UpdateBar: View {
+    private var updater: Updater { .shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch updater.phase {
+            case .available(let release):
+                header("arrow.down.circle.fill", "Void \(release.version) est disponible")
+                caption(Updater.canReplaceApp ? "Téléchargée et vérifiée seulement si vous l'installez."
+                                              : "Void ne peut pas se remplacer à cet endroit : la page de téléchargement va s'ouvrir.")
+                HStack {
+                    Button("Nouveautés") { NSWorkspace.shared.open(release.page) }
+                    Spacer()
+                    Button("Plus tard") { updater.dismiss() }
+                    Button("Installer") { updater.install() }
+                        .voidPrimaryButton()
+                }
+            case .downloading(let release, let progress):
+                header("arrow.down.circle", "Téléchargement de Void \(release.version)…")
+                ProgressView(value: progress).tint(Theme.accent)
+            case .ready(let release):
+                header("checkmark.circle.fill", "Void \(release.version) est prête")
+                caption("Elle remplacera cette version à la fermeture de Void.")
+                HStack {
+                    Spacer()
+                    Button("Plus tard") { updater.dismiss() }
+                    Button("Relancer") { updater.relaunch() }
+                        .voidPrimaryButton()
+                }
+            case .failed(_, let message):
+                header("exclamationmark.triangle.fill", "La mise à jour n'a pas abouti")
+                Text(message).font(.system(size: 11)).foregroundStyle(Theme.secondaryText)
+                HStack {
+                    Spacer()
+                    Button("Fermer") { updater.dismiss() }
+                    Button("Réessayer") { updater.retry() }
+                }
+            case .idle, .checking:
+                EmptyView()
+            }
+        }
+        .controlSize(.small)
+        .padding(14)
+        .frame(width: 330)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.ultraThickMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke))
+        .shadow(color: Theme.shadow.opacity(0.25), radius: 16, y: 6)
+    }
+
+    private func header(_ symbol: String, _ title: LocalizedStringKey) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundStyle(Theme.accent)
+            Text(title).font(.system(size: 13, weight: .semibold))
+        }
+    }
+
+    private func caption(_ text: LocalizedStringKey) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(Theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 struct PasswordPromptBar: View {
     let prompt: PasswordSavePrompt
     @Environment(BrowserModel.self) private var browser

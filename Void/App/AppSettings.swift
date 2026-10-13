@@ -163,6 +163,8 @@ final class AppSettings {
     var askDownloadLocation: Bool { didSet { defaults.set(askDownloadLocation, forKey: "askDownloadLocation") } }
     /// « Partager aussi le son » in the screen sharing question, as last answered (Mac).
     var shareScreenAudio: Bool { didSet { defaults.set(shareScreenAudio, forKey: "shareScreenAudio") } }
+    /// Looks for a newer Void at launch and every six hours (Mac, see Updater).
+    var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: "checkForUpdates") } }
 
     static let defaultSidebarWidth: Double = 252
     static let sidebarWidthRange: ClosedRange<Double> = 200...460
@@ -203,6 +205,7 @@ final class AppSettings {
         onboardingCompleted = d.bool(forKey: "onboardingCompleted")
         downloadFolderPath = d.string(forKey: "downloadFolderPath")
         shareScreenAudio = d.bool(forKey: "shareScreenAudio")
+        checkForUpdates = d.object(forKey: "checkForUpdates") as? Bool ?? true
         #if os(macOS)
         // Mac: the "Enregistrer sous" panel for each file, unless turned off.
         askDownloadLocation = d.object(forKey: "askDownloadLocation") as? Bool ?? true

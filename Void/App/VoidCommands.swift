@@ -9,6 +9,10 @@ struct VoidCommands: Commands {
     private var browser: BrowserModel { windows.active }
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Rechercher les mises à jour…") { Task { await Updater.shared.check(userInitiated: true) } }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Nouvel onglet") { browser.showCommandBar(.newTab) }
                 .keyboardShortcut("t")

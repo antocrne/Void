@@ -329,7 +329,10 @@ private struct DownloadsSettings: View {
 }
 
 private struct AboutSettings: View {
+    @Environment(AppSettings.self) private var settings
+
     var body: some View {
+        @Bindable var settings = settings
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
@@ -342,6 +345,15 @@ private struct AboutSettings: View {
             Text(webKit.map { "Version \(version) (\(build)) · WebKit \($0)" } ?? "Version \(version) (\(build))")
                 .font(.callout).foregroundStyle(.secondary)
                 .textSelection(.enabled)
+            HStack(spacing: 12) {
+                Toggle("Rechercher les mises à jour automatiquement", isOn: $settings.checkForUpdates)
+                    .toggleStyle(.checkbox)
+                Button(Updater.shared.phase == .checking ? "Recherche…" : "Rechercher maintenant") {
+                    Task { await Updater.shared.check(userInitiated: true) }
+                }
+                .disabled(Updater.shared.phase == .checking)
+            }
+            .font(.callout)
             Button("Afficher les données de Void dans le Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([StateStore.directory])
             }
