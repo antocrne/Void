@@ -3817,6 +3817,22 @@
         }
       }
     },
+    "Envoyer l'image vers Void Notes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Image to Void Notes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer l'image vers Void Notes"
+          }
+        }
+      }
+    },
     "Envoyer la page vers Void Notes" : {
       "localizations" : {
         "en" : {
@@ -4743,6 +4759,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Impossible d'ouvrir la page"
+          }
+        }
+      }
+    },
+    "Impossible de récupérer l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t get the image"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de récupérer l'image"
           }
         }
       }

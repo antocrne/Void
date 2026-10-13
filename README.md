@@ -1,6 +1,6 @@
 # Void
 
-**Un navigateur qui s'efface.** Version **0.2.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
+**Un navigateur qui s'efface.** Version **0.2.1.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Une version **iPhone et iPad** partage le même modèle, le même stockage et les mêmes scripts (cible *Void iOS*, voir [iOS](#ios-iphone-et-ipad))
@@ -75,7 +75,7 @@ Le script refuse une version déjà publiée ou un `main` différent de GitHub, 
 | Passer à l'autre côté | ⌥⌘⇧S (ou un clic dans la page) |
 | Mode lecture | ⌘⇧R |
 | Masquer un élément | ⌘⇧H |
-| Envoyer la page vers Void Notes | ⌘⇧M (une sélection : clic droit → « Envoyer vers Void Notes ») |
+| Envoyer la page vers Void Notes | ⌘⇧M (une sélection : clic droit → « Envoyer vers Void Notes » ; une image : clic droit → « Envoyer l'image vers Void Notes ») |
 | Web Inspector / console JavaScript | ⌥⌘I / ⌥⌘J |
 | Favori / favoris | ⌘D / ⌥⌘B |
 | Historique / téléchargements | ⌘Y / ⌥⌘L |
@@ -102,7 +102,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
 - ✅ **Conversions dans la barre d'adresse** : « 10 km en miles », « 72 °F en °C », « 2,5 l -> cl », « 100 usd en eur », « 50 $ »… le résultat s'affiche pendant la frappe, sous la recherche (↩ lance toujours la recherche ; ↓ puis ↩, ou un clic, copie le résultat). Unités calculées sur place (longueur, masse, température, volume, vitesse, surface, durée, données, énergie, puissance, pression) ; devises aux taux de référence de la Banque centrale européenne (une trentaine), fichier public téléchargé à la première conversion de devises puis au plus toutes les six heures et gardé pour la suite (`rates.json`) — rien de ce qui est tapé n'est envoyé.
 - ✅ **Ouvrir dans un nouvel onglet** : ⌘-clic, clic milieu, liens `target=_blank`, menu contextuel (« Ouvrir le lien dans un nouvel onglet », « …en arrière-plan », « …dans une fenêtre privée ») : un seul onglet à chaque fois, avec sa page.
 - ✅ **Mode lecture** : extraction de l'article et de ses images (y compris images chargées tardivement), affichage épuré sans JavaScript, taille du texte réglable.
-- ✅ **Envoyer vers Void Notes** (app compagnon, section `notes` de l'auto-test) : clic droit sur une sélection → « Envoyer vers Void Notes » (texte, titre et lien de la page) ; ⌘⇧M, menu Outils ou clic droit sans sélection → la page (titre, lien, et le texte de l'article quand le mode lecture en trouve un). La note part par `voidnotes://new?title=…&text=…&url=…` (texte coupé à 20 000 caractères). Sans Void Notes, les options restent visibles mais grisées (« nécessite Void Notes ») ; si l'ouverture échoue, un message discret.
+- ✅ **Envoyer vers Void Notes** (app compagnon, section `notes` de l'auto-test) : clic droit sur une sélection → « Envoyer vers Void Notes » (texte, titre et lien de la page) ; ⌘⇧M, menu Outils ou clic droit sans sélection → la page (titre, lien, et le texte de l'article quand le mode lecture en trouve un). La note part par `voidnotes://new?title=…&text=…&url=…` (texte coupé à 20 000 caractères). Clic droit sur une image → « Envoyer l'image vers Void Notes » : une note avec le titre de la page, l'image et son lien. Void récupère l'image avec les cookies de l'onglet (une image derrière une connexion passe), la page la lit elle-même pour un `blob:` ; un SVG devient un PNG. Une URL ne peut pas porter l'image : elle attend sur un presse-papiers nommé (`app.void.notes.incoming`, lu sans l'alerte de macOS), son nom part avec `&image=…`, et Void Notes la range à côté de la note puis vide ce presse-papiers. Sans Void Notes, les options restent visibles mais grisées (« nécessite Void Notes ») ; si l'ouverture échoue, un message discret.
 - ✅ **Bloqueur de publicités** en `WKContentRuleList` (≈ 150 règles, blocage avant chargement, sans script), désactivable par site.
 - ✅ **Masquer un élément** (⌘⇧H) : sélection au survol, masquage durable par site via une règle compilée ; gestion dans Réglages → Confidentialité.
 - ✅ **Fenêtres privées** (⌘⇧N) : tous les onglets de la fenêtre partagent un `WKWebsiteDataStore.nonPersistent()` propre à la fenêtre, détruit à sa fermeture ; ni historique, ni session, ni suggestions d'historique, ni enregistrement de mot de passe ; téléchargements hors historique ; pas d'épinglage ni d'espaces ; extensions désactivées par défaut ; barre ardoise et badge « Privé ».

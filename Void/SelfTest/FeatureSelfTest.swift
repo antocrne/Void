@@ -1384,13 +1384,13 @@ final class FeatureSelfTest {
             let items = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
             return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         }
-        func contextMenu(_ webView: VoidWebView) -> NSMenuItem? {
+        func contextMenu(_ webView: VoidWebView, image: Bool = false) -> NSMenuItem? {
             let menu = NSMenu()
             if let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
                                               context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
                 webView.willOpenMenu(menu, with: event)
             }
-            return menu.items.first { $0.title.contains("Void Notes") }
+            return menu.items.first { $0.title.contains("Void Notes") && $0.title.contains("image") == image }
         }
 
         let source = URL(string: "https://example.com/a?q=1&r=2#x")
@@ -1449,6 +1449,54 @@ final class FeatureSelfTest {
         let shortNote = values(opened.count == 3 ? opened.last : nil)
         check("Void Notes : page sans article → titre et lien seulement", shortNote["title"] == "Courte" && shortNote["url"] != nil && shortNote["text"] == nil,
               opened.last?.absoluteString ?? "nil")
+
+        // Images: one written in the page (data:), one it made (blob:), nothing else than an image.
+        let pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg=="
+        let png = Data(base64Encoded: pngBase64) ?? Data()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(VoidNotes.imagePasteboard))
+        defer { pasteboard.clearContents() }
+        pasteboard.clearContents()
+        check("Void Notes : pas d'image sous le clic → pas d'option image", contextMenu(webView, image: true) == nil)
+        webView.contextImageURL = URL(string: "data:image/png;base64,\(pngBase64)")
+        let imageItem = contextMenu(webView, image: true)
+        check("Void Notes : clic droit sur une image → « Envoyer l'image vers Void Notes »",
+              imageItem?.title == "Envoyer l'image vers Void Notes" && imageItem?.action != nil && imageItem?.isEnabled == true, imageItem?.title ?? "nil")
+        if let imageItem, let action = imageItem.action { NSApp.sendAction(action, to: imageItem.target, from: imageItem) }
+        _ = await until(8) { opened.count == 4 }
+        let imageNote = values(opened.count == 4 ? opened.last : nil)
+        check("Void Notes : image → presse-papiers de Void Notes, nom, titre et lien dans l'URL",
+              imageNote["image"] == "Image.png" && imageNote["title"] == "Page de notes" && imageNote["url"] == "https://void-selftest.example/"
+              && imageNote["text"] == nil && pasteboard.data(forType: .png) == png, opened.last?.absoluteString ?? "nil")
+        webView.contextImageURL = nil
+        let blob = await js(tab, "const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); return URL.createObjectURL(new Blob([bytes], {type: 'image/png'}));".replacingOccurrences(of: "b64", with: "'\(pngBase64)'")) as? String
+        let fromBlob = await VoidNotes.loadImage(URL(string: blob ?? "") ?? URL(fileURLWithPath: "/"), in: tab)
+        check("Void Notes : image blob: lue dans la page", fromBlob?.data == png && fromBlob?.type == .png, blob ?? "nil")
+        let notImage = await VoidNotes.loadImage(URL(string: "data:text/plain,bonjour")!, in: tab)
+        check("Void Notes : un texte n'est pas pris pour une image", notImage == nil)
+        // From a server: with the tab's cookies and the page as referrer; an SVG becomes a PNG.
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='3'><rect width='4' height='3' fill='red'/></svg>"
+        var imageRequest = ""
+        if let (server, port) = await startServer(ports: [8795, 18795, 28795], respond: { request in
+            imageRequest = request
+            guard request.contains("session=void") else { return "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
+            return "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nContent-Length: \(svg.utf8.count)\r\nConnection: close\r\n\r\n\(svg)"
+        }), let address = URL(string: "http://127.0.0.1:\(port)/dessins/carr%C3%A9.svg"),
+           let store = tab.webView?.configuration.websiteDataStore.httpCookieStore,
+           let cookie = HTTPCookie(properties: [.domain: "127.0.0.1", .path: "/", .name: "session", .value: "void"]) {
+            let refused = await VoidNotes.loadImage(address, in: tab)
+            check("Void Notes : image refusée par le serveur → rien d'envoyé", refused == nil)
+            await store.setCookie(cookie)
+            let drawn = await VoidNotes.loadImage(address, in: tab)
+            check("Void Notes : image http — cookies de l'onglet et page d'origine envoyés, SVG converti en PNG",
+                  drawn?.type == .png && drawn?.name == "carré.png" && imageRequest.contains("Referer: https://void-selftest.example/"),
+                  "\(drawn?.name ?? "nil") · \(imageRequest.prefix(300))")
+            await store.deleteCookie(cookie)
+            server.cancel()
+        } else {
+            check("Void Notes : serveur d'images local", false)
+        }
+        let named = VoidNotes.image(from: png, source: URL(string: "https://example.com/photos/Mon%20chat.jpeg?w=200")!)
+        check("Void Notes : nom de l'image tiré de son adresse, extension de son format", named?.name == "Mon chat.png", named?.name ?? "nil")
 
         notes.openOverride = { _ in false }
         browser.sendPageToNotes()
