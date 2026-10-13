@@ -16,9 +16,9 @@ import WebKit
 final class WebCryptoMasterKey: NSObject {
     static let shared = WebCryptoMasterKey()
 
-    private static let service = "app.void.browser.webcrypto"
-    private static let account = "master"
-    private static let keySize = 16
+    nonisolated private static let service = "app.void.browser.webcrypto"
+    nonisolated private static let account = "master"
+    nonisolated private static let keySize = 16
 
     private var key: Data?
     /// WebKit asks again while the keychain is being read (several frames at once): one read.
