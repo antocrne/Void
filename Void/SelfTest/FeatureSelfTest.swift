@@ -167,6 +167,67 @@ final class FeatureSelfTest {
     }
 
     /// The traffic lights share the centre line of the first row of buttons, also after a resize.
+    /// Settings → Onglets → Réduire la barre latérale aux icônes (⌃⌥⌘S): a column of icons beside
+    /// the page, navigation and address above it; captured next to the report (-barre-reduite.png).
+    private func testCompactSidebar(in space: Space) async {
+        let settings = AppSettings.shared
+        guard let window = browser.window else {
+            check("Barre réduite : fenêtre introuvable", false)
+            return
+        }
+        let saved = (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide, settings.sidebarCompact)
+        settings.tabLayout = .sidebar
+        settings.sidebarVisible = true
+        settings.sidebarAutoHide = false
+        settings.sidebarCompact = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let page = { (title: String, color: String) in
+            "<title>\(title)</title><body style='font:15px -apple-system;padding:40px;background:\(color)'><h1>\(title)</h1>"
+        }
+        let tabs = [
+            await htmlTab(page("Les trous noirs expliqués simplement", "#f4f1ff"), in: space),
+            await htmlTab(page("Recette : tarte aux pommes", "#fff6ec"), in: space),
+            await htmlTab(page("Lisbonne en 3 jours", "#eef8ff"), in: space),
+        ]
+        guard let folder = browser.addFolder(in: space) else { check("Barre réduite : dossier", false); return }
+        browser.renamingFolderID = nil
+        folder.name = "À lire plus tard"
+        browser.put(tabs[0], in: folder)
+        browser.select(tabs[1])
+        await sleep(1)
+        /// Where the page begins, from the window's left edge.
+        func pageLeft() -> CGFloat { tabs[1].webView.map { $0.convert($0.bounds, to: nil).minX } ?? -1 }
+        let full = pageLeft()
+
+        browser.toggleSidebarCompact()
+        await sleep(1)
+        let reduced = pageLeft()
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window.standardWindowButton($0) }
+        let centres = buttons.map { window.frame.height - $0.convert($0.bounds, to: nil).midY }
+        check("Barre réduite : la page commence juste après la colonne d'icônes",
+              settings.sidebarCompact && abs(reduced - SidebarRail.width) < 2 && full > reduced + 100,
+              "page à \(full) pt → \(reduced) pt, colonne \(SidebarRail.width) pt")
+        check("Barre réduite : feux alignés sur la barre au-dessus de la page",
+              centres.count == 3 && centres.allSatisfy { abs($0 - 19) < 0.5 }, "\(centres)")
+        await snapshotWindow("barre-reduite")
+
+        browser.toggleSidebarCompact()
+        await sleep(1)
+        check("Barre réduite : dépliée → la barre latérale entière revient", !settings.sidebarCompact && abs(pageLeft() - full) < 2,
+              "page à \(pageLeft()) pt")
+
+        // Tabs kept hidden (⌘S), then reduced: docked again, to be seen.
+        settings.sidebarAutoHide = true
+        browser.toggleSidebarCompact()
+        check("Barre réduite : depuis les onglets masqués → réduite et visible",
+              settings.sidebarCompact && !settings.sidebarAutoHide && settings.sidebarVisible)
+
+        space.folders.forEach { browser.deleteFolder($0, keepingTabs: false) }
+        for tab in tabs where !tab.isClosed { browser.close(tab, force: true) }
+        (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide, settings.sidebarCompact) = saved
+    }
+
     private func testTrafficLights() async {
         let settings = AppSettings.shared
         guard let window = browser.window else {
@@ -294,6 +355,7 @@ final class FeatureSelfTest {
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
         "teinte": { t, space in await t.testChromeTint(in: space) },
+        "barre-reduite": { t, space in await t.testCompactSidebar(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.

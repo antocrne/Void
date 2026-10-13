@@ -159,6 +159,12 @@ private struct TabsSettings: View {
                      ? "La page occupe toute la fenêtre ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
                      : "Disponible avec les onglets dans une barre latérale.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Réduire la barre latérale aux icônes", isOn: $settings.sidebarCompact.animation(Theme.spring))
+                    .disabled(settings.tabLayout != .sidebar)
+                Text(settings.tabLayout == .sidebar
+                     ? "Une colonne étroite avec l'icône ou l'initiale de chaque onglet, son titre au survol ; la navigation et l'adresse passent au-dessus de la page. Tirez le bord de la barre tout à gauche pour la réduire, vers la droite pour la déplier (⌃⌥⌘S)."
+                     : "Disponible avec les onglets dans une barre latérale.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Affichage") {
                 Picker("Les onglets affichent", selection: $settings.tabIconStyle) {

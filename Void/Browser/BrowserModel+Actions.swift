@@ -146,6 +146,20 @@ extension BrowserModel {
         }
     }
 
+    /// Présentation → Réduire la barre latérale: only the tabs' icons, or everything again. Reduced,
+    /// it is docked, to be seen.
+    func toggleSidebarCompact() {
+        let settings = AppSettings.shared
+        guard settings.tabLayout == .sidebar else { return }
+        withAnimation(Theme.spring) {
+            settings.sidebarCompact.toggle()
+            if settings.sidebarCompact {
+                settings.sidebarAutoHide = false
+                settings.sidebarVisible = true
+            }
+        }
+    }
+
     /// Fichier → Nouveau dossier (⌃⌘N): an empty folder in the current space. Its name is typed in
     /// the sidebar, which comes back if it was hidden (or slides out while kept hidden, see
     /// EdgeRevealSidebar).

@@ -143,6 +143,8 @@ final class AppSettings {
     /// Sidebar hidden until the pointer pushes against the left edge (⌘S).
     var sidebarAutoHide: Bool { didSet { defaults.set(sidebarAutoHide, forKey: "sidebarAutoHide") } }
     var sidebarWidth: Double { didSet { defaults.set(sidebarWidth, forKey: "sidebarWidth") } }
+    /// Sidebar reduced to a column of icons (SidebarRail); its width stays for when it is unfolded.
+    var sidebarCompact: Bool { didSet { defaults.set(sidebarCompact, forKey: "sidebarCompact") } }
     var tabIconStyle: TabIconStyle { didSet { defaults.set(tabIconStyle.rawValue, forKey: "tabIconStyle") } }
     var showBookmarksBar: Bool { didSet { defaults.set(showBookmarksBar, forKey: "showBookmarksBar") } }
     var showReadingProgress: Bool { didSet { defaults.set(showReadingProgress, forKey: "showReadingProgress") } }
@@ -164,6 +166,9 @@ final class AppSettings {
 
     static let defaultSidebarWidth: Double = 252
     static let sidebarWidthRange: ClosedRange<Double> = 200...460
+    /// The sidebar's edge pulled this far left reduces it to its icons (and pulled back past
+    /// the reduced sidebar's width plus this, unfolds it).
+    static let sidebarCollapsePull: Double = 60
 
     private init() {
         let d = UserDefaults.standard
@@ -186,6 +191,7 @@ final class AppSettings {
         extensionsInPrivate = d.object(forKey: "extensionsInPrivate") as? Bool ?? false
         sidebarAutoHide = d.object(forKey: "sidebarAutoHide") as? Bool ?? false
         sidebarWidth = d.object(forKey: "sidebarWidth") as? Double ?? Self.defaultSidebarWidth
+        sidebarCompact = d.bool(forKey: "sidebarCompact")
         tabIconStyle = TabIconStyle(rawValue: d.string(forKey: "tabIconStyle") ?? "") ?? .favicons
         showBookmarksBar = d.object(forKey: "showBookmarksBar") as? Bool ?? false
         showReadingProgress = d.object(forKey: "showReadingProgress") as? Bool ?? true

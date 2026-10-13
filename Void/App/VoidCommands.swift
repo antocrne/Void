@@ -59,6 +59,9 @@ struct VoidCommands: Commands {
             Toggle("Garder les onglets masqués", isOn: Binding(get: { settings.sidebarAutoHide }, set: { _ in browser.toggleTabsHidden() }))
                 .keyboardShortcut("s")
                 .disabled(settings.tabLayout != .sidebar)
+            Toggle("Réduire la barre latérale aux icônes", isOn: Binding(get: { settings.sidebarCompact }, set: { _ in browser.toggleSidebarCompact() }))
+                .keyboardShortcut("s", modifiers: [.command, .control, .option])
+                .disabled(settings.tabLayout != .sidebar)
             Picker("Onglets", selection: Binding(get: { settings.tabLayout }, set: { newValue in withAnimation(Theme.spring) { settings.tabLayout = newValue } })) {
                 ForEach(TabLayout.allCases) { Text($0.label).tag($0) }
             }
