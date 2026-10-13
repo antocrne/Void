@@ -5068,18 +5068,18 @@
         }
       }
     },
-    "La page occupe toute la fenêtre ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche." : {
+    "La page occupe la fenêtre sous la barre d'adresse ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The page fills the whole window; push the pointer against the left edge to bring up the tabs. ⌘S keeps the tabs hidden or shows them again."
+            "value" : "The page fills the window below the address bar; push the pointer against the left edge to bring up the tabs. ⌘S keeps the tabs hidden or shows them again."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La page occupe toute la fenêtre ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
+            "value" : "La page occupe la fenêtre sous la barre d'adresse ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
           }
         }
       }

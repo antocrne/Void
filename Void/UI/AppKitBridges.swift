@@ -184,25 +184,6 @@ struct SidebarResizeHandle: NSViewRepresentable {
     }
 }
 
-/// Shows or hides the window's traffic lights (hidden while the tabs are kept hidden and the
-/// page fills the window; they come back with the revealed sidebar).
-struct WindowButtonsVisibility: NSViewRepresentable {
-    let hidden: Bool
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        let hidden = hidden
-        DispatchQueue.main.async { [weak view] in
-            guard let window = view?.window else { return }
-            // Really hidden (not just transparent): an invisible close button must not be clickable.
-            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(kind)?.isHidden = hidden
-            }
-        }
-    }
-}
-
 /// Moves the window's traffic lights down so they share a centre line with the chrome's first
 /// row of buttons (macOS centres them 16 pt from the top, our rows sit lower). AppKit lays the
 /// title bar out again on resize or key changes, so the offset is reapplied whenever a button moves.

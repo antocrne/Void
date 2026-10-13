@@ -156,7 +156,7 @@ private struct TabsSettings: View {
                     }))
                     .disabled(settings.tabLayout != .sidebar)
                 Text(settings.tabLayout == .sidebar
-                     ? "La page occupe toute la fenêtre ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
+                     ? "La page occupe la fenêtre sous la barre d'adresse ; poussez le pointeur contre le bord gauche pour faire apparaître les onglets. ⌘S garde les onglets masqués ou les réaffiche."
                      : "Disponible avec les onglets dans une barre latérale.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Réduire la barre latérale aux icônes", isOn: $settings.sidebarCompact.animation(Theme.spring))
