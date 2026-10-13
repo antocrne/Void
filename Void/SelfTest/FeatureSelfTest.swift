@@ -578,8 +578,8 @@ final class FeatureSelfTest {
         check("Aperçu des dossiers : captures enregistrées à côté du rapport", true)
     }
 
-    /// Not a test: the README picture (docs/selftest/ui-sidebar-dark.png). Default look (dark, violet,
-    /// no tint), real sites in the sidebar for their icons, a folder, and the new-tab page.
+    /// Not a test: the README picture (docs/apercu/nouvel-onglet.png). Default look (dark, violet,
+    /// no tint, letters for the tabs), real sites in the sidebar, a folder, and the new-tab page.
     private func previewReadme(in space: Space) async {
         let settings = AppSettings.shared
         let saved = (settings.theme, settings.accent, settings.chromeTint, settings.tabLayout, settings.sidebarVisible,
@@ -590,7 +590,7 @@ final class FeatureSelfTest {
         }
         (settings.theme, settings.accent, settings.chromeTint, settings.tabLayout, settings.sidebarVisible,
          settings.sidebarAutoHide, settings.sidebarCompact, settings.sidebarWidth, settings.tabIconStyle, settings.showBookmarksBar)
-            = (.dark, .violet, .none, .sidebar, true, false, false, AppSettings.defaultSidebarWidth, .favicons, false)
+            = (.dark, .violet, .none, .sidebar, true, false, false, AppSettings.defaultSidebarWidth, .letters, false)
 
         // The two spaces of a first launch: the self-test one stands in for « Travail ».
         guard let personal = browser.spaces.first(where: { $0 !== space }) else { return }
@@ -606,7 +606,7 @@ final class FeatureSelfTest {
         browser.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        let pinned = ["https://www.youtube.com", "https://www.figma.com", "https://fr.wikipedia.org"]
+        let pinned = ["https://www.youtube.com", "https://github.com", "https://fr.wikipedia.org"]
         let open = ["https://fr.wikipedia.org/wiki/Mars_(plan%C3%A8te)", "https://webkit.org", "https://www.apple.com/fr/",
                     "https://developer.apple.com/swift/"]
         let later = ["https://fr.wikipedia.org/wiki/Trou_noir", "https://www.swift.org/documentation/"]
