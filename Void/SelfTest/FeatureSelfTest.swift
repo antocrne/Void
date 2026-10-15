@@ -359,6 +359,7 @@ final class FeatureSelfTest {
         "nouvel-onglet": { t, space in await t.testNewTabLinks(in: space) },
         "page-nouvel-onglet": { t, space in await t.testNewTabPage(in: space) },
         "conversion": { t, _ in await t.testConversions() },
+        "calcul": { t, _ in t.testCalculator() },
         "reveil-extensions": { t, space in await t.testExtensionBackgroundWake(in: space) },
         "visio": { t, space in await t.testMeetings(in: space) },
         "partage-son": { t, space in await t.testShareAudio(in: space) },
@@ -1248,6 +1249,42 @@ final class FeatureSelfTest {
         let row = rows.firstIndex { if case .copy = $0.kind { true } else { false } }
         check("Conversion : affichée dans la barre d'adresse, sous la recherche (↩ recherche toujours)",
               row == 1 && rows.first?.symbol == "magnifyingglass" && rows[1].title.hasPrefix("10 km = 6"), rows.map(\.title).joined(separator: " | "))
+    }
+
+    /// Calculations answered in the address bar, and what must stay a plain search.
+    private func testCalculator() {
+        let decimal = Locale.current.decimalSeparator ?? ","
+        func value(_ input: String) -> String {
+            Calculator.answer(for: input).map { $0.value.replacingOccurrences(of: decimal, with: ",") } ?? "nil"
+        }
+        func expect(_ input: String, _ expected: String) -> String? {
+            value(input) == expected ? nil : "« \(input) » → \(value(input))"
+        }
+        let results = [
+            expect("2+2", "4"), expect("12*4+3", "51"), expect("12 × 4 + 3 =", "51"), expect("10 - 2 - 3", "5"),
+            expect("1,5 + 2,5", "4"), expect("1.5*2", "3"), expect("(1+2)*(3+4)", "21"), expect("2(3+4)", "14"),
+            expect("7/2", "3,5"), expect("1 ÷ 3", "0,333333333333"), expect("0.1+0.2", "0,3"), expect("2^10", "1024"),
+            expect("2**3**2", "512"), expect("-2^2", "-4"), expect("2^-1", "0,5"), expect("3x4", "12"),
+            expect("√16", "4"), expect("sqrt(2)^2", "2"), expect("5!", "120"), expect("2π", "6,28318530718"),
+            expect("sin(30°)", "0,5"), expect("cos(pi)", "-1"), expect("ln(e)", "1"), expect("log 1000", "3"),
+            expect("20 % de 150", "30"), expect("20% of 150", "30"), expect("200 + 10 %", "220"), expect("80 - 25%", "60"),
+            expect("1 000 + 1", "1001"), expect("1 000 000 * 3", "3000000"), expect("(1+2", "3"), expect("3²", "9"),
+        ].compactMap { $0 }
+        check("Calcul : opérations, priorités, parenthèses, puissances, fonctions, pourcentages", results.isEmpty, results.joined(separator: " · "))
+
+        let plain = ["2024", "-5", "(5)", "pi", "trou noir", "192.168.1.1", "10 km en miles", "100 €", "1/0", "sqrt(-1)", "2 3",
+                     "10:30", "apple.com", "x", "1+", "covid-19", "4x4 occasion", "+33 6 12 34 56 78"]
+            .filter { value($0) != "nil" }
+        check("Calcul : une recherche ordinaire (ou un calcul impossible) n'en est pas un", plain.isEmpty,
+              plain.map { "\($0) → \(value($0))" }.joined(separator: " · "))
+
+        check("Calcul : affiché « expression = résultat », copié sans séparateur de milliers",
+              Calculator.answer(for: "1000*1000")?.text.hasPrefix("1000*1000 = 1") == true && Calculator.answer(for: "1000*1000")?.value == "1000000",
+              Calculator.answer(for: "1000*1000").map { $0.text + " / " + $0.value } ?? "nil")
+
+        let rows = SuggestionEngine.suggestions(for: "12*4+3", browser: browser)
+        check("Calcul : affiché dans la barre d'adresse, sous la recherche (↩ recherche toujours)",
+              rows.count > 1 && rows.first?.symbol == "magnifyingglass" && rows[1].title == "12*4+3 = 51", rows.map(\.title).joined(separator: " | "))
     }
 
     /// ⌘T shows the new-tab page over the current tab, its field focused (no floating bar). What is
