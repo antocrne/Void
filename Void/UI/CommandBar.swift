@@ -53,15 +53,19 @@ enum SuggestionEngine {
         }
         let engine = AppSettings.shared.searchEngine.name
         out.append(Suggestion(symbol: "magnifyingglass", title: text, subtitle: String(localized: "Rechercher avec \(engine)"), kind: .search(text)))
-        // « 10 km en miles », « 100 usd en eur »: the answer, right under the search (↩ still searches).
-        switch QuickConverter.answer(for: text) {
-        case .result(let result):
-            out.append(Suggestion(symbol: "equal.circle", title: result.text,
-                                  subtitle: [result.note, String(localized: "Copier")].compactMap { $0 }.joined(separator: " · "), kind: .copy(result.value)))
-        case .loading:
-            out.append(Suggestion(symbol: "equal.circle", title: String(localized: "Conversion…"), subtitle: String(localized: "Taux de change en cours de chargement"), kind: .action({})))
-        case nil:
-            break
+        // « 12*4+3 », « 10 km en miles », « 100 usd en eur »: the answer, right under the search (↩ still searches).
+        if let result = Calculator.answer(for: text) {
+            out.append(Suggestion(symbol: "equal.circle", title: result.text, subtitle: String(localized: "Copier"), kind: .copy(result.value)))
+        } else {
+            switch QuickConverter.answer(for: text) {
+            case .result(let result):
+                out.append(Suggestion(symbol: "equal.circle", title: result.text,
+                                      subtitle: [result.note, String(localized: "Copier")].compactMap { $0 }.joined(separator: " · "), kind: .copy(result.value)))
+            case .loading:
+                out.append(Suggestion(symbol: "equal.circle", title: String(localized: "Conversion…"), subtitle: String(localized: "Taux de change en cours de chargement"), kind: .action({})))
+            case nil:
+                break
+            }
         }
 
         for tab in browser.allTabs where tab !== browser.selectedTab {
