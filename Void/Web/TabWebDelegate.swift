@@ -101,6 +101,15 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         DownloadManager.shared.adopt(download, from: download.originalRequest?.url, in: browser)
     }
 
+    #if os(macOS)
+    /// The download button of WebKit's PDF viewer hands the document over here (WKUIDelegatePrivate).
+    /// Without this method the button does nothing.
+    @objc(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)
+    func webView(_ webView: WKWebView, saveDataToFile data: Data, suggestedFilename: String, mimeType: String?, originatingURL: URL?) {
+        DownloadManager.shared.save(data, filename: suggestedFilename, mimeType: mimeType, from: originatingURL ?? webView.url, in: browser)
+    }
+    #endif
+
     /// A link opened in a new tab that turned out to be a download leaves an empty tab behind.
     func closeIfEmpty(_ webView: WKWebView) {
         // Never a pinned tab: it is kept on purpose, even if its address now serves a file.
