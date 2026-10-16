@@ -336,6 +336,42 @@ final class DownloadManager {
             }
         }
     }
+
+    /// A file WebKit already holds in memory and hands over whole: the download button of its PDF
+    /// viewer. No WKDownload here; the file is written at once and listed as finished.
+    func save(_ data: Data, filename: String, mimeType: String?, from url: URL?, in browser: BrowserModel?) {
+        var name = filename.isEmpty ? (url?.lastPathComponent ?? "") : filename
+        if mimeType == "application/pdf", (name as NSString).pathExtension.lowercased() != "pdf" { name += ".pdf" }
+        name = Self.sanitizedFilename(name)
+        let item = DownloadItem(filename: name, sourceURL: url, browser: browser)
+        Task {
+            let destination: URL
+            if AppSettings.shared.askDownloadLocation {
+                guard let chosen = await Self.chooseLocation(for: name, in: AppSettings.shared.downloadFolder,
+                                                             window: browser?.window ?? NSApp.keyWindow) else { return }
+                destination = chosen
+            } else {
+                destination = Self.uniqueDestination(for: name)
+            }
+            defer { Self.release(destination) }
+            do {
+                try data.write(to: destination, options: .withoutOverwriting)
+            } catch {
+                (browser ?? .shared).showToast("exclamationmark.triangle", "Enregistrement impossible : \(error.localizedDescription)")
+                return
+            }
+            Self.quarantine(destination, source: url)
+            item.filename = destination.lastPathComponent
+            item.destination = destination
+            item.receivedBytes = Int64(data.count)
+            item.totalBytes = Int64(data.count)
+            item.progress = 1
+            item.state = .finished
+            items.insert(item, at: 0)
+            DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: destination.path)
+            (browser ?? .shared).showToast("checkmark.circle", "\(item.filename) téléchargé")
+        }
+    }
     #else
     func reveal(_ item: DownloadItem) { open(item) }
 

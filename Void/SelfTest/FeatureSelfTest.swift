@@ -2236,6 +2236,24 @@ final class FeatureSelfTest {
 
         if let item { DownloadManager.shared.cancel(item); DownloadManager.shared.clearFinished() }
 
+        // The download button of WebKit's PDF viewer: WebKit hands the document to the UI delegate,
+        // called here as WebKit calls it (a page can't press that button).
+        let pdfSelector = NSSelectorFromString("_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:")
+        if let webView = tab.webView, let delegate = webView.uiDelegate as? NSObject, delegate.responds(to: pdfSelector) {
+            typealias SaveData = @convention(c) (NSObject, Selector, WKWebView, NSData, NSString, NSString?, NSURL?) -> Void
+            let save = unsafeBitCast(delegate.method(for: pdfSelector), to: SaveData.self)
+            save(delegate, pdfSelector, webView, Data("%PDF-1.4 Void".utf8) as NSData, "facture", "application/pdf",
+                 URL(string: "https://void-pdf.example/facture") as NSURL?)
+            let saved = await until(3) { DownloadManager.shared.items.contains { $0.sourceURL?.host() == "void-pdf.example" && $0.state == .finished } }
+            let pdf = DownloadManager.shared.items.first { $0.sourceURL?.host() == "void-pdf.example" }
+            let written = pdf?.destination.flatMap { try? Data(contentsOf: $0) } == Data("%PDF-1.4 Void".utf8)
+            check("Téléchargement : bouton du lecteur PDF → fichier .pdf enregistré", saved && written && pdf?.filename == "facture.pdf",
+                  pdf?.destination?.path ?? "aucun fichier")
+            if let pdf { DownloadManager.shared.cancel(pdf); DownloadManager.shared.clearFinished() }
+        } else {
+            check("Téléchargement : bouton du lecteur PDF → fichier .pdf enregistré", false, "délégué sans _webView:saveDataToFile:…")
+        }
+
         // As Google Drive does: a hidden frame whose answer is an attachment the browser could show
         // (text, PDF), and a link to the file opening a new tab.
         let body = "Void " + String(repeating: "0123456789", count: 20_000)
