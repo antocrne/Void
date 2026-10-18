@@ -55,6 +55,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Right-click on the Dock icon, as in Safari and Firefox.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: String(localized: "Nouvelle fenêtre"), action: #selector(newWindowFromDock), keyEquivalent: "").target = self
+        menu.addItem(withTitle: String(localized: "Nouvelle fenêtre privée"), action: #selector(newPrivateWindowFromDock), keyEquivalent: "").target = self
+        return menu
+    }
+
+    @objc private func newWindowFromDock() {
+        MainActor.assumeIsolated {
+            BrowserWindows.shared.openNormalWindow()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @objc private func newPrivateWindowFromDock() {
+        MainActor.assumeIsolated {
+            BrowserWindows.shared.openPrivateWindow()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// Quitting stops downloads for good, paused ones too (they can't resume after a relaunch), and only the
     /// main window's tabs come back at the next launch: ask first.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

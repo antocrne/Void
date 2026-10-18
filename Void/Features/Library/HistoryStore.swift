@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 struct HistoryEntry: Identifiable, Hashable {
     var id: String { url.absoluteString }
@@ -10,10 +11,13 @@ struct HistoryEntry: Identifiable, Hashable {
 
 /// Browsing history in ~/Library/Application Support/Void/history.sqlite.
 /// Private tabs never write here.
-@MainActor
+@MainActor @Observable
 final class HistoryStore {
     static let shared = HistoryStore()
-    private let db: SQLiteDB?
+    @ObservationIgnored private let db: SQLiteDB?
+    /// Changes when the pages listed change (a visit, a first title, a deletion): the History
+    /// menu reads it to show the last pages visited.
+    private(set) var revision = 0
 
     private init() {
         db = SQLiteDB(path: StateStore.directory.appendingPathComponent("history.sqlite").path, ownDatabase: true)
@@ -25,7 +29,7 @@ final class HistoryStore {
         prune()
     }
 
-    private var lastPrune = Date.distantPast
+    @ObservationIgnored private var lastPrune = Date.distantPast
 
     /// Removes the pages not visited for longer than the period chosen in Settings → Confidentialité
     /// (a year by default). Runs at launch, then at most once a day as pages are visited.
@@ -33,6 +37,7 @@ final class HistoryStore {
         lastPrune = Date()
         let cutoff = Date().addingTimeInterval(-Double(AppSettings.shared.historyRetention.rawValue) * 86_400)
         db?.execute("DELETE FROM history WHERE last < ?", [cutoff.timeIntervalSince1970])
+        revision += 1
     }
 
     func record(url: URL, title: String) {
@@ -43,19 +48,22 @@ final class HistoryStore {
         ON CONFLICT(url) DO UPDATE SET visits = visits + 1, last = excluded.last,
             title = CASE WHEN excluded.title = '' THEN title ELSE excluded.title END
         """, [url.absoluteString, title, Date().timeIntervalSince1970])
+        revision += 1
     }
 
     /// Last title written per URL: pages that animate their title (unread counters, tickers)
     /// would otherwise write to disk continuously.
-    private var writtenTitles: [String: String] = [:]
+    @ObservationIgnored private var writtenTitles: [String: String] = [:]
     #if DEBUG
-    private(set) var titleWrites = 0
+    @ObservationIgnored private(set) var titleWrites = 0
     var journalMode: String? { db?.string("PRAGMA journal_mode") }
     #endif
 
     func updateTitle(url: URL, title: String) {
         let key = url.absoluteString
         guard writtenTitles[key] != title else { return }
+        // The History menu shows a page's first title; later changes (counters) don't rebuild it.
+        if writtenTitles[key] == nil { revision += 1 }
         if writtenTitles.count > 500 { writtenTitles.removeAll() }
         writtenTitles[key] = title
         #if DEBUG
@@ -87,10 +95,12 @@ final class HistoryStore {
 
     func delete(_ entry: HistoryEntry) {
         db?.execute("DELETE FROM history WHERE url = ?", [entry.url.absoluteString])
+        revision += 1
     }
 
     func clear() {
         db?.execute("DELETE FROM history")
+        revision += 1
     }
 
     /// Merges imported entries (keeps the highest visit count and the latest date).

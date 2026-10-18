@@ -19,6 +19,9 @@ enum FaviconLoader {
 
     static func clearCache() { cache = [:] }
 
+    /// The icon found earlier for a site (normal tabs only), for the History menu.
+    static func cachedIcon(host: String) -> PlatformImage? { cache[host]?.0 }
+
     static func load(for tab: Tab) {
         guard let webView = tab.webView, let pageURL = webView.url, let host = pageURL.host() else { return }
         if let cached = cache[host] {

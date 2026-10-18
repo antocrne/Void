@@ -35,6 +35,14 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
+/// A tab closed in this window, which ⌘⇧T or History → Onglets récemment fermés brings back.
+struct ClosedTab {
+    let url: URL
+    let title: String
+    let favicon: PlatformImage?
+    let spaceID: UUID
+}
+
 /// The state of one browser window: spaces, tabs, selection and transient UI.
 /// `shared` is the main window, whose session is saved; ⌘N and ⌘⇧N windows get their own model
 /// (see BrowserWindows).
@@ -95,7 +103,8 @@ final class BrowserModel {
     #endif
     @ObservationIgnored var openWindowAction: ((String) -> Void)?
     @ObservationIgnored var openSettingsAction: (() -> Void)?
-    @ObservationIgnored private var closedTabs: [(url: URL, spaceID: UUID)] = []
+    /// Oldest first; the History menu lists them.
+    private(set) var closedTabs: [ClosedTab] = []
     /// Private windows: sites allowed to download, forgotten with the window (DownloadPermission).
     @ObservationIgnored var allowedDownloadHosts: Set<String> = []
     @ObservationIgnored private var saveWork: DispatchWorkItem?
@@ -235,7 +244,7 @@ final class BrowserModel {
         }
         if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
         if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
-        if let url = tab.url { closedTabs.append((url, space.id)) }
+        if let url = tab.url { closedTabs.append(ClosedTab(url: url, title: tab.displayTitle, favicon: tab.favicon, spaceID: space.id)) }
         if closedTabs.count > 30 { closedTabs.removeFirst() }
         if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
         withAnimation(Theme.spring) { space.detach(tab) }
@@ -320,9 +329,25 @@ final class BrowserModel {
     func forgetClosedTabs() { closedTabs = [] }
 
     func reopenClosedTab() {
-        guard let last = closedTabs.popLast() else { return }
-        let space = spaces.first { $0.id == last.spaceID } ?? currentSpace
-        openTab(url: last.url, in: space)
+        reopenClosedTab(at: closedTabs.count - 1)
+    }
+
+    /// One of History → Onglets récemment fermés, in the space it was closed in (if still there).
+    func reopenClosedTab(at index: Int) {
+        guard closedTabs.indices.contains(index) else { return }
+        let closed = closedTabs.remove(at: index)
+        let space = spaces.first { $0.id == closed.spaceID } ?? currentSpace
+        openTab(url: closed.url, in: space)
+    }
+
+    /// In the order they were closed, the last one shown.
+    func reopenAllClosedTabs() {
+        let all = closedTabs
+        closedTabs = []
+        for (i, closed) in all.enumerated() {
+            let space = spaces.first { $0.id == closed.spaceID } ?? currentSpace
+            openTab(url: closed.url, in: space, background: i < all.count - 1)
+        }
     }
 
     func togglePin(_ tab: Tab) {

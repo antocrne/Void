@@ -377,6 +377,8 @@ final class FeatureSelfTest {
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
         "teinte": { t, space in await t.testChromeTint(in: space) },
         "barre-reduite": { t, space in await t.testCompactSidebar(in: space) },
+        "menu-historique": { t, space in await t.testHistoryMenu(in: space) },
+        "menu-dock": { t, _ in await t.testDockMenu() },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -563,6 +565,79 @@ final class FeatureSelfTest {
         meeting.isInCall = false
         browser.close(other, force: true)
         browser.close(meeting, force: true)
+    }
+
+    /// Right-click on the Dock icon: a new window, a new private window.
+    private func testDockMenu() async {
+        let menu = NSApp.delegate?.applicationDockMenu?(NSApp)
+        let titles = menu?.items.map(\.title) ?? []
+        check("Menu du Dock : nouvelle fenêtre, nouvelle fenêtre privée", titles == ["Nouvelle fenêtre", "Nouvelle fenêtre privée"], "\(titles)")
+        let windows = BrowserWindows.shared
+        for (index, isPrivate) in [(0, false), (1, true)] {
+            let before = windows.all.count
+            menu?.performActionForItem(at: index)
+            let opened = await until(3) { windows.all.count == before + 1 }
+            let model = windows.all.last
+            _ = await until(2) { model?.window?.isKeyWindow == true }
+            check("Menu du Dock : « \(titles.indices.contains(index) ? titles[index] : "?") » ouvre une fenêtre \(isPrivate ? "privée" : "normale"), au premier plan",
+                  opened && model?.isPrivate == isPrivate && model?.window?.isKeyWindow == true,
+                  "fenêtres \(before) → \(windows.all.count) · privée \(model?.isPrivate == true) · clé \(model?.window?.isKeyWindow == true) · active \(NSApp.isActive)")
+            if opened { model?.window?.close() }
+            await sleep(0.5)
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Menu Historique, as in Firefox: the tabs closed in the window (with their icon), then the last
+    /// pages visited. Reads the real menu bar.
+    private func testHistoryMenu(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        browser.forgetClosedTabs()
+        func historyMenu() -> NSMenu? {
+            // As when it opens: SwiftUI fills a menu (and its submenus) when asked.
+            let menu = NSApp.mainMenu?.items.first { $0.title == "Historique" }?.submenu
+            if let menu { menu.delegate?.menuNeedsUpdate?(menu) }
+            menu?.update()
+            return menu
+        }
+        // Built once before: what follows must update it, not just appear in a first build.
+        _ = historyMenu()?.items.first { $0.title == "Onglets récemment fermés" }?.submenu?.items
+        await sleep(0.5)
+        let first = await htmlTab("<title>Premier onglet</title>", in: space, base: "https://void-menu-a.example/")
+        let second = await htmlTab("<title>Second onglet</title>", in: space, base: "https://void-menu-b.example/")
+        let icon = NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in NSColor.red.setFill(); rect.fill(); return true }
+        second.setFavicon(icon, data: icon.voidResizedPNG(side: 32) ?? Data())
+        browser.close(first)
+        browser.close(second)
+        let probe = URL(string: "https://void-menu-history.example/\(UUID().uuidString)")!
+        HistoryStore.shared.record(url: probe, title: "Page du menu Historique")
+        defer { HistoryStore.shared.delete(HistoryEntry(url: probe, title: "", visits: 1, lastVisit: Date())) }
+
+        let closedMenu = {
+            let menu = historyMenu()?.items.first { $0.title == "Onglets récemment fermés" }?.submenu
+            if let menu { menu.delegate?.menuNeedsUpdate?(menu) }
+            return menu
+        }
+        let listed = await until(4) { closedMenu()?.items.contains { $0.title == "Premier onglet" } == true
+            && historyMenu()?.items.contains { $0.title == "Page du menu Historique" } == true }
+        let titles = historyMenu()?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+        let closedTitles = closedMenu()?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+        check("Menu Historique : onglets fermés (le dernier en tête), puis les pages récentes",
+              listed && closedTitles.prefix(2) == ["Second onglet", "Premier onglet"] && closedTitles.last == "Rouvrir tous les onglets"
+              && titles.firstIndex(of: "Onglets récemment fermés").map { titles.firstIndex(of: "Page du menu Historique") ?? 0 > $0 } == true,
+              "\(titles.prefix(8)) · fermés \(closedTitles)")
+        let iconItem = closedMenu()?.items.first { $0.title == "Second onglet" }
+        check("Menu Historique : l'icône du site, à 16 points", iconItem?.image?.size == NSSize(width: 16, height: 16),
+              iconItem?.image.map { "\($0.size)" } ?? "pas d'image")
+        if let menu = closedMenu(), let index = menu.items.firstIndex(where: { $0.title == "Premier onglet" }) {
+            menu.performActionForItem(at: index)
+        }
+        let reopened = await until(3) { space.tabs.contains { $0.url?.host() == "void-menu-a.example" } }
+        check("Menu Historique : un onglet fermé choisi est rouvert, l'autre reste dans la liste",
+              reopened && browser.closedTabs.map(\.title) == ["Second onglet"], "\(browser.closedTabs.map(\.title))")
+        for tab in space.tabs where tab.url?.host() == "void-menu-a.example" { browser.close(tab) }
+        browser.forgetClosedTabs()
     }
 
     /// Context menu → "Fermer les autres onglets": the tab stays, shown, with the pinned tabs.
