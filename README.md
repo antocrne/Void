@@ -113,7 +113,7 @@ Rapports de test : [`docs/selftest/features.md`](docs/selftest/features.md) et [
   - session relue même abîmée ou d'un format plus récent ; fichier illisible mis de côté, copie de secours ;
   - barre d'adresse sur la page réellement affichée (pas une navigation en cours), cadenas seulement si toute la page est chiffrée ;
   - alertes JS d'un onglet en arrière-plan sans blocage de l'app, plantage de page sans boucle de rechargement, onglet épinglé jamais supprimé par un téléchargement, veille réelle d'un épinglé en PiP ;
-  - téléchargements : noms nettoyés (inversion bidirectionnelle, fichiers cachés), pas de collision, quarantaine garantie ; liens vers d'autres apps confirmés, refusés depuis un cadre intégré, `smb:`/`ssh:`… refusés ;
+  - téléchargements : noms nettoyés (inversion bidirectionnelle, fichiers cachés), pas de collision, quarantaine garantie ; bouton de téléchargement du lecteur PDF (WebKit confie le document à une méthode que Void n'avait pas : il ne se passait rien) ; liens vers d'autres apps confirmés, refusés depuis un cadre intégré, `smb:`/`ssh:`… refusés ;
   - historique SQLite en WAL, titres inchangés non réécrits ; copies temporaires de l'import supprimées.
 - ✅ **Stabilité** (branche `corrections-stabilite`, section `stabilite` de l'auto-test) :
   - **authentification HTTP** (routeurs, NAS, intranets) : nom d'utilisateur et mot de passe demandés en feuille sur l'onglet affiché, avertissement si la connexion n'est pas chiffrée ; un onglet en arrière-plan reçoit la page 401 du serveur (un rechargement redemande) ;
