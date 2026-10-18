@@ -6878,6 +6878,22 @@
         }
       }
     },
+    "Onglets récemment fermés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recently Closed Tabs"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onglets récemment fermés"
+          }
+        }
+      }
+    },
     "Options" : {
       "localizations" : {
         "en" : {
@@ -8746,6 +8762,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rouvrir les onglets au lancement"
+          }
+        }
+      }
+    },
+    "Rouvrir tous les onglets" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reopen All Tabs"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rouvrir tous les onglets"
           }
         }
       }

@@ -105,6 +105,7 @@ struct VoidCommands: Commands {
             Divider()
             Button("Afficher tout l'historique") { browser.showLibrary(.history) }
                 .keyboardShortcut("y")
+            RecentHistoryItems(browser: browser)
         }
 
         CommandMenu("Favoris") {
@@ -156,5 +157,76 @@ struct VoidCommands: Commands {
             }
             Divider()
         }
+    }
+}
+
+/// Under History, as in Firefox: the tabs closed in the window, then the last pages visited
+/// (a click opens one in the current tab).
+private struct RecentHistoryItems: View {
+    let browser: BrowserModel
+
+    var body: some View {
+        let _ = HistoryStore.shared.revision
+        let icons = siteIcons
+        Divider()
+        Menu("Onglets récemment fermés") {
+            ForEach(Array(browser.closedTabs.enumerated().reversed()), id: \.offset) { index, closed in
+                Button { browser.reopenClosedTab(at: index) } label: {
+                    PageLabel(title: closed.title, url: closed.url, icon: closed.favicon ?? closed.url.host().flatMap { icons[$0] })
+                }
+            }
+            Divider()
+            Button("Rouvrir tous les onglets") { browser.reopenAllClosedTabs() }
+        }
+        .disabled(browser.closedTabs.isEmpty)
+        Divider()
+        ForEach(HistoryStore.shared.recent(limit: 15)) { entry in
+            Button { browser.open(entry.url, mode: .currentTab) } label: {
+                PageLabel(title: entry.title, url: entry.url, icon: entry.url.host().flatMap { icons[$0] })
+            }
+        }
+    }
+
+    /// History keeps no icons: those of the window's tabs, else those found since launch.
+    private var siteIcons: [String: NSImage] {
+        var icons: [String: NSImage] = [:]
+        for tab in browser.allTabs {
+            if let host = tab.url?.host(), let icon = tab.favicon { icons[host] = icon }
+        }
+        for entry in browser.closedTabs {
+            if let host = entry.url.host(), icons[host] == nil, let icon = entry.favicon { icons[host] = icon }
+        }
+        return icons
+    }
+}
+
+/// A page in a menu: its icon (a globe without one) and its title, shortened like Firefox does.
+private struct PageLabel: View {
+    let title: String
+    let url: URL
+    let icon: NSImage?
+
+    var body: some View {
+        Label {
+            Text(verbatim: shortTitle)
+        } icon: {
+            if let image = icon ?? url.host().flatMap(FaviconLoader.cachedIcon(host:)) {
+                Image(nsImage: Self.menuSized(image))
+            } else {
+                Image(systemName: "globe")
+            }
+        }
+    }
+
+    private var shortTitle: String {
+        let text = title.isEmpty ? (url.host()?.voidNormalizedHost ?? url.absoluteString) : title
+        return text.count > 70 ? text.prefix(69) + "…" : text
+    }
+
+    /// Menus draw an image at its size: icons are stored at 32 px.
+    private static func menuSized(_ image: NSImage) -> NSImage {
+        let small = image.copy() as? NSImage ?? image
+        small.size = NSSize(width: 16, height: 16)
+        return small
     }
 }
