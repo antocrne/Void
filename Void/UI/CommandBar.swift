@@ -125,6 +125,25 @@ extension Suggestion {
 }
 
 #if os(macOS)
+/// A pointer resting where the list of suggestions appears doesn't pick a row: the list changes
+/// under a still pointer at each key typed, and ↩ would then open that row instead of what was
+/// typed. A row follows the pointer only once it has moved.
+@MainActor
+final class PointerMoveGate {
+    private var resting = NSEvent.mouseLocation
+
+    /// The list just changed under the pointer.
+    func reset() { resting = NSEvent.mouseLocation }
+
+    /// The pointer moved since the last reset (or the last move seen).
+    func moved() -> Bool {
+        let now = NSEvent.mouseLocation
+        guard now != resting else { return false }
+        resting = now
+        return true
+    }
+}
+
 /// Floating command bar (⌘L): one field for URLs and searches. A new tab is typed on the
 /// new-tab page instead (NewTabPage).
 struct CommandBarOverlay: View {
@@ -137,6 +156,7 @@ struct CommandBarOverlay: View {
     /// Recomputed when the text changes only (not on every hover, which re-renders the body):
     /// it queries the history database.
     @State private var suggestions: [Suggestion] = []
+    @State private var pointer = PointerMoveGate()
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -172,6 +192,7 @@ struct CommandBarOverlay: View {
                         .onKeyPress(.escape) { dismiss(); return .handled }
                         .onChange(of: text) {
                             selection = 0
+                            pointer.reset()
                             suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
                         }
                         // Exchange rates that have just arrived: the conversion typed gets its answer.
@@ -189,7 +210,7 @@ struct CommandBarOverlay: View {
                             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                                 SuggestionRow(suggestion: suggestion, selected: index == selection)
                                     .onTapGesture { run(suggestion) }
-                                    .onHover { if $0 { selection = index } }
+                                    .onHover { if $0, pointer.moved() { selection = index } }
                             }
                         }
                         .padding(6)

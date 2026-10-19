@@ -58,6 +58,7 @@ private struct NewTabField: View {
     @State private var selection = 0
     /// Recomputed when the text changes only: it queries the history database.
     @State private var suggestions: [Suggestion] = []
+    @State private var pointer = PointerMoveGate()
     @FocusState private var focused: Bool
 
     private static let height: CGFloat = 42
@@ -78,6 +79,7 @@ private struct NewTabField: View {
                 .onKeyPress(.escape) { escape(); return .handled }
                 .onChange(of: text) {
                     selection = 0
+                    pointer.reset()
                     suggestions = text.isEmpty ? [] : SuggestionEngine.suggestions(for: text, browser: browser)
                 }
                 // Exchange rates that have just arrived: the conversion typed gets its answer.
@@ -109,7 +111,7 @@ private struct NewTabField: View {
                 ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                     SuggestionRow(suggestion: suggestion, selected: index == selection)
                         .onTapGesture { run(suggestion) }
-                        .onHover { if $0 { selection = index } }
+                        .onHover { if $0, pointer.moved() { selection = index } }
                 }
             }
             .padding(6)
