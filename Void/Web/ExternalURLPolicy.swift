@@ -14,18 +14,32 @@ enum ExternalURLPolicy: Equatable {
     /// Handed straight to the system app, as every browser does.
     static let trustedSchemes: Set<String> = ["mailto", "tel", "sms", "facetime", "facetime-audio", "maps"]
 
-    /// Only a click of the user in the page itself (not in a frame of another site, not a script).
-    static func decide(scheme: String, userClick: Bool, fromMainFrame: Bool) -> ExternalURLPolicy {
+    /// Only from the page itself (not a frame of another site). A click on a link opens the usual
+    /// system apps at once and asks for the others. Without a link clicked — « Ouvrir dans l'app »
+    /// buttons of Teams, Zoom or Slack set `location.href` from a script — it is asked, and only
+    /// for the tab on screen: refusing those without a word left the button doing nothing.
+    static func decide(scheme: String, userClick: Bool, fromMainFrame: Bool, tabShown: Bool = false) -> ExternalURLPolicy {
         let scheme = scheme.lowercased()
-        guard userClick, fromMainFrame, !refusedSchemes.contains(scheme) else { return .refuse }
-        return trustedSchemes.contains(scheme) ? .open : .ask
+        guard fromMainFrame, !refusedSchemes.contains(scheme) else { return .refuse }
+        if userClick { return trustedSchemes.contains(scheme) ? .open : .ask }
+        return tabShown ? .ask : .refuse
     }
+
+    /// Sites whose question was just declined: a page asking in a loop doesn't get the sheet back at once.
+    @MainActor private static var declined: [String: Date] = [:]
+
+    @MainActor static func recentlyDeclined(_ host: String) -> Bool {
+        declined[host].map { Date().timeIntervalSince($0) < 60 } ?? false
+    }
+
+    @MainActor static func noteDeclined(_ host: String) { declined[host] = Date() }
 
     #if os(macOS)
     /// Asks before opening an app on behalf of `host`.
     @MainActor
     static func confirmAndOpen(_ url: URL, from host: String, in window: NSWindow?) {
-        guard let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
+        // One question at a time, and not again right after a « Annuler ».
+        guard let app = NSWorkspace.shared.urlForApplication(toOpen: url), window?.attachedSheet == nil, !recentlyDeclined(host) else { return }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
         let alert = NSAlert()
         alert.messageText = String(localized: "Ouvrir « \(name) » ?")
@@ -34,7 +48,7 @@ enum ExternalURLPolicy: Equatable {
         alert.addButton(withTitle: String(localized: "Ouvrir"))
         alert.addButton(withTitle: String(localized: "Annuler"))
         let open = { (response: NSApplication.ModalResponse) in
-            if response == .alertFirstButtonReturn { NSWorkspace.shared.open(url) }
+            if response == .alertFirstButtonReturn { NSWorkspace.shared.open(url) } else { noteDeclined(host) }
         }
         if let window { alert.beginSheetModal(for: window, completionHandler: open) } else { open(alert.runModal()) }
     }

@@ -12,12 +12,7 @@ final class ElementHider {
     private let fileURL = StateStore.directory.appendingPathComponent("hidden-elements.json")
 
     private init() {
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
-            rules = decoded
-        } else {
-            rules = [:]
-        }
+        rules = TolerantJSON.dictionary(of: [String].self, at: fileURL)
     }
 
     func startPicking(in tab: Tab) {

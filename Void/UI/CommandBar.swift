@@ -3,6 +3,8 @@ import SwiftUI
 struct Suggestion: Identifiable {
     enum Kind {
         case go(URL)
+        /// What was typed, read as an address (`navigate`: it may fall back on HTTP or a search).
+        case typed(URL, String)
         case search(String)
         case switchTo(Tab)
         case download(DownloadItem)
@@ -18,7 +20,7 @@ struct Suggestion: Identifiable {
     /// Stable across recomputations (same target = same row), so SwiftUI keeps rows in place.
     var id: String {
         switch kind {
-        case .go(let url): "go:" + url.absoluteString
+        case .go(let url), .typed(let url, _): "go:" + url.absoluteString
         case .search(let text): "search:" + text
         case .switchTo(let tab): "tab:" + tab.id.uuidString
         case .download(let item): "download:" + item.id.uuidString
@@ -48,7 +50,7 @@ enum SuggestionEngine {
         }
 
         if let url = URLResolver.url(from: text) {
-            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: String(localized: "Ouvrir"), kind: .go(url)))
+            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: String(localized: "Ouvrir"), kind: .typed(url, text)))
             seen.insert(url.absoluteString)
         }
         let engine = AppSettings.shared.searchEngine.name
@@ -109,6 +111,7 @@ extension Suggestion {
     @MainActor func perform(in browser: BrowserModel, mode: CommandBarMode) {
         switch kind {
         case .go(let url): browser.open(url, mode: mode)
+        case .typed(_, let text): browser.navigate(text, mode: mode)
         case .search(let query):
             if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: mode) }
         case .switchTo(let tab): browser.select(tab)
@@ -122,6 +125,25 @@ extension Suggestion {
 }
 
 #if os(macOS)
+/// A pointer resting where the list of suggestions appears doesn't pick a row: the list changes
+/// under a still pointer at each key typed, and ↩ would then open that row instead of what was
+/// typed. A row follows the pointer only once it has moved.
+@MainActor
+final class PointerMoveGate {
+    private var resting = NSEvent.mouseLocation
+
+    /// The list just changed under the pointer.
+    func reset() { resting = NSEvent.mouseLocation }
+
+    /// The pointer moved since the last reset (or the last move seen).
+    func moved() -> Bool {
+        let now = NSEvent.mouseLocation
+        guard now != resting else { return false }
+        resting = now
+        return true
+    }
+}
+
 /// Floating command bar (⌘L): one field for URLs and searches. A new tab is typed on the
 /// new-tab page instead (NewTabPage).
 struct CommandBarOverlay: View {
@@ -134,6 +156,7 @@ struct CommandBarOverlay: View {
     /// Recomputed when the text changes only (not on every hover, which re-renders the body):
     /// it queries the history database.
     @State private var suggestions: [Suggestion] = []
+    @State private var pointer = PointerMoveGate()
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -169,6 +192,7 @@ struct CommandBarOverlay: View {
                         .onKeyPress(.escape) { dismiss(); return .handled }
                         .onChange(of: text) {
                             selection = 0
+                            pointer.reset()
                             suggestions = SuggestionEngine.suggestions(for: text, browser: browser)
                         }
                         // Exchange rates that have just arrived: the conversion typed gets its answer.
@@ -186,7 +210,7 @@ struct CommandBarOverlay: View {
                             ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                                 SuggestionRow(suggestion: suggestion, selected: index == selection)
                                     .onTapGesture { run(suggestion) }
-                                    .onHover { if $0 { selection = index } }
+                                    .onHover { if $0, pointer.moved() { selection = index } }
                             }
                         }
                         .padding(6)

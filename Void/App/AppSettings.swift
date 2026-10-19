@@ -122,6 +122,10 @@ final class AppSettings {
             #endif
         }
     }
+    /// ⌘+ ⌘− by site (host without www.): 1 is never stored.
+    var siteZooms: [String: Double] { didSet { defaults.set(siteZooms, forKey: "siteZooms") } }
+    /// Extensions from the Chrome Web Store are brought up to date once a day (ExtensionManager).
+    var extensionsAutoUpdate: Bool { didSet { defaults.set(extensionsAutoUpdate, forKey: "extensionsAutoUpdate") } }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
     var historyRetention: HistoryRetention {
         didSet { defaults.set(historyRetention.rawValue, forKey: "historyRetention"); HistoryStore.shared.prune() }
@@ -185,6 +189,8 @@ final class AppSettings {
         adBlockEnabled = d.object(forKey: "adBlockEnabled") as? Bool ?? true
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false
+        extensionsAutoUpdate = d.object(forKey: "extensionsAutoUpdate") as? Bool ?? true
+        siteZooms = d.dictionary(forKey: "siteZooms") as? [String: Double] ?? [:]
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
         historyRetention = HistoryRetention(rawValue: d.integer(forKey: "historyRetention")) ?? .year
         formAutofillEnabled = d.object(forKey: "formAutofillEnabled") as? Bool ?? true
@@ -255,6 +261,14 @@ final class AppSettings {
             scene.windows.forEach { $0.overrideUserInterfaceStyle = style }
         }
         #endif
+    }
+
+    func siteZoom(for host: String) -> Double { siteZooms[host.voidNormalizedHost] ?? 1 }
+
+    /// Private windows apply the zooms chosen elsewhere but record none.
+    func setSiteZoom(_ zoom: Double, for host: String) {
+        let key = host.voidNormalizedHost
+        if abs(zoom - 1) < 0.001 { siteZooms[key] = nil } else { siteZooms[key] = (zoom * 100).rounded() / 100 }
     }
 
     func toggleAdBlock(for host: String) {

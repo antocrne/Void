@@ -17,10 +17,22 @@ enum FaviconLoader {
     }()
     private static var cache: [String: (PlatformImage, Data)] = [:]
 
-    static func clearCache() { cache = [:] }
+    /// Icons of the tabs restored at launch, for the History menu only: a page loaded again still
+    /// looks for its current icon.
+    private static var restored: [String: PlatformImage] = [:]
+
+    static func clearCache() { cache = [:]; restored = [:] }
 
     /// The icon found earlier for a site (normal tabs only), for the History menu.
-    static func cachedIcon(host: String) -> PlatformImage? { cache[host]?.0 }
+    static func cachedIcon(host: String) -> PlatformImage? { cache[host]?.0 ?? restored[host] }
+
+    /// The restored tabs' icons, so that the History menu shows them before those sites are loaded again.
+    static func remember(_ tabs: [Tab]) {
+        for tab in tabs where !tab.isPrivate {
+            guard let host = tab.url?.host(), restored[host] == nil, let image = tab.favicon else { continue }
+            restored[host] = image
+        }
+    }
 
     static func load(for tab: Tab) {
         guard let webView = tab.webView, let pageURL = webView.url, let host = pageURL.host() else { return }

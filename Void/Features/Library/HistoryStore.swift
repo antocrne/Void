@@ -57,6 +57,7 @@ final class HistoryStore {
     #if DEBUG
     @ObservationIgnored private(set) var titleWrites = 0
     var journalMode: String? { db?.string("PRAGMA journal_mode") }
+    var secureDelete: String? { db?.string("PRAGMA secure_delete") }
     #endif
 
     func updateTitle(url: URL, title: String) {
@@ -98,8 +99,13 @@ final class HistoryStore {
         revision += 1
     }
 
+    /// « Effacer l'historique »: nothing left on disk either — the write-ahead log, which still
+    /// holds the old pages until a checkpoint, is emptied, and the file is rewritten.
     func clear() {
         db?.execute("DELETE FROM history")
+        db?.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db?.execute("VACUUM")
+        writtenTitles.removeAll()
         revision += 1
     }
 

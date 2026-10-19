@@ -23,6 +23,10 @@ final class ContentRules {
     private(set) var installedIdentifiers: Set<String> = []
     #endif
 
+    /// The blocker's list as installed (nil when it is off), for web views outside the shared
+    /// content controller: the reader view.
+    var installedAdBlockList: WKContentRuleList? { adBlockList }
+
     func start() {
         Task {
             await installAdBlock()

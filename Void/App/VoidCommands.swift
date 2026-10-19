@@ -105,7 +105,7 @@ struct VoidCommands: Commands {
             Divider()
             Button("Afficher tout l'historique") { browser.showLibrary(.history) }
                 .keyboardShortcut("y")
-            RecentHistoryItems(browser: browser)
+            RecentHistoryItems(windows: windows)
         }
 
         CommandMenu("Favoris") {
@@ -162,41 +162,32 @@ struct VoidCommands: Commands {
 
 /// Under History, as in Firefox: the tabs closed in the window, then the last pages visited
 /// (a click opens one in the current tab).
+/// Never keeps a window's model: its items act on the frontmost window when clicked. Holding the
+/// model kept a closed private window alive, store included. It reads no tab either, which would
+/// rebuild the whole menu bar at each page load: the icons come from FaviconLoader's cache.
 private struct RecentHistoryItems: View {
-    let browser: BrowserModel
+    let windows: BrowserWindows
 
     var body: some View {
         let _ = HistoryStore.shared.revision
-        let icons = siteIcons
+        let closedTabs = windows.active.closedTabs
         Divider()
         Menu("Onglets récemment fermés") {
-            ForEach(Array(browser.closedTabs.enumerated().reversed()), id: \.offset) { index, closed in
-                Button { browser.reopenClosedTab(at: index) } label: {
-                    PageLabel(title: closed.title, url: closed.url, icon: closed.favicon ?? closed.url.host().flatMap { icons[$0] })
+            ForEach(Array(closedTabs.enumerated().reversed()), id: \.offset) { index, closed in
+                Button { windows.active.reopenClosedTab(at: index) } label: {
+                    PageLabel(title: closed.title, url: closed.url, icon: closed.favicon)
                 }
             }
             Divider()
-            Button("Rouvrir tous les onglets") { browser.reopenAllClosedTabs() }
+            Button("Rouvrir tous les onglets") { windows.active.reopenAllClosedTabs() }
         }
-        .disabled(browser.closedTabs.isEmpty)
+        .disabled(closedTabs.isEmpty)
         Divider()
         ForEach(HistoryStore.shared.recent(limit: 15)) { entry in
-            Button { browser.open(entry.url, mode: .currentTab) } label: {
-                PageLabel(title: entry.title, url: entry.url, icon: entry.url.host().flatMap { icons[$0] })
+            Button { windows.active.open(entry.url, mode: .currentTab) } label: {
+                PageLabel(title: entry.title, url: entry.url, icon: nil)
             }
         }
-    }
-
-    /// History keeps no icons: those of the window's tabs, else those found since launch.
-    private var siteIcons: [String: NSImage] {
-        var icons: [String: NSImage] = [:]
-        for tab in browser.allTabs {
-            if let host = tab.url?.host(), let icon = tab.favicon { icons[host] = icon }
-        }
-        for entry in browser.closedTabs {
-            if let host = entry.url.host(), icons[host] == nil, let icon = entry.favicon { icons[host] = icon }
-        }
-        return icons
     }
 }
 

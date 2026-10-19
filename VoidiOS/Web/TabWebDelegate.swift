@@ -29,10 +29,11 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
 
         if !Self.internalSchemes.contains(scheme) {
-            // mailto:, tel:, an app's own scheme… → handed over to iOS, only on a user tap in the
-            // page itself, and after asking for anything but the usual system apps.
+            // mailto:, tel:, an app's own scheme… → handed over to iOS from the page itself: on a
+            // tap, at once for the usual system apps, after asking for the others; from a script,
+            // asked for the tab on screen only (ExternalURLPolicy).
             let policy = ExternalURLPolicy.decide(scheme: scheme, userClick: navigationAction.navigationType == .linkActivated,
-                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame)
+                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame, tabShown: isShown)
             switch policy {
             case .open:
                 _ = await UIApplication.shared.open(url)
@@ -40,11 +41,14 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
                 let host = navigationAction.sourceFrame.securityOrigin.host
                 let message = host.isEmpty ? String(localized: "Cette page veut ouvrir un lien « \(scheme): » dans une autre app.")
                                            : String(localized: "\(host) veut ouvrir un lien « \(scheme): » dans une autre app.")
-                if isShown, await Dialogs.confirm(title: String(localized: "Ouvrir dans une autre app ?"), message: message,
-                                                  confirm: String(localized: "Ouvrir")) == true {
+                guard isShown, !ExternalURLPolicy.recentlyDeclined(host) else { break }
+                if await Dialogs.confirm(title: String(localized: "Ouvrir dans une autre app ?"), message: message,
+                                         confirm: String(localized: "Ouvrir")) == true {
                     if await !UIApplication.shared.open(url) {
                         browser.showToast("exclamationmark.triangle", "Aucune app pour ouvrir ce lien")
                     }
+                } else {
+                    ExternalURLPolicy.noteDeclined(host)
                 }
             case .refuse:
                 break
@@ -134,11 +138,13 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         tab?.loadError = nil
+        tab?.untrustedCertificate = nil
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab else { return }
         tab.didCommit(webView.url)
+        tab.applySiteZoom()
         tab.reader = nil
         tab.loginAccounts = []
         tab.loginHost = nil
@@ -172,6 +178,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         // Cancelled / interrupted by policy (downloads, links handed to another app) are not errors.
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
         if ns.domain == "WebKitErrorDomain" && (ns.code == 102 || ns.code == 204) { return }
+        if tab?.recoverTypedAddress(from: ns) == true { return }
         tab?.loadError = ns.localizedDescription
     }
 
@@ -184,6 +191,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// and shows the server's 401 page.
     func webView(_ webView: WKWebView, respondTo challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         let space = challenge.protectionSpace
+        if space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust {
+            return await CertificateExceptions.decide(host: space.host, trust: trust, tab: tab)
+        }
         guard Self.passwordMethods.contains(space.authenticationMethod), challenge.previousFailureCount < 3, isShown else {
             return (.performDefaultHandling, nil)
         }

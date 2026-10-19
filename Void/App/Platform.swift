@@ -78,4 +78,28 @@ enum Clipboard {
         UIPasteboard.general.string = text
         #endif
     }
+
+    /// How long a copied password stays in the clipboard.
+    static let secretLifetime: TimeInterval = 90
+
+    /// A password: kept on this device (not sent to the iPhone or iPad by the Universal
+    /// Clipboard), marked as concealed so clipboard managers don't record it, and removed after
+    /// 90 s unless something else was copied meanwhile.
+    @MainActor static func copySecret(_ text: String) {
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        pasteboard.declareTypes([.string, concealed], owner: nil)
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setString("", forType: concealed)
+        let count = pasteboard.changeCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + secretLifetime) {
+            if pasteboard.changeCount == count { pasteboard.clearContents() }
+        }
+        #else
+        UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: text]],
+                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(secretLifetime)])
+        #endif
+    }
 }

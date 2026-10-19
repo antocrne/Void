@@ -24,10 +24,12 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
 
         if !Self.internalSchemes.contains(scheme) {
-            // mailto:, tel:, zoommtg:, … → hand over to macOS, only on a user click in the page
-            // itself, and after asking for anything but the usual system apps.
+            // mailto:, tel:, zoommtg:, … → hand over to macOS from the page itself: on a click, at
+            // once for the usual system apps, after asking for the others; from a script, asked
+            // for the tab on screen only (ExternalURLPolicy).
             let policy = ExternalURLPolicy.decide(scheme: scheme, userClick: navigationAction.navigationType == .linkActivated,
-                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame)
+                                                  fromMainFrame: navigationAction.sourceFrame.isMainFrame,
+                                                  tabShown: tab.map { shown in browser.visibleTabs.contains { $0 === shown } } ?? false)
             switch policy {
             case .open: NSWorkspace.shared.open(url)
             case .ask: ExternalURLPolicy.confirmAndOpen(url, from: navigationAction.sourceFrame.securityOrigin.host, in: webView.window)
@@ -121,11 +123,13 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         tab?.loadError = nil
+        tab?.untrustedCertificate = nil
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab else { return }
         tab.didCommit(webView.url)
+        tab.applySiteZoom()
         tab.reader = nil
         tab.loginAccounts = []
         tab.loginHost = nil
@@ -159,6 +163,7 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         // Cancelled / interrupted by policy (downloads, ⌘-click) are not errors.
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
         if ns.domain == "WebKitErrorDomain" && (ns.code == 102 || ns.code == 204) { return }
+        if tab?.recoverTypedAddress(from: ns) == true { return }
         tab?.loadError = ns.localizedDescription
     }
 
@@ -173,6 +178,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// and shows the server's 401 page.
     func webView(_ webView: WKWebView, respondTo challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         let space = challenge.protectionSpace
+        if space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust {
+            return await CertificateExceptions.decide(host: space.host, trust: trust, tab: tab)
+        }
         // Refused three times: the server's own error page.
         guard Self.passwordMethods.contains(space.authenticationMethod), challenge.previousFailureCount < 3 else {
             return (.performDefaultHandling, nil)

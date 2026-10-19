@@ -22,7 +22,10 @@ struct PageView: View {
             }
 
             if let tab, let error = tab.loadError {
-                ErrorOverlay(message: error, url: tab.url) { browser.reload() }
+                ErrorOverlay(message: error, url: tab.url, certificate: tab.untrustedCertificate, proceed: {
+                    if let pending = tab.untrustedCertificate { CertificateExceptions.accept(pending, persist: !tab.isPrivate) }
+                    browser.reload()
+                }) { browser.reload() }
             }
 
             if let tab, let article = tab.reader {
@@ -311,6 +314,9 @@ struct PasswordPromptBar: View {
 struct ErrorOverlay: View {
     let message: String
     let url: URL?
+    /// A local device whose certificate can't be checked: « Continuer vers … ».
+    var certificate: CertificateExceptions.Pending? = nil
+    var proceed: () -> Void = {}
     let retry: () -> Void
 
     var body: some View {
@@ -324,6 +330,11 @@ struct ErrorOverlay: View {
             Button("Réessayer", action: retry)
                 .voidPrimaryButton()
                 .padding(.top, 4)
+            if let certificate {
+                Text("Son certificat ne peut pas être vérifié, comme souvent pour un appareil du réseau local (box, NAS, imprimante). Ne continuez que si vous reconnaissez cet appareil.")
+                    .font(.system(size: 13)).foregroundStyle(Theme.secondaryText).multilineTextAlignment(.center)
+                Button("Continuer vers \(certificate.host)", action: proceed)
+            }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

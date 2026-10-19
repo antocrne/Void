@@ -30,6 +30,10 @@ final class Tab: Identifiable {
     var canGoBack = false
     var canGoForward = false
     var loadError: String?
+    /// A local device's certificate that couldn't be checked: its error page offers to go on.
+    var untrustedCertificate: CertificateExceptions.Pending?
+    /// The address typed without `https://` being loaded, until it commits (TypedAddressFallback).
+    @ObservationIgnored var typedAddress: TypedAddressFallback.Typed?
     /// Every resource of the page came over an encrypted connection (the lock in the address field).
     var hasOnlySecureContent = true
 
@@ -94,8 +98,10 @@ final class Tab: Identifiable {
     @ObservationIgnored private var popupConfiguration: WKWebViewConfiguration?
     @ObservationIgnored private var webViewBeingCreated: VoidWebView?
 
+    /// `interactionState`: a back/forward list to come back with (a tab reopened by ⌘⇧T).
     init(id: UUID = UUID(), url: URL?, title: String = "", isPinned: Bool = false,
-         isPrivate: Bool = false, faviconData: Data? = nil, popupConfiguration: WKWebViewConfiguration? = nil) {
+         isPrivate: Bool = false, faviconData: Data? = nil, popupConfiguration: WKWebViewConfiguration? = nil,
+         interactionState: Any? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -105,6 +111,17 @@ final class Tab: Identifiable {
         self.favicon = faviconData.flatMap(PlatformImage.init(data:))
         self.popupConfiguration = popupConfiguration
         self.openedByPage = popupConfiguration != nil
+        self.savedInteractionState = interactionState
+    }
+
+    /// The back/forward list as it is now: the web view's, or the one kept by a sleep.
+    var currentInteractionState: Any? { webView?.interactionState ?? savedInteractionState }
+
+    /// The zoom chosen for this site (⌘+ ⌘− ⌘0), set again at each page of it.
+    func applySiteZoom() {
+        guard let webView, let host = webView.url?.host() else { return }
+        let zoom = AppSettings.shared.siteZoom(for: host)
+        if webView.pageZoom != zoom { webView.pageZoom = zoom }
     }
 
     var displayTitle: String {
@@ -166,9 +183,21 @@ final class Tab: Identifiable {
     func load(_ url: URL) {
         self.url = url
         loadError = nil
+        untrustedCertificate = nil
+        typedAddress = nil
         reader = nil
+        let asleep = webView == nil
+        let restoring = asleep && savedInteractionState != nil
+        let isPopup = popupConfiguration != nil
         let wv = ensureWebView()
-        wv.load(URLRequest(url: url))
+        if !asleep || isPopup {
+            wv.load(URLRequest(url: url))
+        } else if restoring {
+            // Its history comes back first (ensureWebView), then the new page goes on top of it.
+            ContentRules.shared.whenReady { [weak wv] in wv?.load(URLRequest(url: url)) }
+        }
+        // Otherwise ensureWebView has just asked for `url`, once the blocker's rules are in: a
+        // second load here would cancel that one and go out before the rules.
     }
 
     /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP, unless `force`
@@ -238,8 +267,29 @@ final class Tab: Identifiable {
         sleep(force: true)
     }
 
+    /// The load of an address typed without `https://` failed: the same address over HTTP when
+    /// nothing answered over HTTPS, or a search when no such site exists. True when another load
+    /// takes the place of the error.
+    func recoverTypedAddress(from error: NSError) -> Bool {
+        guard let typed = typedAddress else { return false }
+        typedAddress = nil
+        switch TypedAddressFallback.decide(typed, error: error) {
+        case .http(let url):
+            load(url)
+            return true
+        case .search(let text):
+            guard let url = AppSettings.shared.searchURL(for: text) else { return false }
+            load(url)
+            browser?.showToast("magnifyingglass", "Aucun site « \(text) » : recherche lancée")
+            return true
+        case nil:
+            return false
+        }
+    }
+
     /// A navigation committed: the page now shown is the one at `url`.
     func didCommit(_ url: URL?) {
+        typedAddress = nil
         guard let url, url != self.url else { return }
         self.url = url
         ExtensionEvents.tabChanged(self, .url)
