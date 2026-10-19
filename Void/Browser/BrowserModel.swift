@@ -796,6 +796,7 @@ final class BrowserModel {
             return space
         }
         currentSpaceID = spaces.contains { $0.id == saved.currentSpaceID } ? saved.currentSpaceID : spaces[0].id
+        FaviconLoader.remember(spaces.flatMap(\.allTabs))
         // Only the visible tab gets a web view at launch; the rest stays asleep.
     }
 }
