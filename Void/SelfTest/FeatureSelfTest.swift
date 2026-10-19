@@ -375,6 +375,7 @@ final class FeatureSelfTest {
         "formulaires": { t, space in await t.testFormFillTrust(in: space) },
         "fenetres-surgissantes": { t, space in await t.testPopupBlocking(in: space) },
         "favicons": { t, space in await t.testFaviconCookies(in: space) },
+        "analyse": { t, space in await t.testAnalysisFixes(in: space) },
         "teinte": { t, space in await t.testChromeTint(in: space) },
         "barre-reduite": { t, space in await t.testCompactSidebar(in: space) },
         "menu-historique": { t, space in await t.testHistoryMenu(in: space) },
@@ -1182,6 +1183,128 @@ final class FeatureSelfTest {
         for other in space.tabs where !before.contains(other.id) { browser.close(other, force: true) }
     }
 
+    /// Fixes of the analysis of 2026-10-19 (docs: « Analyse de Void 0.2.1.4 »), without network
+    /// unless said: lists read as carefully as the session, local devices and typed addresses,
+    /// links to apps, passwords, closed tabs and zoom, history.
+    private func testAnalysisFixes(in space: Space) async {
+        // Bug 3 — JSON files read element by element, set aside when damaged.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("void-tolerant-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let bookmarksFile = folder.appendingPathComponent("bookmarks.json")
+        try? Data(#"[{"title":"Bon","url":"https://void-a.example/"},{"title":"Abîmé","url":42},{"url":"https://void-b.example/"}]"#.utf8).write(to: bookmarksFile)
+        let bookmarks = TolerantJSON.array(of: Bookmark.self, at: bookmarksFile)
+        let copies = { (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.contains(".corrupt-") }.count ?? 0 }
+        check("Fichiers JSON : un favori abîmé n'emporte pas les autres, le fichier est copié à côté",
+              bookmarks.map(\.url.host) == ["void-a.example", "void-b.example"] && bookmarks.last?.title == "void-b.example" && copies() == 1,
+              "\(bookmarks.map(\.title)) · copies \(copies())")
+        let broken = folder.appendingPathComponent("extensions.json")
+        try? Data("[{\"id\":".utf8).write(to: broken)
+        let none = TolerantJSON.array(of: InstalledExtension.self, at: broken)
+        let hiddenFile = folder.appendingPathComponent("hidden-elements.json")
+        try? Data(##"{"void-a.example":["#pub"],"void-b.example":5}"##.utf8).write(to: hiddenFile)
+        let hidden = TolerantJSON.dictionary(of: [String].self, at: hiddenFile)
+        check("Fichiers JSON : fichier illisible mis de côté, dictionnaire lu valeur par valeur",
+              none.isEmpty && copies() == 3 && hidden == ["void-a.example": ["#pub"]], "copies \(copies()) · \(hidden)")
+
+        // Bug 5 — local devices and typed addresses.
+        check("Adresse : « nas:5000 » → http, « 12:30 » reste une recherche",
+              URLResolver.url(from: "nas:5000")?.absoluteString == "http://nas:5000" && URLResolver.url(from: "12:30") == nil
+              && URLResolver.url(from: "routeur:8080/admin")?.absoluteString == "http://routeur:8080/admin")
+        check("Réseau local : adresses privées, .local, noms sans point ; pas Internet",
+              ["192.168.1.1", "10.0.0.2", "172.16.4.1", "nas.local", "nas", "box.home.arpa", "fe80::1"].allSatisfy(LocalNetwork.isLocal)
+              && !["8.8.8.8", "172.32.0.1", "example.com", "github.io"].contains(where: LocalNetwork.isLocal))
+        func failure(_ code: Int, _ url: String) -> NSError {
+            NSError(domain: NSURLErrorDomain, code: code, userInfo: [NSURLErrorFailingURLErrorKey: URL(string: url)!])
+        }
+        let nodeJS = TypedAddressFallback.Typed(text: "node.js", url: URL(string: "https://node.js")!)
+        let oldSite = TypedAddressFallback.Typed(text: "vieux-site.example", url: URL(string: "https://vieux-site.example")!)
+        let nas = TypedAddressFallback.Typed(text: "nas.local", url: URL(string: "https://nas.local")!)
+        check("Adresse tapée : site inexistant → recherche ; rien en HTTPS → HTTP ; certificat refusé → rien",
+              TypedAddressFallback.decide(nodeJS, error: failure(NSURLErrorCannotFindHost, "https://node.js")) == .search("node.js")
+              && TypedAddressFallback.decide(oldSite, error: failure(NSURLErrorCannotConnectToHost, "https://vieux-site.example")) == .http(URL(string: "http://vieux-site.example")!)
+              && TypedAddressFallback.decide(oldSite, error: failure(NSURLErrorServerCertificateUntrusted, "https://vieux-site.example")) == nil
+              && TypedAddressFallback.decide(nas, error: failure(NSURLErrorCannotFindHost, "https://nas.local")) == nil
+              && URLResolver.isTypedWithoutScheme("apple.com") && !URLResolver.isTypedWithoutScheme("https://apple.com"))
+        let pending = CertificateExceptions.Pending(host: "192.168.77.77", fingerprint: "selftest")
+        CertificateExceptions.accept(pending)
+        let excepted = CertificateExceptions.isExcepted("192.168.77.77")
+        CertificateExceptions.remove("192.168.77.77")
+        check("Certificat accepté : retenu pour l'appareil, puis oublié", excepted && !CertificateExceptions.isExcepted("192.168.77.77"))
+
+        // Bug 6 — links to apps set by a script.
+        check("Liens vers d'autres apps : sans clic, demandé pour l'onglet affiché, refusé sinon ou depuis un cadre",
+              ExternalURLPolicy.decide(scheme: "msteams", userClick: false, fromMainFrame: true, tabShown: true) == .ask
+              && ExternalURLPolicy.decide(scheme: "mailto", userClick: false, fromMainFrame: true, tabShown: true) == .ask
+              && ExternalURLPolicy.decide(scheme: "msteams", userClick: false, fromMainFrame: true, tabShown: false) == .refuse
+              && ExternalURLPolicy.decide(scheme: "msteams", userClick: true, fromMainFrame: false, tabShown: true) == .refuse
+              && ExternalURLPolicy.decide(scheme: "smb", userClick: false, fromMainFrame: true, tabShown: true) == .refuse)
+
+        // Bug 7 — a copied password: concealed, this Mac only.
+        let pasteboard = NSPasteboard.general
+        let previous = pasteboard.string(forType: .string)
+        Clipboard.copySecret("selftest-secret")
+        let types = pasteboard.types ?? []
+        check("Mot de passe copié : marqué masqué pour les gestionnaires de presse-papiers",
+              pasteboard.string(forType: .string) == "selftest-secret" && types.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")),
+              types.map(\.rawValue).joined(separator: ", "))
+        pasteboard.clearContents()
+        if let previous { pasteboard.setString(previous, forType: .string) }
+
+        // Bug 8 — protocol and shared hosting.
+        let secureLogin = SavedLogin(host: "banque.example", account: "moi", modified: nil)
+        let pagesLogin = SavedLogin(host: "moi.github.io", account: "moi", modified: nil)
+        let routerLogin = SavedLogin(host: "192.168.1.1", account: "admin", modified: nil)
+        check("Identifiants : un compte https n'est pas proposé en HTTP sur Internet, l'est sur un appareil local",
+              secureLogin.isUsable(on: "banque.example", secure: true) && !secureLogin.isUsable(on: "banque.example", secure: false)
+              && routerLogin.isUsable(on: "192.168.1.1", secure: false)
+              && SavedLogin(host: "vieux.example", account: "moi", modified: nil, isSecure: false).isUsable(on: "vieux.example", secure: false))
+        check("Identifiants : hébergeurs partagés séparés, sous-domaines d'un même site non",
+              pagesLogin.isUsable(on: "moi.github.io", secure: true) && !pagesLogin.isUsable(on: "autre.github.io", secure: true)
+              && !pagesLogin.isUsable(on: "github.io", secure: true) && secureLogin.isUsable(on: "www.banque.example", secure: true)
+              && secureLogin.isUsable(on: "compte.banque.example", secure: true))
+
+        // Bug 12 — zoom by site, closed tab with its history.
+        let settings = AppSettings.shared
+        let savedZooms = settings.siteZooms
+        defer { settings.siteZooms = savedZooms }
+        let first = await htmlTab("<title>Zoom</title><body>Zoom</body>", in: space, base: "https://void-zoom.example/")
+        browser.select(first)
+        browser.zoom(0.2)
+        let second = await htmlTab("<title>Zoom 2</title><body>Zoom</body>", in: space, base: "https://void-zoom.example/autre")
+        let kept = second.webView?.pageZoom ?? 0
+        browser.select(second)
+        browser.zoom(nil)
+        check("Zoom : retenu par site et remis à une autre page du site ; ⌘0 l'oublie",
+              abs(kept - 1.2) < 0.01 && settings.siteZooms["void-zoom.example"] == nil, "zoom \(kept) · \(settings.siteZooms)")
+        browser.close(first)
+        let history = browser.openTab(url: URL(string: "https://example.com/?ferme=a"), in: space)
+        await waitForLoad(history)
+        history.load(URL(string: "https://example.com/?ferme=b")!)
+        await waitForLoad(history)
+        let hadBack = history.canGoBack
+        browser.select(history)
+        browser.close(history)
+        browser.reopenClosedTab()
+        let reopened = browser.selectedTab
+        if let reopened { await waitForLoad(reopened) }
+        check("⌘⇧T : l'onglet revient avec son historique (Précédent actif)",
+              hadBack && reopened?.url?.query() == "ferme=b" && reopened?.canGoBack == true,
+              "avant \(hadBack) · après \(reopened?.canGoBack == true)")
+        if let reopened { browser.close(reopened) }
+        browser.close(second)
+
+        // Bug 13 — what is deleted is overwritten.
+        check("Historique : suppression sécurisée (secure_delete)", HistoryStore.shared.secureDelete == "1", HistoryStore.shared.secureDelete ?? "nil")
+
+        // Bug 4 — the store answers with the version it serves (network).
+        if #available(macOS 15.4, *) {
+            let version = await ChromeExtensions.latestWebStoreVersion(id: "ghmbeldphafepmbegfdlkpapadhbakde")
+            check("Extensions : version servie par le Chrome Web Store lue (Proton Pass)",
+                  version.map { !$0.isEmpty && $0.allSatisfy { $0.isNumber || $0 == "." } } == true, version ?? "nil")
+        }
+    }
+
     /// Favicons are fetched outside WebKit: a cookie set on /favicon.ico must never come back
     /// (it would tie spaces and private windows together).
     private func testFaviconCookies(in space: Space) async {
@@ -1747,6 +1870,15 @@ final class FeatureSelfTest {
         let savedAsk = AppSettings.shared.askDownloadLocation
         AppSettings.shared.askDownloadLocation = false
         defer { AppSettings.shared.askDownloadLocation = savedAsk }
+        // The same window at every run: simulated clicks, split widths and window sizes depend on
+        // it (a 1 800 px window made the clicks land beside the page). Put back as it was after.
+        let savedFrame = browser.window?.frame
+        if let window = browser.window, let screen = window.screen?.visibleFrame {
+            let size = NSSize(width: min(1200, screen.width), height: min(800, screen.height))
+            window.setFrame(NSRect(x: screen.minX + 40, y: screen.maxY - size.height - 40, width: size.width, height: size.height), display: true)
+            await sleep(0.5)
+        }
+        defer { if let savedFrame { browser.window?.setFrame(savedFrame, display: true) } }
         if let only = UserDefaults.standard.string(forKey: "VoidSelfTestOnly") {
             let space = browser.addSpace(name: "Self-test", icon: "hammer")
             for name in only.split(separator: ",").map(String.init) {
@@ -1805,14 +1937,13 @@ final class FeatureSelfTest {
         }
         let titles = menu.items.map(\.title)
         check("Menu contextuel : « Ouvrir le lien dans un nouvel onglet »", titles.contains("Ouvrir le lien dans un nouvel onglet"))
-        check("Menu contextuel : arrière-plan + fenêtre privée (plus d'onglet privé)", titles.contains("Ouvrir dans un onglet en arrière-plan")
-              && titles.contains("Ouvrir dans une fenêtre privée") && !titles.contains("Ouvrir dans un onglet privé"))
-        if let bg = menu.items.first(where: { $0.title == "Ouvrir dans un onglet en arrière-plan" }), let action = bg.action {
-            let count = space.tabs.count
-            NSApp.sendAction(action, to: bg.target, from: bg)
-            await sleep(0.5)
-            check("Menu contextuel : l'onglet s'ouvre", space.tabs.count == count + 1)
-        }
+        // « Ouvrir le lien dans un nouvel onglet » opens it behind (24ed15c): no separate item.
+        let privateItem = menu.items.first { $0.title == "Ouvrir dans une fenêtre privée" }
+        check("Menu contextuel : côte à côte + fenêtre privée (plus d'onglet privé, plus d'item « arrière-plan »)",
+              titles.contains("Ouvrir le lien côte à côte") && privateItem?.action != nil
+              && (privateItem?.representedObject as? URL)?.absoluteString == "https://example.com/?via=cmdclick"
+              && !titles.contains("Ouvrir dans un onglet privé") && !titles.contains("Ouvrir dans un onglet en arrière-plan"),
+              titles.joined(separator: " · "))
 
         // 3. Pinned tab + ⌘W → sleep
         let pinned = browser.openTab(url: URL(string: "https://example.com/?pinned"), in: space)
@@ -2051,6 +2182,9 @@ final class FeatureSelfTest {
         await testSideBySide(in: space)
         await testMeetingWindow(in: space)
         await testShareAudio(in: space)
+
+        // Fixes of the analysis of 2026-10-19
+        await testAnalysisFixes(in: space)
 
         settings.tabLayout = savedLayout
         settings.theme = savedTheme

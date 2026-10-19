@@ -9,6 +9,16 @@ struct SavedLogin: Identifiable, Hashable {
     /// Saved from an https page (and every import): never offered on a plain-HTTP page of a site on
     /// the Internet, where anyone on the network could read what is typed.
     var isSecure = true
+
+    /// Offered on `host` (see KeychainStore.logins(matching:secure:)).
+    func isUsable(on host: String, secure: Bool) -> Bool {
+        let h = host.voidNormalizedHost
+        if !secure && !LocalNetwork.isLocal(h) && isSecure { return false }
+        let l = self.host.voidNormalizedHost
+        if l == h { return true }
+        if KeychainStore.isSharedHosting(l) || KeychainStore.isSharedHosting(h) { return false }
+        return h.hasSuffix("." + l) || l.hasSuffix("." + h)
+    }
 }
 
 /// Passwords live in the macOS keychain as Internet passwords tagged with creator 'VOID'.
@@ -106,7 +116,7 @@ enum KeychainStore {
                                         "wordpress.com", "tumblr.com", "glitch.me", "onrender.com", "fly.dev", "repl.co",
                                         "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com", "neocities.org", "wixsite.com"]
 
-    private static func isSharedHosting(_ host: String) -> Bool {
+    static func isSharedHosting(_ host: String) -> Bool {
         sharedHostingSuffixes.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
@@ -114,15 +124,7 @@ enum KeychainStore {
     /// `secure`: the page is https. On a plain-HTTP page of an Internet site, only logins saved
     /// over HTTP; a local device (router, intranet) keeps getting its logins.
     static func logins(matching host: String, secure: Bool = true) -> [SavedLogin] {
-        let h = host.voidNormalizedHost
-        let plainInternet = !secure && !LocalNetwork.isLocal(h)
-        return logins().filter { login in
-            if plainInternet && login.isSecure { return false }
-            let l = login.host.voidNormalizedHost
-            if l == h { return true }
-            if isSharedHosting(l) || isSharedHosting(h) { return false }
-            return h.hasSuffix("." + l) || l.hasSuffix("." + h)
-        }
+        logins().filter { login in login.isUsable(on: host, secure: secure) }
     }
 
     /// Call only after BiometricGate succeeded.

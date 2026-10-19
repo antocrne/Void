@@ -385,6 +385,22 @@
         }
       }
     },
+    "%lld extensions mises à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld extensions updated"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld extensions mises à jour"
+          }
+        }
+      }
+    },
     "%lld favori(s)" : {
       "localizations" : {
         "en" : {
@@ -1529,6 +1545,22 @@
         }
       }
     },
+    "Appareils au certificat accepté" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devices with an accepted certificate"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appareils au certificat accepté"
+          }
+        }
+      }
+    },
     "Apparence" : {
       "localizations" : {
         "en" : {
@@ -1749,6 +1781,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun site"
+          }
+        }
+      }
+    },
+    "Aucun site « %@ » : recherche lancée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No site “%@”: searching instead"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun site « %@ » : recherche lancée"
           }
         }
       }
@@ -2361,6 +2409,22 @@
         }
       }
     },
+    "Box, NAS, imprimantes dont vous avez accepté le certificat (« Continuer vers… »). Un nouveau certificat est redemandé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Routers, NAS and printers whose certificate you accepted (“Continue to…”). A new certificate is asked about again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Box, NAS, imprimantes dont vous avez accepté le certificat (« Continuer vers… »). Un nouveau certificat est redemandé."
+          }
+        }
+      }
+    },
     "C'est prêt" : {
       "localizations" : {
         "en" : {
@@ -2917,6 +2981,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Continuer les téléchargements"
+          }
+        }
+      }
+    },
+    "Continuer vers %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue to %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continuer vers %@"
           }
         }
       }
@@ -4955,6 +5035,38 @@
         }
       }
     },
+    "Jamais d'enregistrement sur %lld site(s)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Never saved on %lld site(s)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jamais d'enregistrement sur %lld site(s)"
+          }
+        }
+      }
+    },
+    "Jamais d'enregistrement sur ces sites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Never saved on these sites"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jamais d'enregistrement sur ces sites"
+          }
+        }
+      }
+    },
     "Jamais pour ce site" : {
       "localizations" : {
         "en" : {
@@ -5464,6 +5576,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les extensions Chrome fonctionnent dans Void. Elles s'appliquent aux onglets ouverts ensuite."
+          }
+        }
+      }
+    },
+    "Les extensions sont à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extensions are up to date"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les extensions sont à jour"
           }
         }
       }
@@ -5996,6 +6124,22 @@
         }
       }
     },
+    "Mettre à jour automatiquement" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update automatically"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à jour automatiquement"
+          }
+        }
+      }
+    },
     "Mio" : {
       "comment" : "Symbol of the mebibyte unit",
       "localizations" : {
@@ -6106,6 +6250,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mot de passe"
+          }
+        }
+      }
+    },
+    "Mot de passe copié pour 90 secondes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password copied for 90 seconds"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mot de passe copié pour 90 secondes"
           }
         }
       }
@@ -6938,6 +7098,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ou trouvez-la dans le Store et cliquez sur « Ajouter à Void » sur sa page."
+          }
+        }
+      }
+    },
+    "Oublier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forget"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oublier"
           }
         }
       }
@@ -8142,6 +8318,22 @@
         }
       }
     },
+    "Rechercher les mises à jour maintenant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for Updates Now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher les mises à jour maintenant"
+          }
+        }
+      }
+    },
     "Rechercher les mises à jour…" : {
       "localizations" : {
         "en" : {
@@ -9146,6 +9338,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sombre"
+          }
+        }
+      }
+    },
+    "Son certificat ne peut pas être vérifié, comme souvent pour un appareil du réseau local (box, NAS, imprimante). Ne continuez que si vous reconnaissez cet appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its certificate can’t be verified, as is common for a device on your local network (router, NAS, printer). Only continue if you recognize this device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son certificat ne peut pas être vérifié, comme souvent pour un appareil du réseau local (box, NAS, imprimante). Ne continuez que si vous reconnaissez cet appareil."
           }
         }
       }
@@ -10191,6 +10399,22 @@
         }
       }
     },
+    "Une fois par jour, les extensions du Chrome Web Store passent à leur dernière version, sans perdre leurs données. Une version qui demande plus d'autorisations attend votre accord." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Once a day, extensions from the Chrome Web Store move to their latest version, keeping their data. A version that asks for more permissions waits for your approval."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une fois par jour, les extensions du Chrome Web Store passent à leur dernière version, sans perdre leurs données. Une version qui demande plus d'autorisations attend votre accord."
+          }
+        }
+      }
+    },
     "Une rangée au-dessus de la page ; les dossiers s'ouvrent sous forme de menus. Elle se replie avec les onglets." : {
       "localizations" : {
         "en" : {
@@ -11232,6 +11456,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "« %@ » demande un nom d'utilisateur et un mot de passe."
+          }
+        }
+      }
+    },
+    "« %@ » mise à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” updated"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« %@ » mise à jour"
           }
         }
       }

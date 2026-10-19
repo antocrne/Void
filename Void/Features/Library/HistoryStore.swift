@@ -57,6 +57,7 @@ final class HistoryStore {
     #if DEBUG
     @ObservationIgnored private(set) var titleWrites = 0
     var journalMode: String? { db?.string("PRAGMA journal_mode") }
+    var secureDelete: String? { db?.string("PRAGMA secure_delete") }
     #endif
 
     func updateTitle(url: URL, title: String) {
