@@ -119,6 +119,8 @@ private struct ReaderWebView: PlatformViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
+        // The article's images come from the page: its tracking pixels stay blocked here too.
+        if let list = ContentRules.shared.installedAdBlockList { config.userContentController.add(list) }
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.underPageBackgroundColor = .clear

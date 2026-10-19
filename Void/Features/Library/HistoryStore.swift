@@ -98,8 +98,13 @@ final class HistoryStore {
         revision += 1
     }
 
+    /// « Effacer l'historique »: nothing left on disk either — the write-ahead log, which still
+    /// holds the old pages until a checkpoint, is emptied, and the file is rewritten.
     func clear() {
         db?.execute("DELETE FROM history")
+        db?.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db?.execute("VACUUM")
+        writtenTitles.removeAll()
         revision += 1
     }
 

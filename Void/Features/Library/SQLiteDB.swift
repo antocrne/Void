@@ -19,6 +19,9 @@ final class SQLiteDB {
             sqlite3_busy_timeout(handle, 2000)
             execute("PRAGMA journal_mode=WAL")
             execute("PRAGMA synchronous=NORMAL")
+            // What is deleted is overwritten with zeros, not just marked free: a page removed from
+            // the history can't be read back from the file.
+            execute("PRAGMA secure_delete=ON")
         }
     }
 
