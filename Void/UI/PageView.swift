@@ -1,13 +1,26 @@
 import SwiftUI
 import WebKit
 
-/// The page area: web content plus the few overlays Void needs.
+/// The page area: web content plus the few overlays Void needs, and an extension's side panel on
+/// its right when one is open.
 struct PageView: View {
     @Environment(BrowserModel.self) private var browser
 
     var body: some View {
+        HStack(spacing: 0) {
+            page
+            if let panel = browser.sidePanel {
+                ExtensionSidePanelView(panel: panel)
+                    .id(panel.id)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(Theme.spring, value: browser.sidePanel?.id)
+    }
+
+    private var page: some View {
         let tab = browser.selectedTab
-        ZStack(alignment: .top) {
+        return ZStack(alignment: .top) {
             Theme.surface
 
             WebHost(browser: browser)
@@ -56,6 +69,71 @@ struct PageView: View {
             browser.selectedTab?.ensureWebView()
             browser.splitPartner?.ensureWebView()
         }
+    }
+}
+
+/// An extension's side panel (chrome.sidePanel): its name and a close button above its page; the
+/// left edge is dragged to resize it.
+private struct ExtensionSidePanelView: View {
+    let panel: ExtensionSidePanel
+    @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
+
+    var body: some View {
+        let width = CGFloat(settings.sidePanelWidth)
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                if let icon = panel.icon {
+                    Image(nsImage: icon.voidResized(to: 14))
+                }
+                Text(verbatim: panel.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.primaryText.opacity(0.85))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                ChromeButton(symbol: "xmark", help: "Fermer le panneau", size: 11) { browser.sidePanel = nil }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .frame(height: 32)
+            .background(Theme.surface)
+            Divider()
+            PanelWebHost(webView: panel.webView)
+        }
+        .frame(width: width)
+        .background(Theme.surface)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Theme.stroke).frame(width: 1)
+        }
+        .overlay(alignment: .leading) {
+            // The handle adds what the pointer moved to the width it is given: given the
+            // negative width, it moves the left edge.
+            SidebarResizeHandle(width: -settings.sidePanelWidth,
+                                onResize: { settings.sidePanelWidth = min(AppSettings.sidePanelWidthRange.upperBound, max(AppSettings.sidePanelWidthRange.lowerBound, -$0)) },
+                                onReset: { withAnimation(Theme.spring) { settings.sidePanelWidth = AppSettings.defaultSidePanelWidth } })
+                .frame(width: 8)
+                .offset(x: -4)
+                .help("Tirer pour élargir · double-clic : largeur par défaut")
+        }
+    }
+}
+
+/// The panel's page, kept by the panel: the same web view comes back after a redraw.
+private struct PanelWebHost: NSViewRepresentable {
+    let webView: WKWebView
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        updateNSView(container, context: context)
+        return container
+    }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        guard webView.superview !== container else { return }
+        container.subviews.forEach { $0.removeFromSuperview() }
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
     }
 }
 

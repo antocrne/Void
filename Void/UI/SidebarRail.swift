@@ -233,9 +233,28 @@ private struct RailFolderButton: View {
 /// button), then downloads, extensions and the private window.
 private struct RailTools: View {
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
     @State private var creating = false
 
     var body: some View {
+        if settings.minimalist { minimal } else { full }
+    }
+
+    /// Minimalist: the spaces (when there are several), then the menu button.
+    private var minimal: some View {
+        VStack(spacing: 2) {
+            if !browser.isPrivate && browser.spaces.count > 1 {
+                ForEach(browser.spaces) { space in
+                    SpaceIconButton(space: space, selected: space.id == browser.currentSpaceID)
+                }
+                Divider().frame(width: 24).padding(.vertical, 4)
+            }
+            MinimalMenuButton(arrowEdge: .trailing)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var full: some View {
         VStack(spacing: 2) {
             if browser.isPrivate {
                 ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }

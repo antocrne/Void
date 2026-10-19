@@ -4121,6 +4121,22 @@
         }
       }
     },
+    "Extension" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension"
+          }
+        }
+      }
+    },
     "Extensions" : {
       "localizations" : {
         "en" : {
@@ -4345,6 +4361,22 @@
         }
       }
     },
+    "Fermer la fenêtre privée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Private Window"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer la fenêtre privée"
+          }
+        }
+      }
+    },
     "Fermer la fenêtre privée et tout effacer (⌘⇧W)" : {
       "localizations" : {
         "en" : {
@@ -4357,6 +4389,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fermer la fenêtre privée et tout effacer (⌘⇧W)"
+          }
+        }
+      }
+    },
+    "Fermer le panneau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Panel"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer le panneau"
           }
         }
       }
@@ -6174,6 +6222,22 @@
         }
       }
     },
+    "Mode Minimalist" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimalist Mode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode Minimalist"
+          }
+        }
+      }
+    },
     "Mode lecture" : {
       "localizations" : {
         "en" : {
@@ -6394,6 +6458,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Navigation privée"
+          }
+        }
+      }
+    },
+    "Ne restent autour de la page que la navigation, l'adresse et les onglets. Navigation privée, téléchargements, historique, favoris et extensions passent dans un seul bouton, en haut à droite ou en bas de la barre latérale." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only navigation, the address and the tabs stay around the page. Private browsing, downloads, history, bookmarks and extensions move behind a single button, at the top right or at the bottom of the sidebar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne restent autour de la page que la navigation, l'adresse et les onglets. Navigation privée, téléchargements, historique, favoris et extensions passent dans un seul bouton, en haut à droite ou en bas de la barre latérale."
           }
         }
       }
@@ -9882,6 +9962,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tirer pour partager la largeur · double-clic : moitié-moitié"
+          }
+        }
+      }
+    },
+    "Tirer pour élargir · double-clic : largeur par défaut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to resize · double-click: default width"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tirer pour élargir · double-clic : largeur par défaut"
           }
         }
       }

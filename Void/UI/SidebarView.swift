@@ -54,33 +54,14 @@ private struct SpaceTabList: View {
     let space: Space
     let namespace: Namespace.ID
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
     @State private var hoveringNew = false
     @State private var reorder = TabReorder(layout: .vertical, spacing: 2)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                if browser.isPrivate {
-                    PrivateBadge()
-                    Text("Rien n'est conservé").font(.system(size: 11, weight: .medium))
-                } else {
-                    Image(systemName: space.icon).font(.system(size: 11, weight: .semibold))
-                    Text(space.name).font(.system(size: 11.5, weight: .semibold))
-                }
-                Spacer()
-                if browser.managesSpaces {
-                    Button { browser.addFolder(in: space) } label: {
-                        Image(systemName: "folder.badge.plus").font(.system(size: 11.5, weight: .medium))
-                            .frame(width: 20, height: 18)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Nouveau dossier, pour ranger des onglets à voir plus tard (⌃⌘N)")
-                }
-            }
-            .foregroundStyle(Theme.secondaryText)
-            .padding(.horizontal, 9)
-            .padding(.bottom, 4)
+            // Minimalist: the space shows by its icon below, folders come from the menu.
+            if !settings.minimalist || browser.isPrivate { header }
 
             Button { browser.showCommandBar(.newTab) } label: {
                 HStack(spacing: 9) {
@@ -100,41 +81,71 @@ private struct SpaceTabList: View {
             .buttonStyle(.plain)
             .onHover { hoveringNew = $0 }
 
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 2) {
-                    ForEach(space.folders) { folder in
-                        TabFolderRow(folder: folder, reorder: reorder)
-                        if folder.isExpanded && folder.tabs.isEmpty {
-                            Text("Vide · glissez-y un onglet")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(Theme.secondaryText.opacity(0.8))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 34)
-                                .frame(height: 24)
-                        }
-                        ForEach(folder.shownTabs(selectedID: space.selectedTabID)) { tab in
-                            SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace, indent: 16)
-                                .tabReorderable(tab, with: reorder)
-                                .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
-                        }
+            tabs
+        }
+    }
+
+    /// The space's name and the new folder button (in a private window: what it keeps).
+    private var header: some View {
+        HStack(spacing: 6) {
+            if browser.isPrivate {
+                PrivateBadge()
+                Text("Rien n'est conservé").font(.system(size: 11, weight: .medium))
+            } else {
+                Image(systemName: space.icon).font(.system(size: 11, weight: .semibold))
+                Text(space.name).font(.system(size: 11.5, weight: .semibold))
+            }
+            Spacer()
+            if browser.managesSpaces {
+                Button { browser.addFolder(in: space) } label: {
+                    Image(systemName: "folder.badge.plus").font(.system(size: 11.5, weight: .medium))
+                        .frame(width: 20, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Nouveau dossier, pour ranger des onglets à voir plus tard (⌃⌘N)")
+            }
+        }
+        .foregroundStyle(Theme.secondaryText)
+        .padding(.horizontal, 9)
+        .padding(.bottom, 4)
+    }
+
+    private var tabs: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 2) {
+                ForEach(space.folders) { folder in
+                    TabFolderRow(folder: folder, reorder: reorder)
+                    if folder.isExpanded && folder.tabs.isEmpty {
+                        Text("Vide · glissez-y un onglet")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Theme.secondaryText.opacity(0.8))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 34)
+                            .frame(height: 24)
                     }
-                    if !space.folders.isEmpty {
-                        // Where the space's own tabs begin: a folder's tab released below comes out of it.
-                        Divider()
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(reorder.coordinateSpace)).midY } action: {
-                                reorder.recordLooseTop($0)
-                            }
-                    }
-                    ForEach(space.tabs) { tab in
-                        SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace)
+                    ForEach(folder.shownTabs(selectedID: space.selectedTabID)) { tab in
+                        SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace, indent: 16)
                             .tabReorderable(tab, with: reorder)
                             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                     }
                 }
-                .coordinateSpace(.named(reorder.coordinateSpace))
+                if !space.folders.isEmpty {
+                    // Where the space's own tabs begin: a folder's tab released below comes out of it.
+                    Divider()
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(reorder.coordinateSpace)).midY } action: {
+                            reorder.recordLooseTop($0)
+                        }
+                }
+                ForEach(space.tabs) { tab in
+                    SidebarTabRow(tab: tab, selected: space.selectedTabID == tab.id, namespace: namespace)
+                        .tabReorderable(tab, with: reorder)
+                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                }
             }
+            .coordinateSpace(.named(reorder.coordinateSpace))
         }
     }
 }
@@ -234,6 +245,7 @@ private struct FolderActions: ViewModifier {
 /// fit), spaces (none in a private window).
 private struct SpaceBar: View {
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
     @State private var creating = false
     @State private var width: CGFloat?
 
@@ -250,6 +262,25 @@ private struct SpaceBar: View {
     }
 
     var body: some View {
+        if settings.minimalist { minimal } else { full }
+    }
+
+    /// Minimalist: the menu button and the spaces. Tabs kept hidden at the edge, the menu button is
+    /// in the bar above the page.
+    private var minimal: some View {
+        HStack(spacing: 2) {
+            if !settings.sidebarAutoHide { MinimalMenuButton(arrowEdge: .top) }
+            Spacer(minLength: Self.minGap)
+            if !browser.isPrivate && browser.spaces.count > 1 {
+                ForEach(browser.spaces) { space in
+                    SpaceIconButton(space: space, selected: space.id == browser.currentSpaceID)
+                }
+            }
+        }
+        .frame(height: 30)
+    }
+
+    private var full: some View {
         HStack(spacing: 2) {
             if !browser.isPrivate {
                 ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
@@ -431,7 +462,7 @@ struct DownloadsButton: View {
 
 /// The arrow inside a thin ring that fills up as the downloads progress; a short arc turns while
 /// no size is known. Grey while everything is paused.
-private struct DownloadProgressIcon: View {
+struct DownloadProgressIcon: View {
     let progress: DownloadManager.Progress
     @State private var spinning = false
 
@@ -469,7 +500,7 @@ private struct DownloadProgressIcon: View {
     }
 }
 
-private struct DownloadsPopover: View {
+struct DownloadsPopover: View {
     let browser: BrowserModel
 
     var body: some View {

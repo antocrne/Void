@@ -167,6 +167,9 @@ private struct TabsSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Affichage") {
+                Toggle("Mode Minimalist", isOn: $settings.minimalist.animation(Theme.spring))
+                Text("Ne restent autour de la page que la navigation, l'adresse et les onglets. Navigation privée, téléchargements, historique, favoris et extensions passent dans un seul bouton, en haut à droite ou en bas de la barre latérale.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Les onglets affichent", selection: $settings.tabIconStyle) {
                     ForEach(TabIconStyle.allCases) { Text($0.label).tag($0) }
                 }
