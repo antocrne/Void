@@ -37,7 +37,10 @@ BUILT=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Cont
 [[ $BUILT == $VERSION ]] || { echo "✗ L'app compilée est en $BUILT, pas en $VERSION"; exit 1; }
 # Void refuses an update that isn't signed by the same team as itself.
 codesign --verify --deep --strict "$APP"
-codesign -dv "$APP" 2>&1 | grep -q '^TeamIdentifier=[A-Z0-9]' || { echo "✗ L'app n'est pas signée par une équipe"; exit 1; }
+# Read whole before searching: `grep -q` stops at the first match, and codesign, still writing,
+# then dies of SIGPIPE, which pipefail takes for a failure.
+SIGNATURE=$(codesign -dv "$APP" 2>&1)
+[[ $SIGNATURE == *$'\n'TeamIdentifier=[A-Z0-9]* ]] || { echo "✗ L'app n'est pas signée par une équipe"; exit 1; }
 
 ZIP="$ROOT/build/Void-$VERSION.zip"
 rm -f "$ZIP"
