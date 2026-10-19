@@ -98,8 +98,10 @@ final class Tab: Identifiable {
     @ObservationIgnored private var popupConfiguration: WKWebViewConfiguration?
     @ObservationIgnored private var webViewBeingCreated: VoidWebView?
 
+    /// `interactionState`: a back/forward list to come back with (a tab reopened by ⌘⇧T).
     init(id: UUID = UUID(), url: URL?, title: String = "", isPinned: Bool = false,
-         isPrivate: Bool = false, faviconData: Data? = nil, popupConfiguration: WKWebViewConfiguration? = nil) {
+         isPrivate: Bool = false, faviconData: Data? = nil, popupConfiguration: WKWebViewConfiguration? = nil,
+         interactionState: Any? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -109,6 +111,17 @@ final class Tab: Identifiable {
         self.favicon = faviconData.flatMap(PlatformImage.init(data:))
         self.popupConfiguration = popupConfiguration
         self.openedByPage = popupConfiguration != nil
+        self.savedInteractionState = interactionState
+    }
+
+    /// The back/forward list as it is now: the web view's, or the one kept by a sleep.
+    var currentInteractionState: Any? { webView?.interactionState ?? savedInteractionState }
+
+    /// The zoom chosen for this site (⌘+ ⌘− ⌘0), set again at each page of it.
+    func applySiteZoom() {
+        guard let webView, let host = webView.url?.host() else { return }
+        let zoom = AppSettings.shared.siteZoom(for: host)
+        if webView.pageZoom != zoom { webView.pageZoom = zoom }
     }
 
     var displayTitle: String {
@@ -173,8 +186,18 @@ final class Tab: Identifiable {
         untrustedCertificate = nil
         typedAddress = nil
         reader = nil
+        let asleep = webView == nil
+        let restoring = asleep && savedInteractionState != nil
+        let isPopup = popupConfiguration != nil
         let wv = ensureWebView()
-        wv.load(URLRequest(url: url))
+        if !asleep || isPopup {
+            wv.load(URLRequest(url: url))
+        } else if restoring {
+            // Its history comes back first (ensureWebView), then the new page goes on top of it.
+            ContentRules.shared.whenReady { [weak wv] in wv?.load(URLRequest(url: url)) }
+        }
+        // Otherwise ensureWebView has just asked for `url`, once the blocker's rules are in: a
+        // second load here would cancel that one and go out before the rules.
     }
 
     /// Releases the web view (pinned tabs on ⌘W, memory). Never while in PiP, unless `force`

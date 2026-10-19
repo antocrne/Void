@@ -43,6 +43,9 @@ struct ClosedTab {
     let title: String
     let favicon: PlatformImage?
     let spaceID: UUID
+    /// Its back/forward list and place in the page (WebKit's interactionState): it comes back
+    /// as it was, « Précédent » included.
+    var interactionState: Any? = nil
 }
 
 /// The state of one browser window: spaces, tabs, selection and transient UI.
@@ -187,9 +190,9 @@ final class BrowserModel {
     /// Every tab of a private window is private (⌘T, links, pop-ups alike).
     @discardableResult
     func openTab(url: URL?, in space: Space? = nil, background: Bool = false,
-                 after anchor: Tab? = nil, popupConfiguration: WKWebViewConfiguration? = nil) -> Tab {
+                 after anchor: Tab? = nil, popupConfiguration: WKWebViewConfiguration? = nil, restoring state: Any? = nil) -> Tab {
         let space = space ?? anchor?.space ?? currentSpace
-        let tab = Tab(url: url, isPrivate: isPrivate, popupConfiguration: popupConfiguration)
+        let tab = Tab(url: url, isPrivate: isPrivate, popupConfiguration: popupConfiguration, interactionState: state)
         tab.space = space
         withAnimation(Theme.spring) {
             if let anchor, !anchor.isPinned, let i = space.tabs.firstIndex(where: { $0 === anchor }) {
@@ -246,7 +249,10 @@ final class BrowserModel {
         }
         if tab.isInFloatingPlayer { FloatingPlayer.shared.close() }
         if tab.isInPiP, let wv = tab.webView { PiPController.shared.forceExit(wv) }
-        if let url = tab.url { closedTabs.append(ClosedTab(url: url, title: tab.displayTitle, favicon: tab.favicon, spaceID: space.id)) }
+        if let url = tab.url {
+            closedTabs.append(ClosedTab(url: url, title: tab.displayTitle, favicon: tab.favicon, spaceID: space.id,
+                                        interactionState: tab.currentInteractionState))
+        }
         if closedTabs.count > 30 { closedTabs.removeFirst() }
         if reselect, space.selectedTabID == tab.id { selectNeighbor(of: tab, in: space, preferring: partner) }
         withAnimation(Theme.spring) { space.detach(tab) }
@@ -339,7 +345,7 @@ final class BrowserModel {
         guard closedTabs.indices.contains(index) else { return }
         let closed = closedTabs.remove(at: index)
         let space = spaces.first { $0.id == closed.spaceID } ?? currentSpace
-        openTab(url: closed.url, in: space)
+        openTab(url: closed.url, in: space, restoring: closed.interactionState)
     }
 
     /// In the order they were closed, the last one shown.
@@ -348,7 +354,7 @@ final class BrowserModel {
         closedTabs = []
         for (i, closed) in all.enumerated() {
             let space = spaces.first { $0.id == closed.spaceID } ?? currentSpace
-            openTab(url: closed.url, in: space, background: i < all.count - 1)
+            openTab(url: closed.url, in: space, background: i < all.count - 1, restoring: closed.interactionState)
         }
     }
 

@@ -18,9 +18,13 @@ extension BrowserModel {
 
     func stopLoading() { webView?.stopLoading() }
 
+    /// ⌘+ ⌘− ⌘0: remembered for the site (not from a private window) and set again at each of its
+    /// pages, wake-ups and relaunches included.
     func zoom(_ delta: CGFloat?) {
         guard let webView else { return }
-        webView.pageZoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
+        let zoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
+        webView.pageZoom = zoom
+        if !isPrivate, let host = webView.url?.host() { AppSettings.shared.setSiteZoom(zoom, for: host) }
     }
 
     func toggleBookmark() {
