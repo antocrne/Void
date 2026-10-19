@@ -3,6 +3,7 @@ import SwiftUI
 /// Top layout: one compact row — navigation, then the tabs; the active tab is the address field.
 struct TopBarView: View {
     @Environment(BrowserModel.self) private var browser
+    @Environment(AppSettings.self) private var settings
     @Namespace private var selection
     @State private var reorder = TabReorder(layout: .horizontal, spacing: 4)
     @State private var pinnedReorder = TabReorder(layout: .horizontal, spacing: 4)
@@ -60,14 +61,18 @@ struct TopBarView: View {
             }
             ChromeButton(symbol: "plus", help: "Nouvel onglet (⌘T)") { browser.showCommandBar(.newTab) }
             Spacer(minLength: 0)
-            // The sidebar's tools, on the right.
-            ExtensionsButton()
-            if browser.isPrivate {
-                ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }
+            // The sidebar's tools, on the right (Minimalist: behind one button).
+            if settings.minimalist {
+                MinimalMenuButton()
             } else {
-                ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
+                ExtensionsButton()
+                if browser.isPrivate {
+                    ChromeButton(symbol: "xmark.circle", help: "Fermer la fenêtre privée et tout effacer (⌘⇧W)") { browser.window?.performClose(nil) }
+                } else {
+                    ChromeButton(symbol: "eye.slash", help: "Nouvelle fenêtre privée (⌘⇧N)") { BrowserWindows.shared.openPrivateWindow() }
+                }
+                DownloadsButton()
             }
-            DownloadsButton()
         }
         .padding(.horizontal, 8)
         .background(SpaceSwipeCatcher { browser.switchSpace(by: $0) })

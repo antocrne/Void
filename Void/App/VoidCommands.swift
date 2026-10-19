@@ -69,6 +69,7 @@ struct VoidCommands: Commands {
             Picker("Onglets", selection: Binding(get: { settings.tabLayout }, set: { newValue in withAnimation(Theme.spring) { settings.tabLayout = newValue } })) {
                 ForEach(TabLayout.allCases) { Text($0.label).tag($0) }
             }
+            Toggle("Mode Minimalist", isOn: Binding(get: { settings.minimalist }, set: { value in withAnimation(Theme.spring) { settings.minimalist = value } }))
             Divider()
             Button("Recharger la page") { browser.reload() }
                 .keyboardShortcut("r")

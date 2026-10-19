@@ -380,6 +380,9 @@ final class FeatureSelfTest {
         "barre-reduite": { t, space in await t.testCompactSidebar(in: space) },
         "menu-historique": { t, space in await t.testHistoryMenu(in: space) },
         "menu-dock": { t, _ in await t.testDockMenu() },
+        "minimalist": { t, space in await t.testMinimalist(in: space) },
+        "panneau-lateral": { t, space in await t.testSidePanel(in: space) },
+        "claude": { t, space in await t.testClaudeExtension(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -3837,6 +3840,7 @@ final class FeatureSelfTest {
         let shown = tab ?? (window === browser.window ? browser.selectedTab : nil)
         // Side by side, or a window holding a page of its own (floating player): every page shown.
         var pages: [WKWebView] = shown?.webView.map { [$0] } ?? []
+        if window === browser.window, let panel = browser.sidePanel?.webView { pages.append(panel) }
         if tab == nil {
             if window === browser.window, let partner = browser.splitPartner?.webView { pages.insert(partner, at: 0) }
             if window !== browser.window { pages = content.subviews.compactMap { $0 as? WKWebView } }
@@ -3860,6 +3864,214 @@ final class FeatureSelfTest {
     private func write() {
         let md = "# Void — auto-test des fonctionnalités\n\n- Date : \(ISO8601DateFormatter().string(from: Date()))\n- Résultat : \(passed) ✅ / \(failed) ❌\n\n" + lines.joined(separator: "\n") + "\n"
         try? md.write(toFile: outputPath, atomically: true, encoding: .utf8)
+    }
+}
+
+// MARK: - Minimalist, extension side panels
+
+extension FeatureSelfTest {
+    /// A click in the middle of a view, through its window (SwiftUI buttons included).
+    private func clickCentre(of view: NSView) {
+        guard let window = view.window else { return }
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                window.sendEvent(event)
+            }
+        }
+    }
+
+    private var shownPopoverWindow: NSWindow? {
+        NSApp.windows.first { String(describing: type(of: $0)).contains("Popover") && $0.isVisible }
+    }
+
+    /// Minimalist in each layout: one menu button (the downloads popover's only host), its panel.
+    fileprivate func testMinimalist(in space: Space) async {
+        guard #available(macOS 15.4, *) else { check("Minimalist : macOS 15.4 requis pour l'ancre des extensions, test non exécuté", true); return }
+        let settings = AppSettings.shared
+        guard let window = browser.window else { check("Minimalist : fenêtre introuvable", false); return }
+        let saved = (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide, settings.sidebarCompact, settings.minimalist)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let tab = await htmlTab("<title>Minimalist</title><body style='font:15px -apple-system;padding:40px;background:#f3efe6'><h1>Minimalist</h1><p>Une page, rien autour.</p>", in: space)
+        browser.select(tab)
+        settings.minimalist = true
+        let layouts: [(String, TabLayout, Bool, Bool, Bool)] = [
+            ("barre-laterale", .sidebar, true, false, false),
+            ("barre-reduite", .sidebar, true, false, true),
+            ("onglets-masques", .sidebar, true, true, false),
+            ("barre-masquee", .sidebar, false, false, false),
+            ("haut", .top, true, false, false),
+        ]
+        for (name, layout, visible, autoHide, compact) in layouts {
+            (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide, settings.sidebarCompact) = (layout, visible, autoHide, compact)
+            await sleep(1.2)
+            let anchor = ExtensionManager.shared.menuAnchor(in: browser)
+            check("Minimalist (\(name)) : un seul bouton de menu, seul hôte du popover des téléchargements",
+                  anchor != nil && browser.downloadsButtonsShown == 1, "ancre=\(anchor != nil) boutons téléchargements=\(browser.downloadsButtonsShown)")
+            await snapshotWindow("minimalist-\(name)")
+            guard let anchor, name == "barre-laterale" || name == "haut" else { continue }
+            clickCentre(of: anchor)
+            var popover: NSWindow?
+            for _ in 0..<20 where popover == nil { await sleep(0.1); popover = shownPopoverWindow }
+            check("Minimalist (\(name)) : le bouton ouvre son panneau", popover != nil)
+            if let popover {
+                await sleep(0.4)
+                await snapshotWindow("minimalist-panneau-\(name)", window: popover)
+                clickCentre(of: anchor)
+                for _ in 0..<20 where shownPopoverWindow != nil { await sleep(0.1) }
+            }
+        }
+        // ⌥⌘L: the downloads popover from the menu button, not the Library window.
+        browser.showDownloads()
+        await sleep(0.6)
+        check("Minimalist : ⌥⌘L ouvre les téléchargements sous le bouton de menu", browser.showingDownloads && shownPopoverWindow != nil)
+        browser.showingDownloads = false
+        await sleep(0.4)
+        browser.close(tab, force: true)
+        (settings.tabLayout, settings.sidebarVisible, settings.sidebarAutoHide, settings.sidebarCompact, settings.minimalist) = saved
+    }
+
+    /// An extension installed from its files (as a .crx), for the duration of a test.
+    @available(macOS 15.4, *)
+    private func installTestExtension(_ name: String, files: [String: String]) async -> WKWebExtensionContext? {
+        let fm = FileManager.default
+        let work = fm.temporaryDirectory.appendingPathComponent("void-ext-\(UUID().uuidString)")
+        let source = work.appendingPathComponent("src")
+        defer { try? fm.removeItem(at: work) }
+        try? fm.createDirectory(at: source, withIntermediateDirectories: true)
+        for (file, text) in files { try? text.write(to: source.appendingPathComponent(file), atomically: true, encoding: .utf8) }
+        let zip = work.appendingPathComponent("ext.zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", source.path, zip.path]
+        try? ditto.run()
+        ditto.waitUntilExit()
+        await ExtensionManager.shared.install(from: zip)
+        return ExtensionManager.shared.contexts.first { $0.webExtension.displayName == name }
+    }
+
+    /// chrome.sidePanel: opened from the button as Claude does (setOptions + open for the tab),
+    /// then with openPanelOnActionClick; the panel's page has the extension's APIs.
+    fileprivate func testSidePanel(in space: Space) async {
+        guard #available(macOS 15.4, *) else { check("Panneau latéral : macOS 15.4 requis, test non exécuté", true); return }
+        let settings = AppSettings.shared
+        let wasEnabled = settings.extensionsEnabled
+        let manager = ExtensionManager.shared
+        let files = [
+            "manifest.json": """
+            {"manifest_version": 3, "name": "Void Panneau", "version": "1.0", "permissions": ["sidePanel", "tabs"],
+             "background": {"service_worker": "background.js"}, "action": {"default_title": "Panneau"},
+             "side_panel": {"default_path": "panel.html"}}
+            """,
+            "background.js": """
+            let behavior = false;
+            chrome.action.onClicked.addListener((tab) => {
+              if (behavior) return;
+              chrome.sidePanel.setOptions({ tabId: tab.id, path: `panel.html?tabId=${encodeURIComponent(tab.id)}`, enabled: true });
+              chrome.sidePanel.open({ tabId: tab.id });
+            });
+            chrome.runtime.onMessage.addListener((message, sender, reply) => {
+              if (message.behavior) {
+                behavior = true;
+                chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).then(() => reply(true));
+                return true;
+              }
+            });
+            """,
+            "panel.html": "<!doctype html><title>Panneau</title><body style='font:14px -apple-system;padding:16px'><h2>Panneau d'extension</h2><script src=panel.js></script>",
+            "panel.js": "chrome.tabs.query({}).then((tabs) => { document.title = 'panel:' + new URLSearchParams(location.search).get('tabId') + ':' + tabs.length; });",
+        ]
+        guard let context = await installTestExtension("Void Panneau", files: files) else {
+            check("Panneau latéral : extension de test installée", false, manager.lastError ?? "")
+            settings.extensionsEnabled = wasEnabled
+            return
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+        let page = await htmlTab("<title>Sous le panneau</title><body style='font:15px -apple-system;padding:40px'><h1>Page</h1>", in: space, base: "https://example.com/panneau")
+        browser.select(page)
+        await sleep(1)
+
+        /// The page's own title (WKWebView.title can lag behind a title set right after the load).
+        func panelTitle() async -> String {
+            var title = ""
+            for _ in 0..<40 where !title.hasPrefix("panel:") {
+                await sleep(0.25)
+                title = (try? await browser.sidePanel?.webView.evaluateJavaScript("document.title") as? String) ?? ""
+            }
+            return title
+        }
+        manager.performAction(context, in: browser)
+        let title = await panelTitle()
+        let url = browser.sidePanel?.webView.url
+        check("Panneau latéral : le bouton ouvre la page de l'extension à droite de la page (setOptions + open, comme Claude)",
+              url?.path() == "/panel.html" && url?.query()?.contains("tabId=") == true && url?.query()?.contains(ExtensionManager.sidePanelParameter) == false
+              && title.hasPrefix("panel:") && !title.hasPrefix("panel:null") && !title.hasSuffix(":0"),
+              "« \(title) » \(url?.absoluteString ?? "pas de panneau")")
+        let pageWidth = page.webView?.bounds.width ?? 0
+        check("Panneau latéral : la page laisse la place au panneau", pageWidth > 0 && (browser.window?.contentView?.bounds.width ?? 0) - pageWidth > CGFloat(settings.sidePanelWidth) - 2,
+              "page \(pageWidth) pt, panneau \(settings.sidePanelWidth) pt")
+        check("Panneau latéral : pas d'onglet ouvert pour lui", !browser.allTabs.contains { $0.url?.scheme == "webkit-extension" })
+        await snapshotWindow("panneau-lateral")
+
+        // openPanelOnActionClick: the button alone opens the manifest's panel.
+        _ = try? await browser.sidePanel?.webView.callAsyncJavaScript("return await chrome.runtime.sendMessage({ behavior: true });", contentWorld: .page)
+        browser.sidePanel = nil
+        await sleep(0.5)
+        manager.performAction(context, in: browser)
+        let behaviorTitle = await panelTitle()
+        // The extension's own listener does nothing now: the panel comes from Void's (the tab's page, set before).
+        check("Panneau latéral : setPanelBehavior({ openPanelOnActionClick: true }) → le bouton seul ouvre le panneau",
+              browser.sidePanel?.webView.url?.path() == "/panel.html" && behaviorTitle.hasPrefix("panel:"), "« \(behaviorTitle) »")
+
+        // window.close() in the panel closes it.
+        _ = try? await browser.sidePanel?.webView.evaluateJavaScript("window.close(); true")
+        for _ in 0..<20 where browser.sidePanel != nil { await sleep(0.1) }
+        check("Panneau latéral : window.close() dans le panneau le ferme", browser.sidePanel == nil)
+
+        // Removed with its extension.
+        browser.sidePanel = nil
+        manager.performAction(context, in: browser)
+        _ = await panelTitle()
+        manager.uninstall(context)
+        check("Panneau latéral : retiré avec son extension", browser.sidePanel == nil)
+        browser.close(page, force: true)
+        settings.extensionsEnabled = wasEnabled
+    }
+
+    /// The Claude extension (Claude in Chrome), from the Chrome Web Store: its button opens its panel.
+    fileprivate func testClaudeExtension(in space: Space) async {
+        guard #available(macOS 15.4, *) else { check("Claude : macOS 15.4 requis, test non exécuté", true); return }
+        let id = "fcoeoabgfenejglbffodgkkbkcdhcgfn"
+        let settings = AppSettings.shared
+        let wasEnabled = settings.extensionsEnabled
+        let manager = ExtensionManager.shared
+        let wasInstalled = manager.isInstalled(chromeID: id)
+        if !wasInstalled { await manager.installFromWebStore(id) }
+        guard let context = manager.context(chromeID: id) else {
+            check("Claude : installé depuis le Chrome Web Store", false, manager.lastError ?? "")
+            settings.extensionsEnabled = wasEnabled
+            return
+        }
+        browser.window?.makeKeyAndOrderFront(nil)
+        let page = await htmlTab("<title>Page</title><body style='font:15px -apple-system;padding:40px'><h1>Une page</h1>", in: space, base: "https://example.com/claude")
+        browser.select(page)
+        await sleep(6)   // its service worker starting
+        manager.performAction(context, in: browser)
+        for _ in 0..<60 where browser.sidePanel == nil { await sleep(0.25) }
+        await sleep(6)
+        let panel = browser.sidePanel
+        let text = (try? await panel?.webView.evaluateJavaScript("document.body ? document.body.innerText.slice(0, 300) : ''") as? String) ?? ""
+        let errors = context.errors.map(\.localizedDescription).joined(separator: " · ")
+        check("Claude : le bouton de l'extension ouvre son panneau latéral",
+              panel?.webView.url?.path() == "/sidepanel.html",
+              "\(panel?.webView.url?.absoluteString ?? "pas de panneau") · texte : \(text.replacingOccurrences(of: "\n", with: " ")) · erreurs : \(errors)")
+        await snapshotWindow("claude-panneau")
+        browser.sidePanel = nil
+        if !wasInstalled { manager.uninstall(context) }
+        browser.close(page, force: true)
+        settings.extensionsEnabled = wasEnabled
     }
 }
 #endif

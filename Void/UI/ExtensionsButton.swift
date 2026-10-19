@@ -183,7 +183,7 @@ private struct PinnedExtensionButton: View {
 
 /// Registers the button's AppKit view: extension popups are shown from it (🧩's: extensionID nil).
 @available(macOS 15.4, *)
-private struct ExtensionPopupAnchor: NSViewRepresentable {
+struct ExtensionPopupAnchor: NSViewRepresentable {
     let browser: BrowserModel
     var extensionID: String? = nil
 

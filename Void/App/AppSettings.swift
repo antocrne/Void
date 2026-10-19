@@ -153,6 +153,11 @@ final class AppSettings {
     var showBookmarksBar: Bool { didSet { defaults.set(showBookmarksBar, forKey: "showBookmarksBar") } }
     var showReadingProgress: Bool { didSet { defaults.set(showReadingProgress, forKey: "showReadingProgress") } }
     var sleepInactiveTabs: Bool { didSet { defaults.set(sleepInactiveTabs, forKey: "sleepInactiveTabs") } }
+    /// Minimalist: the chrome keeps navigation, the address and the tabs; private window,
+    /// downloads, extensions and the rest go behind one button (MinimalMenuButton).
+    var minimalist: Bool { didSet { defaults.set(minimalist, forKey: "minimalist") } }
+    /// Mac: an extension's side panel, on the right of the page.
+    var sidePanelWidth: Double { didSet { defaults.set(sidePanelWidth, forKey: "sidePanelWidth") } }
 
     var accent: AccentChoice { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
     /// Tint of the window's frame (see ChromeTint.swift).
@@ -171,6 +176,8 @@ final class AppSettings {
     var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: "checkForUpdates") } }
 
     static let defaultSidebarWidth: Double = 252
+    static let defaultSidePanelWidth: Double = 380
+    static let sidePanelWidthRange: ClosedRange<Double> = 300...640
     static let sidebarWidthRange: ClosedRange<Double> = 200...460
     /// The sidebar's edge pulled this far left reduces it to its icons (and pulled back past
     /// the reduced sidebar's width plus this, unfolds it).
@@ -204,6 +211,8 @@ final class AppSettings {
         showBookmarksBar = d.object(forKey: "showBookmarksBar") as? Bool ?? false
         showReadingProgress = d.object(forKey: "showReadingProgress") as? Bool ?? true
         sleepInactiveTabs = d.object(forKey: "sleepInactiveTabs") as? Bool ?? true
+        minimalist = d.bool(forKey: "minimalist")
+        sidePanelWidth = d.object(forKey: "sidePanelWidth") as? Double ?? Self.defaultSidePanelWidth
         accent = AccentChoice(rawValue: d.string(forKey: "accent") ?? "") ?? .violet
         chromeTint = ChromeTint(rawValue: d.string(forKey: "chromeTint") ?? "") ?? .none
         chromeTintIntensity = d.object(forKey: "chromeTintIntensity") as? Double ?? ChromeLook.amountRange.upperBound

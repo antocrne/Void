@@ -2,6 +2,38 @@ import AppKit
 import WebKit
 import Observation
 
+/// An extension's side panel in a window (chrome.sidePanel): its page, on the right of the page.
+/// `window.close()` in the panel closes it; a link it opens in a new window goes to a tab.
+@MainActor
+final class ExtensionSidePanel: NSObject, Identifiable, WKUIDelegate {
+    let id = UUID()
+    let extensionID: String
+    let name: String
+    let icon: NSImage?
+    let webView: WKWebView
+    private weak var browser: BrowserModel?
+
+    init(extensionID: String, name: String, icon: NSImage?, webView: WKWebView, browser: BrowserModel) {
+        self.extensionID = extensionID
+        self.name = name
+        self.icon = icon
+        self.webView = webView
+        self.browser = browser
+        super.init()
+        webView.uiDelegate = self
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if browser?.sidePanel === self { browser?.sidePanel = nil }
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url, ["http", "https"].contains(url.scheme) { browser?.openTab(url: url) }
+        return nil
+    }
+}
+
 struct InstalledExtension: Codable, Identifiable, Hashable {
     /// Stable uniqueIdentifier → keeps the extension's storage across launches. It is also the
     /// extension's `chrome.runtime.id`: the Chrome Web Store ID when there is one, since sites
@@ -221,6 +253,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         guard isStarted else { return }
         runGeneration &+= 1
         for context in contexts { try? controller.unload(context) }
+        closeSidePanels()
         contexts = []
         isStarted = false
         Self.isRunning = false
@@ -324,6 +357,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         }
         if let previous, let old = contexts.first(where: { $0.uniqueIdentifier == previous.id }) {
             try? controller.unload(old)
+            closeSidePanels(of: old.uniqueIdentifier)
             contexts.removeAll { $0 === old }
         }
         let id = previous?.id ?? chromeID.flatMap { id in installed.contains { $0.id == id } ? nil : id } ?? UUID().uuidString
@@ -383,6 +417,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
 
     func uninstall(_ context: WKWebExtensionContext) {
         try? controller.unload(context)
+        closeSidePanels(of: context.uniqueIdentifier)
         contexts.removeAll { $0 === context }
         if let record = record(for: context) { removeCopy(record.path) }
         installed.removeAll { $0.id == context.uniqueIdentifier }
@@ -745,6 +780,44 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         try? await Task.sleep(for: .seconds(1))
     }
 
+    // MARK: - Side panel
+
+    /// The query parameter extension-shim.js puts on a side panel page asked for as a tab.
+    nonisolated static let sidePanelParameter = "void-side-panel"
+
+    /// The page of a chrome.sidePanel.open(), without Void's parameter: one of the extension's own
+    /// pages only.
+    static func sidePanelURL(_ url: URL, of context: WKWebExtensionContext) -> URL? {
+        guard url.scheme == "webkit-extension", url.host() == context.baseURL.host(),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.queryItems?.contains(where: { $0.name == sidePanelParameter }) == true else { return nil }
+        components.queryItems = components.queryItems?.filter { $0.name != sidePanelParameter }
+        if components.queryItems?.isEmpty == true { components.queryItems = nil }
+        return components.url
+    }
+
+    /// On the right of the window's page; the same extension's panel already open gets the new page.
+    func showSidePanel(_ url: URL, of context: WKWebExtensionContext, in browser: BrowserModel) {
+        guard let configuration = context.webViewConfiguration else { return }
+        let name = context.webExtension.displayName ?? String(localized: "Extension")
+        let icon = context.webExtension.icon(for: CGSize(width: 16, height: 16))
+        if let panel = browser.sidePanel, panel.extensionID == context.uniqueIdentifier {
+            if panel.webView.url != url { panel.webView.load(URLRequest(url: url)) }
+            return
+        }
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.isInspectable = true
+        webView.load(URLRequest(url: url))
+        browser.sidePanel = ExtensionSidePanel(extensionID: context.uniqueIdentifier, name: name, icon: icon, webView: webView, browser: browser)
+    }
+
+    /// The panels of an extension going away (all of them: extensions switched off).
+    func closeSidePanels(of id: String? = nil) {
+        for browser in BrowserWindows.shared.all where browser.sidePanel.map({ id == nil || $0.extensionID == id }) == true {
+            browser.sidePanel = nil
+        }
+    }
+
     func openOptions(_ context: WKWebExtensionContext) {
         guard let url = context.optionsPageURL else { return }
         let browser = BrowserWindows.shared.normalTarget
@@ -782,6 +855,13 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: context.uniqueIdentifier)]?.view.flatMap { $0.window == nil ? nil : $0 }
     }
 
+    #if DEBUG
+    /// Self-test: the button popups hang from in that window (🧩, or the Minimalist menu button).
+    func menuAnchor(in browser: BrowserModel) -> NSView? {
+        anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: nil)]?.view.flatMap { $0.window == nil ? nil : $0 }
+    }
+    #endif
+
     /// Where an extension's popup hangs: its own button when it is pinned and shown, else 🧩.
     private func anchor(for context: WKWebExtensionContext, in browser: BrowserModel) -> NSView? {
         let own = isPinned(context) ? anchors[AnchorKey(browser: ObjectIdentifier(browser), extensionID: context.uniqueIdentifier)]?.view : nil
@@ -814,6 +894,11 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 completionHandler: @escaping ((any WKWebExtensionTab)?, Error?) -> Void) {
         let parent = ExtensionBridge.tab(configuration.parentTab)
         let browser = ExtensionBridge.browser(configuration.window) ?? parent?.browser ?? BrowserWindows.shared.active
+        // chrome.sidePanel.open() (extension-shim.js): the extension's panel, not a tab.
+        if let url = configuration.url, let panelURL = Self.sidePanelURL(url, of: extensionContext) {
+            showSidePanel(panelURL, of: extensionContext, in: browser)
+            return completionHandler(nil, nil)
+        }
         let tab = browser.openTab(url: configuration.url, background: !configuration.shouldBeActive,
                                   after: parent?.browser === browser ? parent : nil)
         // `index` counts every tab of the window (see extensionTabs): keep it within the tab's space.

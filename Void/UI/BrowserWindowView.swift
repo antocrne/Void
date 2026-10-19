@@ -284,7 +284,13 @@ private struct CompactTitleBar: View {
             Spacer(minLength: 8)
             TopAddressField(tab: browser.selectedTab)
             Spacer(minLength: 8)
-            Color.clear.frame(maxWidth: 120)
+            ZStack(alignment: .trailing) {
+                Color.clear.frame(maxWidth: 120)
+                // Minimalist, with no sidebar or reduced sidebar on screen to hold it.
+                if settings.minimalist && !(settings.sidebarVisible && !settings.sidebarAutoHide && settings.sidebarCompact) {
+                    MinimalMenuButton()
+                }
+            }
         }
         .padding(.horizontal, 8)
     }

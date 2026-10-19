@@ -102,6 +102,8 @@ final class BrowserModel {
     var onboardingStep: Int?
 
     #if os(macOS)
+    /// An extension's side panel, on the right of the page (chrome.sidePanel).
+    var sidePanel: ExtensionSidePanel?
     @ObservationIgnored weak var window: NSWindow?
     /// The window is (going) full screen: its traffic lights are gone, the bars take their place.
     var isFullScreen = false
