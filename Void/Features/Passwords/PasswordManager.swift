@@ -132,9 +132,10 @@ final class PasswordManager {
         let originHost = frame.securityOrigin.host.voidNormalizedHost
         guard let type = body["type"] as? String, !originHost.isEmpty else { return }
         let host = originHost
+        let secure = frame.securityOrigin.protocol == "https"
         switch type {
         case "form":
-            let accounts = KeychainStore.logins(matching: host)
+            let accounts = KeychainStore.logins(matching: host, secure: secure)
             // Prefer the main frame's form when several frames report one.
             if tab.loginFrame == nil || frame.isMainFrame || !accounts.isEmpty {
                 tab.loginFrame = frame
@@ -146,16 +147,16 @@ final class PasswordManager {
                   !AppSettings.shared.neverSavePasswordHosts.contains(host),
                   let password = body["password"] as? String, !password.isEmpty else { return }
             let username = body["username"] as? String ?? ""
-            let known = KeychainStore.logins(matching: host).contains { $0.account == username }
+            let known = KeychainStore.logins(matching: host, secure: secure).contains { $0.account == username }
             if known, KeychainStore.password(host: host, account: username) == password { return }
-            (tab.browser ?? .shared).passwordPrompt = PasswordSavePrompt(host: host, username: username, password: password)
+            (tab.browser ?? .shared).passwordPrompt = PasswordSavePrompt(host: host, username: username, password: password, secure: secure)
         default:
             break
         }
     }
 
     func save(_ prompt: PasswordSavePrompt, in browser: BrowserModel) {
-        if KeychainStore.save(host: prompt.host, account: prompt.username, password: prompt.password) {
+        if KeychainStore.save(host: prompt.host, account: prompt.username, password: prompt.password, secure: prompt.secure) {
             browser.showToast("key.fill", "Mot de passe enregistré dans le trousseau")
         } else {
             browser.showToast("exclamationmark.triangle", "Impossible d'enregistrer dans le trousseau")
@@ -174,7 +175,8 @@ final class PasswordManager {
 
     func fill(_ tab: Tab, account: String) async {
         guard tab.webView != nil, let host = tab.loginHost else { return }
-        guard let login = KeychainStore.logins(matching: host).first(where: { $0.account == account }) else { return }
+        let secure = (tab.loginFrame?.securityOrigin.protocol ?? tab.url?.scheme) == "https"
+        guard let login = KeychainStore.logins(matching: host, secure: secure).first(where: { $0.account == account }) else { return }
         guard await BiometricGate.authenticate(reason: "remplir le mot de passe de \(login.host)") else { return }
         guard let password = KeychainStore.password(host: login.host, account: login.account) else { return }
         if await inject(account: account, password: password, into: tab) != "ok" {

@@ -21,6 +21,8 @@ struct PasswordSavePrompt: Identifiable {
     let host: String
     let username: String
     let password: String
+    /// Typed on an https page.
+    var secure = true
 }
 
 enum LibrarySection: String, CaseIterable, Identifiable {

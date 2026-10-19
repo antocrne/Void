@@ -6,6 +6,9 @@ struct SavedLogin: Identifiable, Hashable {
     let host: String
     let account: String
     let modified: Date?
+    /// Saved from an https page (and every import): never offered on a plain-HTTP page of a site on
+    /// the Internet, where anyone on the network could read what is typed.
+    var isSecure = true
 }
 
 /// Passwords live in the macOS keychain as Internet passwords tagged with creator 'VOID'.
@@ -40,7 +43,8 @@ enum KeychainStore {
         return q
     }
 
-    static func save(host: String, account: String, password: String) -> Bool {
+    /// `secure`: the page the password was typed on was https (plain HTTP is recorded as such).
+    static func save(host: String, account: String, password: String, secure: Bool = true) -> Bool {
         var query = base()
         query[kSecAttrServer as String] = host
         query[kSecAttrAccount as String] = account
@@ -52,12 +56,12 @@ enum KeychainStore {
             var add = query
             add[kSecValueData as String] = data
             add[kSecAttrLabel as String] = "\(host) (Void)"
-            add[kSecAttrProtocol as String] = kSecAttrProtocolHTTPS
+            add[kSecAttrProtocol as String] = secure ? kSecAttrProtocolHTTPS : kSecAttrProtocolHTTP
             status = SecItemAdd(add as CFDictionary, nil)
         }
         if status == errSecMissingEntitlement && useDataProtection {
             useDataProtection = false
-            return save(host: host, account: account, password: password)
+            return save(host: host, account: account, password: password, secure: secure)
         }
         if status == errSecSuccess { invalidateCache() }
         return status == errSecSuccess
@@ -90,16 +94,34 @@ enum KeychainStore {
         return items.compactMap { item in
             guard let host = item[kSecAttrServer as String] as? String,
                   let account = item[kSecAttrAccount as String] as? String else { return nil }
-            return SavedLogin(host: host, account: account, modified: item[kSecAttrModificationDate as String] as? Date)
+            let http = (item[kSecAttrProtocol as String] as? String) == (kSecAttrProtocolHTTP as String)
+            return SavedLogin(host: host, account: account, modified: item[kSecAttrModificationDate as String] as? Date, isSecure: !http)
         }.sorted { $0.host == $1.host ? $0.account < $1.account : $0.host < $1.host }
     }
 
-    /// Logins usable on `host` (same host or parent/child domain).
-    static func logins(matching host: String) -> [SavedLogin] {
+    /// Domains where each subdomain is someone else's site (pages, blogs, apps hosted for anyone):
+    /// there a login is offered on its own host only, never on its neighbours.
+    static let sharedHostingSuffixes = ["github.io", "gitlab.io", "pages.dev", "workers.dev", "vercel.app", "netlify.app",
+                                        "herokuapp.com", "web.app", "firebaseapp.com", "appspot.com", "blogspot.com",
+                                        "wordpress.com", "tumblr.com", "glitch.me", "onrender.com", "fly.dev", "repl.co",
+                                        "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com", "neocities.org", "wixsite.com"]
+
+    private static func isSharedHosting(_ host: String) -> Bool {
+        sharedHostingSuffixes.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// Logins usable on `host` (same host, or parent/child domain outside shared hosting).
+    /// `secure`: the page is https. On a plain-HTTP page of an Internet site, only logins saved
+    /// over HTTP; a local device (router, intranet) keeps getting its logins.
+    static func logins(matching host: String, secure: Bool = true) -> [SavedLogin] {
         let h = host.voidNormalizedHost
+        let plainInternet = !secure && !LocalNetwork.isLocal(h)
         return logins().filter { login in
+            if plainInternet && login.isSecure { return false }
             let l = login.host.voidNormalizedHost
-            return l == h || h.hasSuffix("." + l) || l.hasSuffix("." + h)
+            if l == h { return true }
+            if isSharedHosting(l) || isSharedHosting(h) { return false }
+            return h.hasSuffix("." + l) || l.hasSuffix("." + h)
         }
     }
 

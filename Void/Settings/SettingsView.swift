@@ -371,6 +371,7 @@ private struct AboutSettings: View {
 private struct PrivacySettings: View {
     @Environment(AppSettings.self) private var settings
     @State private var hidden = ElementHider.shared.rules
+    @State private var certificateHosts = CertificateExceptions.hosts
     @State private var cleared = false
     @State private var confirmingClear = false
 
@@ -413,6 +414,19 @@ private struct PrivacySettings: View {
                         Spacer()
                         Button("Réinitialiser") { ElementHider.shared.reset(host: host); hidden = ElementHider.shared.rules }
                     }
+                }
+            }
+            if !certificateHosts.isEmpty {
+                Section("Appareils au certificat accepté") {
+                    ForEach(certificateHosts, id: \.self) { host in
+                        HStack {
+                            Text(host)
+                            Spacer()
+                            Button("Oublier") { CertificateExceptions.remove(host); certificateHosts = CertificateExceptions.hosts }
+                        }
+                    }
+                    Text("Box, NAS, imprimantes dont vous avez accepté le certificat (« Continuer vers… »). Un nouveau certificat est redemandé.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Section("Données de navigation") {
@@ -466,6 +480,17 @@ private struct PasswordsSettings: View {
             }
             Text("Propose les noms, adresses, e-mails… déjà saisis dans des champs de même nom. Rien n'est retenu en navigation privée.")
                 .font(.caption).foregroundStyle(.secondary)
+            if !settings.neverSavePasswordHosts.isEmpty {
+                DisclosureGroup("Jamais d'enregistrement sur \(settings.neverSavePasswordHosts.count) site(s)") {
+                    ForEach(settings.neverSavePasswordHosts, id: \.self) { host in
+                        HStack {
+                            Text(host)
+                            Spacer()
+                            Button("Retirer") { settings.neverSavePasswordHosts.removeAll { $0 == host } }
+                        }
+                    }
+                }
+            }
             Divider()
             if !unlocked {
                 Spacer()
@@ -585,8 +610,8 @@ private struct PasswordsSettings: View {
         Task {
             guard await BiometricGate.authenticate(reason: "copier le mot de passe de \(login.host)", reuseRecent: false),
                   let password = KeychainStore.password(host: login.host, account: login.account) else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(password, forType: .string)
+            Clipboard.copySecret(password)
+            BrowserWindows.shared.active.showToast("doc.on.doc", "Mot de passe copié pour 90 secondes")
         }
     }
 }

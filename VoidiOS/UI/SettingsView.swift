@@ -274,6 +274,13 @@ private struct PasswordsSettings: View {
                 Text("Désactivez cette option si vous utilisez un autre gestionnaire : le remplissage automatique d'iOS (Mots de passe, Proton Pass, 1Password…) reste proposé au-dessus du clavier.")
             }
 
+            if !settings.neverSavePasswordHosts.isEmpty {
+                Section("Jamais d'enregistrement sur ces sites") {
+                    ForEach(settings.neverSavePasswordHosts, id: \.self) { Text($0) }
+                        .onDelete { settings.neverSavePasswordHosts.remove(atOffsets: $0) }
+                }
+            }
+
             Section {
                 Toggle("Remplissage automatique des formulaires", isOn: $settings.formAutofillEnabled)
                 Button("Effacer les données de formulaires") { FormAutofill.shared.clear() }
@@ -355,7 +362,7 @@ private struct PasswordsSettings: View {
         Task {
             guard await BiometricGate.authenticate(reason: "copier le mot de passe de \(login.host)", reuseRecent: false),
                   let password = KeychainStore.password(host: login.host, account: login.account) else { return }
-            Clipboard.copy(password)
+            Clipboard.copySecret(password)
         }
     }
 }
