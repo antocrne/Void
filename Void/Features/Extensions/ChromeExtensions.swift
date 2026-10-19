@@ -51,6 +51,22 @@ enum ChromeExtensions {
         return components.url!
     }
 
+    /// The version the Chrome Web Store serves now (Google's update check, the one Chrome makes),
+    /// nil when it can't tell.
+    static func latestWebStoreVersion(id: String) async -> String? {
+        var components = URLComponents(url: webStoreDownloadURL(id: id), resolvingAgainstBaseURL: false)
+        let items = components?.queryItems?.map { $0.name == "response" ? URLQueryItem(name: "response", value: "updatecheck") : $0 }
+        components?.queryItems = items
+        guard let url = components?.url,
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let xml = String(data: data, encoding: .utf8),
+              let check = xml.range(of: "<updatecheck[^>]*>", options: .regularExpression),
+              let version = xml[check].range(of: #"\sversion="[0-9.]+""#, options: .regularExpression)
+        else { return nil }
+        return String(xml[check][version].dropFirst(10).dropLast())
+    }
+
     static func downloadFromWebStore(id: String) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(from: webStoreDownloadURL(id: id))
         guard let http = response as? HTTPURLResponse else { throw Failure.download(String(localized: "pas de réponse")) }

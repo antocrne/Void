@@ -675,6 +675,19 @@ private struct ExtensionsSettings: View {
                                     caption: "Désactivé par défaut — une fenêtre privée ne garde rien, extensions comprises.",
                                     isOn: $settings.extensionsInPrivate)
                         .disabled(!settings.extensionsEnabled)
+                    CaptionedToggle(title: "Mettre à jour automatiquement",
+                                    caption: "Une fois par jour, les extensions du Chrome Web Store passent à leur dernière version, sans perdre leurs données. Une version qui demande plus d'autorisations attend votre accord.",
+                                    isOn: $settings.extensionsAutoUpdate)
+                        .disabled(!settings.extensionsEnabled)
+                    if settings.extensionsEnabled {
+                        Button("Rechercher les mises à jour maintenant") {
+                            Task {
+                                if await ExtensionManager.shared.updateAll().isEmpty {
+                                    BrowserWindows.shared.active.showToast("checkmark.circle", "Les extensions sont à jour")
+                                }
+                            }
+                        }
+                    }
                 }
                 if settings.extensionsEnabled {
                     ExtensionList()

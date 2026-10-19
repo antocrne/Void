@@ -122,6 +122,8 @@ final class AppSettings {
             #endif
         }
     }
+    /// Extensions from the Chrome Web Store are brought up to date once a day (ExtensionManager).
+    var extensionsAutoUpdate: Bool { didSet { defaults.set(extensionsAutoUpdate, forKey: "extensionsAutoUpdate") } }
     var neverSavePasswordHosts: [String] { didSet { defaults.set(neverSavePasswordHosts, forKey: "neverSavePasswordHosts") } }
     var historyRetention: HistoryRetention {
         didSet { defaults.set(historyRetention.rawValue, forKey: "historyRetention"); HistoryStore.shared.prune() }
@@ -185,6 +187,7 @@ final class AppSettings {
         adBlockEnabled = d.object(forKey: "adBlockEnabled") as? Bool ?? true
         adBlockAllowlist = d.stringArray(forKey: "adBlockAllowlist") ?? []
         extensionsEnabled = d.object(forKey: "extensionsEnabled") as? Bool ?? false
+        extensionsAutoUpdate = d.object(forKey: "extensionsAutoUpdate") as? Bool ?? true
         neverSavePasswordHosts = d.stringArray(forKey: "neverSavePasswordHosts") ?? []
         historyRetention = HistoryRetention(rawValue: d.integer(forKey: "historyRetention")) ?? .year
         formAutofillEnabled = d.object(forKey: "formAutofillEnabled") as? Bool ?? true

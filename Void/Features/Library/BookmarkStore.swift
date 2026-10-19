@@ -9,6 +9,19 @@ struct Bookmark: Identifiable, Codable, Hashable {
     var added = Date()
 }
 
+extension Bookmark {
+    /// Only the address is required: a bookmark written by another version (or imported) without
+    /// one of the other fields is kept.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(URL.self, forKey: .url)
+        id = ((try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil) ?? UUID()
+        title = ((try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil) ?? (url.host() ?? url.absoluteString)
+        folder = (try? c.decodeIfPresent(String.self, forKey: .folder)) ?? nil
+        added = ((try? c.decodeIfPresent(Date.self, forKey: .added)) ?? nil) ?? Date()
+    }
+}
+
 /// Bookmarks, stored as JSON in Application Support.
 @MainActor @Observable
 final class BookmarkStore {
@@ -17,10 +30,7 @@ final class BookmarkStore {
     @ObservationIgnored private let fileURL = StateStore.directory.appendingPathComponent("bookmarks.json")
 
     private init() {
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode([Bookmark].self, from: data) {
-            bookmarks = decoded
-        }
+        bookmarks = TolerantJSON.array(of: Bookmark.self, at: fileURL)
     }
 
     func isBookmarked(_ url: URL?) -> Bool {

@@ -95,7 +95,7 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
     private var installed: [InstalledExtension] {
         get {
             if let installedCache { return installedCache }
-            let list = (try? JSONDecoder().decode([InstalledExtension].self, from: Data(contentsOf: listURL))) ?? []
+            let list = TolerantJSON.array(of: InstalledExtension.self, at: listURL)
             installedCache = list
             return list
         }
@@ -138,6 +138,68 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                 }
             }
         }
+        scheduleUpdateChecks()
+    }
+
+    // MARK: - Updates
+
+    /// Last look for new versions in the Chrome Web Store.
+    @ObservationIgnored private static let lastUpdateCheckKey = "extensionsLastUpdateCheck"
+    @ObservationIgnored private var updateTimer: Timer?
+
+    /// Once the extensions are loaded, then every hour: at most one look a day (Settings →
+    /// Extensions → Mettre à jour automatiquement). A password manager kept at the version it was
+    /// installed in misses its security fixes, then stops working with its servers.
+    private func scheduleUpdateChecks() {
+        guard updateTimer == nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in Task { await self?.updateIfDue() } }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+            MainActor.assumeIsolated { _ = Task { await ExtensionManager.shared.updateIfDue() } }
+        }
+    }
+
+    func updateIfDue() async {
+        #if DEBUG
+        if SelfTestRunner.isRequested { return }
+        #endif
+        guard isStarted, AppSettings.shared.extensionsAutoUpdate else { return }
+        let last = UserDefaults.standard.object(forKey: Self.lastUpdateCheckKey) as? Date ?? .distantPast
+        guard Date().timeIntervalSince(last) > 86_400 else { return }
+        UserDefaults.standard.set(Date(), forKey: Self.lastUpdateCheckKey)
+        await updateAll()
+    }
+
+    /// Each extension from the store whose store version is newer is installed again over itself:
+    /// its data stays, and it asks again if it wants more than it was allowed (see add).
+    /// Returns the names of those updated.
+    @discardableResult
+    func updateAll() async -> [String] {
+        var updated: [String] = []
+        for record in installed {
+            guard let chromeID = record.chromeID, installing == nil,
+                  let context = contexts.first(where: { $0.uniqueIdentifier == record.id }),
+                  let current = context.webExtension.version,
+                  let latest = await ChromeExtensions.latestWebStoreVersion(id: chromeID),
+                  Updater.isNewer(latest, than: current) else { continue }
+            do {
+                let data = try await ChromeExtensions.downloadFromWebStore(id: chromeID)
+                let destination = Self.newFolder()
+                try await Self.unpack(data, to: destination)
+                let context = try await add(destination, chromeID: chromeID)
+                let name = context.webExtension.displayName ?? chromeID
+                updated.append(name)
+                NSLog("[Void] extension « %@ » mise à jour : %@ → %@", name, current, latest)
+            } catch is ExtensionInstallDeclined {
+                // The user kept the version installed (it wanted more permissions).
+            } catch {
+                NSLog("[Void] mise à jour de l'extension %@ impossible : %@", chromeID, error.localizedDescription)
+            }
+        }
+        if let name = updated.first {
+            BrowserWindows.shared.active.showToast("puzzlepiece.extension", updated.count == 1 ? "« \(name) » mise à jour"
+                                                                                               : "\(updated.count) extensions mises à jour")
+        }
+        return updated
     }
 
     /// Earlier installs had a random ID, which sites can't address: they take their
@@ -162,6 +224,8 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         contexts = []
         isStarted = false
         Self.isRunning = false
+        updateTimer?.invalidate()
+        updateTimer = nil
     }
 
     // MARK: - Installing
@@ -515,6 +579,16 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
         for pattern in ext.allRequestedMatchPatterns where granted?.sites.contains(pattern.description) ?? true {
             context.setPermissionStatus(.grantedExplicitly, for: pattern)
         }
+        // Allowed later, when the extension asked (optional permissions, a site): kept in extensions.json,
+        // which WebKit doesn't do — without this, they were gone at the next launch.
+        let requested = Set(ext.requestedPermissions.map(\.rawValue))
+        for raw in granted?.permissions ?? [] where !requested.contains(raw) {
+            context.setPermissionStatus(.grantedExplicitly, for: WKWebExtension.Permission(rawValue: raw))
+        }
+        let requestedSites = Set(ext.allRequestedMatchPatterns.map(\.description))
+        for site in granted?.sites ?? [] where !requestedSites.contains(site) {
+            if let pattern = try? WKWebExtension.MatchPattern(string: site) { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
+        }
         try controller.load(context)
         contexts.append(context)
         watchBackground(context)
@@ -779,21 +853,43 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void) {
         let list = permissions.map(\.rawValue).sorted().joined(separator: ", ")
-        confirm(extensionContext, message: { String(localized: "« \($0) » demande des autorisations supplémentaires : \(list).") }) { completionHandler($0 ? permissions : [], nil) }
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande des autorisations supplémentaires : \(list).") }) { [weak self] allowed in
+            if allowed { self?.remember(permissions: Set(permissions.map(\.rawValue)), for: extensionContext) }
+            completionHandler(allowed ? permissions : [], nil)
+        }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionToAccess urls: Set<URL>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<URL>, Date?) -> Void) {
-        let hosts = Set(urls.compactMap { $0.host() }).sorted().joined(separator: ", ")
-        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(hosts).") }) { completionHandler($0 ? urls : [], nil) }
+        let hosts = Set(urls.compactMap { $0.host() }).sorted()
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(hosts.joined(separator: ", ")).") }) { [weak self] allowed in
+            if allowed { self?.remember(sites: Set(hosts.map { "*://\($0)/*" }), for: extensionContext) }
+            completionHandler(allowed ? urls : [], nil)
+        }
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionMatchPatterns matchPatterns: Set<WKWebExtension.MatchPattern>,
                                 in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext,
                                 completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void) {
         let sites = matchPatterns.map(\.description).sorted().joined(separator: ", ")
-        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(sites).") }) { completionHandler($0 ? matchPatterns : [], nil) }
+        confirm(extensionContext, message: { String(localized: "« \($0) » demande l'accès à \(sites).") }) { [weak self] allowed in
+            if allowed { self?.remember(sites: Set(matchPatterns.map(\.description)), for: extensionContext) }
+            completionHandler(allowed ? matchPatterns : [], nil)
+        }
+    }
+
+    /// What the user allowed after the install, added to the extension's record: given again at
+    /// the next launch (see load). An install made before Void asked has no record of its grant:
+    /// everything it requests is given anyway, and what it asks for later starts the record.
+    func remember(permissions: Set<String> = [], sites: Set<String> = [], for context: WKWebExtensionContext) {
+        guard let index = installed.firstIndex(where: { $0.id == context.uniqueIdentifier }) else { return }
+        var record = installed[index]
+        let current = record.grant ?? ExtensionGrant(requestedBy: context.webExtension)
+        record.grantedPermissions = current.permissions.union(permissions).sorted()
+        record.grantedSites = current.sites.union(sites).sorted()
+        guard record != installed[index] else { return }
+        installed[index] = record
     }
 
     /// A sheet over the frontmost browser window: an app-wide modal loop inside WebKit's callback

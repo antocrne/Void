@@ -39,9 +39,47 @@ struct SavedTab: Codable {
 }
 
 /// Decodes one element of an array, or nothing if that element is damaged.
-private struct Lossy<T: Decodable>: Decodable {
+struct Lossy<T: Decodable>: Decodable {
     let value: T?
     init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
+
+/// Void's other JSON files (bookmarks, extensions, hidden elements), read as carefully as the
+/// session: element by element, and a file that can't be read whole is set aside — copied next to
+/// it as `<name>.corrupt-<date>.json` — before the next save writes over it.
+enum TolerantJSON {
+    /// The elements that could be read; [] for a missing file.
+    static func array<T: Decodable>(of type: T.Type, at url: URL) -> [T] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard let items = try? JSONDecoder().decode([Lossy<T>].self, from: data) else {
+            setAside(url)
+            return []
+        }
+        let values = items.compactMap(\.value)
+        if values.count < items.count { setAside(url) }
+        return values
+    }
+
+    /// A dictionary of values, read value by value.
+    static func dictionary<T: Decodable>(of type: T.Type, at url: URL) -> [String: T] {
+        guard let data = try? Data(contentsOf: url) else { return [:] }
+        guard let items = try? JSONDecoder().decode([String: Lossy<T>].self, from: data) else {
+            setAside(url)
+            return [:]
+        }
+        let values = items.compactMapValues(\.value)
+        if values.count < items.count { setAside(url) }
+        return values
+    }
+
+    /// A copy of the file as it was: the next save may leave out what couldn't be read.
+    private static func setAside(_ url: URL) {
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let name = url.deletingPathExtension().lastPathComponent
+        let copy = url.deletingLastPathComponent().appendingPathComponent("\(name).corrupt-\(stamp)-\(UUID().uuidString.prefix(4)).json")
+        try? FileManager.default.copyItem(at: url, to: copy)
+        NSLog("[Void] %@ illisible en partie, copie mise de côté : %@", url.lastPathComponent, copy.lastPathComponent)
+    }
 }
 
 private extension KeyedDecodingContainer {
