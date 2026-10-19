@@ -327,14 +327,17 @@ final class ExtensionManager: NSObject, WKWebExtensionControllerDelegate {
             contexts.removeAll { $0 === old }
         }
         let id = previous?.id ?? chromeID.flatMap { id in installed.contains { $0.id == id } ? nil : id } ?? UUID().uuidString
+        // A new version keeps what the previous one was allowed after its install (optional
+        // permissions, sites asked for later).
+        let kept = previous?.grant.map { ExtensionGrant(permissions: grant.permissions.union($0.permissions), sites: grant.sites.union($0.sites)) } ?? grant
         do {
-            let context = try await load(folder, identifier: id, granted: grant)
+            let context = try await load(folder, identifier: id, granted: kept)
             if let previous {
                 installed.removeAll { $0.id == previous.id }
                 removeCopy(previous.path)
             }
             installed.append(InstalledExtension(id: id, path: folder.path, chromeID: chromeID,
-                                                grantedPermissions: grant.permissions.sorted(), grantedSites: grant.sites.sorted(),
+                                                grantedPermissions: kept.permissions.sorted(), grantedSites: kept.sites.sorted(),
                                                 pinned: previous?.pinned))
             // Installing switches extensions on (they would do nothing otherwise); only now, so
             // that starting doesn't load the version being replaced.

@@ -29,8 +29,9 @@ final class TabWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
 
         if !Self.internalSchemes.contains(scheme) {
-            // mailto:, tel:, an app's own scheme… → handed over to iOS, only on a user tap in the
-            // page itself, and after asking for anything but the usual system apps.
+            // mailto:, tel:, an app's own scheme… → handed over to iOS from the page itself: on a
+            // tap, at once for the usual system apps, after asking for the others; from a script,
+            // asked for the tab on screen only (ExternalURLPolicy).
             let policy = ExternalURLPolicy.decide(scheme: scheme, userClick: navigationAction.navigationType == .linkActivated,
                                                   fromMainFrame: navigationAction.sourceFrame.isMainFrame, tabShown: isShown)
             switch policy {

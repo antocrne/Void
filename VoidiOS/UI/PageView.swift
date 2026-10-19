@@ -23,7 +23,7 @@ struct PageView: View {
 
             if let tab, let error = tab.loadError {
                 ErrorOverlay(message: error, url: tab.url, certificate: tab.untrustedCertificate, proceed: {
-                    if let pending = tab.untrustedCertificate { CertificateExceptions.accept(pending) }
+                    if let pending = tab.untrustedCertificate { CertificateExceptions.accept(pending, persist: !tab.isPrivate) }
                     browser.reload()
                 }) { browser.reload() }
             }

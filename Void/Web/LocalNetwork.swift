@@ -42,19 +42,24 @@ enum CertificateExceptions {
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 
+    /// Accepted from a private window: forgotten when Void quits, never written.
+    private static var session: [String: String] = [:]
+
+    private static func accepted(_ host: String) -> String? { stored[host] ?? session[host] }
+
     /// The address shows an open lock for these hosts.
     static func isExcepted(_ host: String?) -> Bool {
         guard let host else { return false }
-        return stored[host.lowercased()] != nil
+        return accepted(host.lowercased()) != nil
     }
 
-    static func accept(_ pending: Pending) {
-        stored[pending.host.lowercased()] = pending.fingerprint
+    static func accept(_ pending: Pending, persist: Bool = true) {
+        if persist { stored[pending.host.lowercased()] = pending.fingerprint } else { session[pending.host.lowercased()] = pending.fingerprint }
     }
 
     static var hosts: [String] { stored.keys.sorted() }
 
-    static func remove(_ host: String) { stored[host] = nil }
+    static func remove(_ host: String) { stored[host] = nil; session[host] = nil }
 
     /// WebKit's question about a server's certificate. Sites on the Internet: WebKit decides, as
     /// always. A local device whose certificate fails: accepted if the user accepted that very
@@ -66,7 +71,7 @@ enum CertificateExceptions {
         }
         guard !valid else { return (.performDefaultHandling, nil) }
         guard let fingerprint = fingerprint(of: trust) else { return (.performDefaultHandling, nil) }
-        if stored[host.lowercased()] == fingerprint { return (.useCredential, URLCredential(trust: trust)) }
+        if accepted(host.lowercased()) == fingerprint { return (.useCredential, URLCredential(trust: trust)) }
         tab?.untrustedCertificate = Pending(host: host, fingerprint: fingerprint)
         return (.performDefaultHandling, nil)
     }
