@@ -193,7 +193,7 @@ struct SuggestionRow: View {
 
     private var refined: String? {
         switch suggestion.kind {
-        case .go(let url): url.absoluteString
+        case .go(let url), .typed(let url, _): url.absoluteString
         default: nil
         }
     }

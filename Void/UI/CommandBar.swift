@@ -3,6 +3,8 @@ import SwiftUI
 struct Suggestion: Identifiable {
     enum Kind {
         case go(URL)
+        /// What was typed, read as an address (`navigate`: it may fall back on HTTP or a search).
+        case typed(URL, String)
         case search(String)
         case switchTo(Tab)
         case download(DownloadItem)
@@ -18,7 +20,7 @@ struct Suggestion: Identifiable {
     /// Stable across recomputations (same target = same row), so SwiftUI keeps rows in place.
     var id: String {
         switch kind {
-        case .go(let url): "go:" + url.absoluteString
+        case .go(let url), .typed(let url, _): "go:" + url.absoluteString
         case .search(let text): "search:" + text
         case .switchTo(let tab): "tab:" + tab.id.uuidString
         case .download(let item): "download:" + item.id.uuidString
@@ -48,7 +50,7 @@ enum SuggestionEngine {
         }
 
         if let url = URLResolver.url(from: text) {
-            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: String(localized: "Ouvrir"), kind: .go(url)))
+            out.append(Suggestion(symbol: "globe", title: url.absoluteString, subtitle: String(localized: "Ouvrir"), kind: .typed(url, text)))
             seen.insert(url.absoluteString)
         }
         let engine = AppSettings.shared.searchEngine.name
@@ -109,6 +111,7 @@ extension Suggestion {
     @MainActor func perform(in browser: BrowserModel, mode: CommandBarMode) {
         switch kind {
         case .go(let url): browser.open(url, mode: mode)
+        case .typed(_, let text): browser.navigate(text, mode: mode)
         case .search(let query):
             if let url = AppSettings.shared.searchURL(for: query) { browser.open(url, mode: mode) }
         case .switchTo(let tab): browser.select(tab)

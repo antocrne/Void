@@ -13,6 +13,13 @@ enum URLResolver {
         for local in ["localhost", "127.0.0.1", "[::1]"] where lower == local || lower.hasPrefix(local + ":") || lower.hasPrefix(local + "/") {
             return URL(string: "http://" + input)
         }
+        // "nas:5000", "routeur:8080/admin": a name and a port is a device of the local network.
+        // The name needs a letter ("12:30" stays a search).
+        let nameAndPort = lower.split(separator: "/", maxSplits: 1).first.map { $0.split(separator: ":", omittingEmptySubsequences: false) } ?? []
+        if nameAndPort.count == 2, let port = Int(nameAndPort[1]), (1...65535).contains(port),
+           nameAndPort[0].contains(where: \.isLetter), nameAndPort[0].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) {
+            return URL(string: "http://" + input)
+        }
         // host[:port][/path] with a plausible TLD or an IPv4 address
         let hostPart = lower.split(whereSeparator: { $0 == "/" || $0 == "?" || $0 == "#" }).first.map(String.init) ?? lower
         // "jean@exemple.fr" is an e-mail address, looked up — not exemple.fr signed in as "jean".
@@ -25,5 +32,12 @@ enum URLResolver {
               tld.allSatisfy({ $0.isLetter || $0 == "-" }) || tld.hasPrefix("xn--"),
               labels.allSatisfy({ !$0.isEmpty }) else { return nil }
         return URL(string: "https://" + input)
+    }
+
+    /// Typed without its scheme: Void chose it ("apple.com" → https), so it may try another way
+    /// if that fails (see TypedAddressFallback).
+    static func isTypedWithoutScheme(_ rawInput: String) -> Bool {
+        let lower = rawInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !lower.contains("://") && !["about:", "data:", "view-source:"].contains { lower.hasPrefix($0) }
     }
 }

@@ -268,6 +268,9 @@ struct PasswordPromptBar: View {
 struct ErrorOverlay: View {
     let message: String
     let url: URL?
+    /// A local device whose certificate can't be checked: « Continuer vers … ».
+    var certificate: CertificateExceptions.Pending? = nil
+    var proceed: () -> Void = {}
     let retry: () -> Void
 
     var body: some View {
@@ -278,7 +281,16 @@ struct ErrorOverlay: View {
             if let host = url?.host() {
                 Text(host).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.secondaryText)
             }
-            Button("Réessayer", action: retry).keyboardShortcut("r")
+            if let certificate {
+                Text("Son certificat ne peut pas être vérifié, comme souvent pour un appareil du réseau local (box, NAS, imprimante). Ne continuez que si vous reconnaissez cet appareil.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondaryText).multilineTextAlignment(.center).frame(maxWidth: 420)
+                HStack {
+                    Button("Réessayer", action: retry).keyboardShortcut("r")
+                    Button("Continuer vers \(certificate.host)", action: proceed)
+                }
+            } else {
+                Button("Réessayer", action: retry).keyboardShortcut("r")
+            }
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

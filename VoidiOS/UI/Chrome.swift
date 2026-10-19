@@ -127,7 +127,11 @@ struct AddressPill: View {
     private func leadingSymbol(_ tab: Tab?) -> String {
         if browser.isPrivate { return "eye.slash" }
         guard let tab else { return "magnifyingglass" }
-        if tab.url?.scheme == "https" { return tab.hasOnlySecureContent ? "lock.fill" : "lock.trianglebadge.exclamationmark" }
+        if tab.url?.scheme == "https" {
+            // A local device whose certificate the user accepted: encrypted, but not checked.
+            if CertificateExceptions.isExcepted(tab.url?.host()) { return "lock.open" }
+            return tab.hasOnlySecureContent ? "lock.fill" : "lock.trianglebadge.exclamationmark"
+        }
         return tab.url == nil ? "magnifyingglass" : "globe"
     }
 }

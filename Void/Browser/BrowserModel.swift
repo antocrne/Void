@@ -501,7 +501,14 @@ final class BrowserModel {
     }
 
     func navigate(_ input: String, mode: CommandBarMode) {
-        guard let url = URLResolver.url(from: input) ?? AppSettings.shared.searchURL(for: input) else { return }
+        if let url = URLResolver.url(from: input) {
+            open(url, mode: mode)
+            if URLResolver.isTypedWithoutScheme(input) {
+                selectedTab?.typedAddress = TypedAddressFallback.Typed(text: input.trimmingCharacters(in: .whitespacesAndNewlines), url: url)
+            }
+            return
+        }
+        guard let url = AppSettings.shared.searchURL(for: input) else { return }
         open(url, mode: mode)
     }
 

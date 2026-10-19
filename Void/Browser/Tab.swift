@@ -30,6 +30,10 @@ final class Tab: Identifiable {
     var canGoBack = false
     var canGoForward = false
     var loadError: String?
+    /// A local device's certificate that couldn't be checked: its error page offers to go on.
+    var untrustedCertificate: CertificateExceptions.Pending?
+    /// The address typed without `https://` being loaded, until it commits (TypedAddressFallback).
+    @ObservationIgnored var typedAddress: TypedAddressFallback.Typed?
     /// Every resource of the page came over an encrypted connection (the lock in the address field).
     var hasOnlySecureContent = true
 
@@ -166,6 +170,8 @@ final class Tab: Identifiable {
     func load(_ url: URL) {
         self.url = url
         loadError = nil
+        untrustedCertificate = nil
+        typedAddress = nil
         reader = nil
         let wv = ensureWebView()
         wv.load(URLRequest(url: url))
@@ -238,8 +244,29 @@ final class Tab: Identifiable {
         sleep(force: true)
     }
 
+    /// The load of an address typed without `https://` failed: the same address over HTTP when
+    /// nothing answered over HTTPS, or a search when no such site exists. True when another load
+    /// takes the place of the error.
+    func recoverTypedAddress(from error: NSError) -> Bool {
+        guard let typed = typedAddress else { return false }
+        typedAddress = nil
+        switch TypedAddressFallback.decide(typed, error: error) {
+        case .http(let url):
+            load(url)
+            return true
+        case .search(let text):
+            guard let url = AppSettings.shared.searchURL(for: text) else { return false }
+            load(url)
+            browser?.showToast("magnifyingglass", "Aucun site « \(text) » : recherche lancée")
+            return true
+        case nil:
+            return false
+        }
+    }
+
     /// A navigation committed: the page now shown is the one at `url`.
     func didCommit(_ url: URL?) {
+        typedAddress = nil
         guard let url, url != self.url else { return }
         self.url = url
         ExtensionEvents.tabChanged(self, .url)

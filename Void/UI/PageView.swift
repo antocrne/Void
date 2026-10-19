@@ -71,7 +71,11 @@ private struct PageOverlays: View {
             }
 
             if let error = tab.loadError {
-                ErrorOverlay(message: error, url: tab.url) {
+                ErrorOverlay(message: error, url: tab.url, certificate: tab.untrustedCertificate, proceed: {
+                    if let pending = tab.untrustedCertificate { CertificateExceptions.accept(pending) }
+                    if browser.selectedTab !== tab { browser.select(tab) }
+                    browser.reload()
+                }) {
                     if browser.selectedTab !== tab { browser.select(tab) }
                     browser.reload()
                 }
