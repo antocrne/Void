@@ -383,6 +383,7 @@ final class FeatureSelfTest {
         "minimalist": { t, space in await t.testMinimalist(in: space) },
         "panneau-lateral": { t, space in await t.testSidePanel(in: space) },
         "claude": { t, space in await t.testClaudeExtension(in: space) },
+        "inspecteur": { t, space in await t.testDockedInspector(in: space) },
     ]
 
     /// The window as it is on screen (screencapture), next to the report.
@@ -4072,6 +4073,51 @@ extension FeatureSelfTest {
         if !wasInstalled { manager.uninstall(context) }
         browser.close(page, force: true)
         settings.extensionsEnabled = wasEnabled
+    }
+
+    /// The Web Inspector docked beside a page is still there after a trip to another tab (it came
+    /// back as an empty space).
+    fileprivate func testDockedInspector(in space: Space) async {
+        browser.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let page = await htmlTab("<title>Inspectée</title><body style='font:15px -apple-system;padding:40px'><h1>Page inspectée</h1>", in: space)
+        let other = await htmlTab("<title>Autre</title><body style='font:15px -apple-system;padding:40px'><h1>Autre onglet</h1>", in: space)
+        browser.select(page)
+        await sleep(0.5)
+        guard let webView = page.webView,
+              let object = webView.perform(NSSelectorFromString("_inspector"))?.takeUnretainedValue() as? NSObject else {
+            check("Inspecteur : page introuvable", false)
+            return
+        }
+        browser.showInspector(console: false)
+        var inspector: WKWebView?
+        for _ in 0..<40 where inspector?.window == nil { await sleep(0.25); inspector = WebKitSPI.inspectorWebView(webView) }
+        if inspector?.superview !== webView.superview {
+            object.perform(NSSelectorFromString("attach"))
+            await sleep(1.5)
+        }
+        func docked() -> (ok: Bool, detail: String) {
+            guard let inspector, let host = webView.superview else { return (false, "pas d'inspecteur ou page hors fenêtre") }
+            let ok = inspector.superview === host && inspector.window != nil && !inspector.isHidden
+                && inspector.frame.width > 50 && inspector.frame.height > 50 && !inspector.frame.intersects(webView.frame)
+                && host.bounds.contains(inspector.frame) && host.subviews.last === webView
+            return (ok, "page \(webView.frame) · inspecteur \(inspector.frame) dans \(inspector.superview === host ? "l'hôte" : String(describing: inspector.superview)) · hôte \(host.bounds)")
+        }
+        let first = docked()
+        check("Inspecteur : ancré à côté de la page", first.ok, first.detail)
+        browser.select(other)
+        await sleep(0.8)
+        check("Inspecteur : part avec sa page", inspector?.window == nil && other.webView?.superview?.subviews.last === other.webView)
+        browser.select(page)
+        await sleep(0.8)
+        let back = docked()
+        check("Inspecteur : revient avec sa page (pas de zone vide), à la même taille",
+              back.ok && back.detail == first.detail, back.detail)
+        await snapshotWindow("inspecteur")
+        object.perform(NSSelectorFromString("close"))
+        await sleep(0.5)
+        browser.close(other, force: true)
+        browser.close(page, force: true)
     }
 }
 #endif

@@ -30,11 +30,23 @@ enum WebKitSPI {
     // MARK: Web Inspector
 
     static func showInspector(_ webView: WKWebView, console: Bool) {
-        let getter = NSSelectorFromString("_inspector")
-        guard webView.responds(to: getter),
-              let inspector = webView.perform(getter)?.takeUnretainedValue() as? NSObject else { return }
+        guard let inspector = inspector(of: webView) else { return }
         let action = NSSelectorFromString(console ? "showConsole" : "show")
         if inspector.responds(to: action) { inspector.perform(action) }
+    }
+
+    /// The inspector's own web view while it is shown, docked beside the page or in its window.
+    static func inspectorWebView(_ webView: WKWebView) -> WKWebView? {
+        let getter = NSSelectorFromString("inspectorWebView")
+        guard let inspector = inspector(of: webView), boolValue(inspector, "isVisible"),
+              inspector.responds(to: getter) else { return nil }
+        return inspector.perform(getter)?.takeUnretainedValue() as? WKWebView
+    }
+
+    private static func inspector(of webView: WKWebView) -> NSObject? {
+        let getter = NSSelectorFromString("_inspector")
+        guard webView.responds(to: getter) else { return nil }
+        return webView.perform(getter)?.takeUnretainedValue() as? NSObject
     }
 
     // MARK: Closing

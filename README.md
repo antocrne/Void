@@ -1,6 +1,6 @@
 # Void
 
-**Un navigateur qui s'efface.** Version **0.2.3** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
+**Un navigateur qui s'efface.** Version **0.2.3.1** (préversion). Void est un navigateur macOS minimaliste : une page, quelques pixels de chrome autour, rien d'autre. Il s'appuie sur WebKit, le moteur de macOS — pas de Chromium, pas d'Electron.
 
 - Swift + SwiftUI, AppKit là où c'est utile (WKWebView, fenêtres, menus contextuels)
 - Une version **iPhone et iPad** partage le même modèle, le même stockage et les mêmes scripts (cible *Void iOS*, voir [iOS](#ios-iphone-et-ipad))
