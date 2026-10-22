@@ -43,6 +43,7 @@ final class WebHostView: NSView {
     private var split: (activeIsLeft: Bool, ratio: Double)?
     private weak var active: WKWebView?
     private weak var partner: WKWebView?
+    private let dockedInspectors = NSHashTable<NSView>.weakObjects()
 
     init(browser: BrowserModel) {
         self.browser = browser
@@ -133,23 +134,33 @@ final class WebHostView: NSView {
         let shown = [wanted.partner, active].compactMap { $0 }
         let background = wanted.keepAlive.filter { view in !shown.contains { $0 === view } }
         let desired: [WKWebView] = background + shown
+        // WebKit docks an inspector without telling: note those here before their pages leave.
+        for case let webView as WKWebView in subviews { _ = dockedInspector(of: webView) }
+        // Each page with its docked inspector just under it, as WebKit puts it.
+        let withInspector = { (webView: WKWebView) in [self.dockedInspector(of: webView), webView].compactMap { $0 } }
+        let views = desired.flatMap(withInspector)
 
-        for sub in subviews where !desired.contains(where: { $0 === sub }) {
+        for sub in subviews where !views.contains(where: { $0 === sub }) {
             sub.removeFromSuperview()
         }
-        for webView in desired where webView.superview !== self {
-            webView.removeFromSuperview()
-            webView.frame = bounds
-            webView.autoresizingMask = [.width, .height]
-            addSubview(webView)
+        for webView in desired {
+            if webView.superview !== self {
+                webView.removeFromSuperview()
+                webView.frame = bounds
+                webView.autoresizingMask = [.width, .height]
+                addSubview(webView)
+            }
+            // After its page: WebKit sizes the inspector from the page's superview as it arrives.
+            if let inspector = dockedInspector(of: webView), inspector.superview !== self {
+                addSubview(inspector, positioned: .below, relativeTo: webView)
+            }
         }
         // The shown views must be on top (the active one last); don't reorder otherwise.
-        if let partner = wanted.partner, !subviews.suffix(active == nil ? 1 : 2).contains(where: { $0 === partner }) {
-            addSubview(partner, positioned: .above, relativeTo: nil)
+        let top = shown.flatMap(withInspector)
+        if !subviews.suffix(top.count).elementsEqual(top, by: ===) {
+            for view in top { addSubview(view, positioned: .above, relativeTo: nil) }
         }
-        if let active, subviews.last !== active {
-            addSubview(active, positioned: .above, relativeTo: nil)
-        }
+        // A page with a docked inspector: WebKit lays out both from the page's new frame.
         for webView in desired { webView.frame = frame(for: webView) }
 
         if active !== currentActive {
@@ -169,9 +180,22 @@ final class WebHostView: NSView {
         return bounds
     }
 
+    /// A docked Web Inspector's view: WebKit puts it beside the page's, in this view, and lays
+    /// both out. It leaves and comes back with its page; without it, the page came back with an
+    /// empty space where the inspector was.
+    private func dockedInspector(of webView: WKWebView) -> WKWebView? {
+        guard let inspector = WebKitSPI.inspectorWebView(webView) else { return nil }
+        if inspector.superview === self {
+            dockedInspectors.add(inspector)
+        } else if inspector.superview != nil {
+            dockedInspectors.remove(inspector)  // In its own window.
+        }
+        return dockedInspectors.contains(inspector) ? inspector : nil
+    }
+
     override func layout() {
         super.layout()
-        subviews.forEach { $0.frame = frame(for: $0) }
+        subviews.forEach { if !dockedInspectors.contains($0) { $0.frame = frame(for: $0) } }
     }
 }
 
